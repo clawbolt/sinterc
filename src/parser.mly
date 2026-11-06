@@ -1,0 +1,119 @@
+%{
+open Ast
+
+let p (pos : Lexing.position) = { line = pos.pos_lnum; col = pos.pos_cnum - pos.pos_bol + 1 }
+let mk e pos = { e; pos = p pos }
+let mks s pos = { s; spos = p pos }
+
+(* 没有分号：块的最后一条若是表达式语句，就是块的值。 *)
+let mk_block ss =
+  match List.rev ss with
+  | { s = Expr e; _ } :: rest -> { stmts = List.rev rest; tail = Some e }
+  | _ -> { stmts = ss; tail = None }
+
+let ty_of_name = function
+  | "I64" -> TI64
+  | "Bool" -> TBool
+  | n -> TStruct n
+%}
+
+%token <int64> INT
+%token <string> IDENT UIDENT
+%token FN STRUCT LET IF ELSE WHILE RETURN TRUE FALSE
+%token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ
+%token PLUS MINUS STAR SLASH PERCENT BANG
+%token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
+
+%left OROR
+%left ANDAND
+%nonassoc EQEQ NE LT LE GT GE
+%left PLUS MINUS
+%left STAR SLASH PERCENT
+%nonassoc UNARY
+%left DOT
+
+%start <Ast.program> program
+%%
+
+program:
+  | nls is = items EOF { is }
+
+items:
+  | { [] }
+  | i = item nls is = items { i :: is }
+
+nls:
+  | { () }
+  | NL nls { () }
+
+item:
+  | STRUCT n = UIDENT LBRACE nls fs = fields RBRACE
+    { Struct { name = n; fields = fs; ipos = p $startpos } }
+  | FN n = IDENT LPAREN ps = separated_list(COMMA, param) RPAREN r = ret b = block
+    { Fn { name = n; params = ps; ret = r; body = b; ipos = p $startpos } }
+
+fields:
+  | { [] }
+  | f = field nls { [f] }
+  | f = field COMMA nls fs = fields { f :: fs }
+
+field:
+  | n = IDENT COLON t = ty { { fname = n; fty = t } }
+
+param:
+  | n = IDENT COLON t = ty { (n, t) }
+
+ty:
+  | n = UIDENT { ty_of_name n }
+  | LPAREN RPAREN { TUnit }
+
+ret:
+  | { TUnit }
+  | ARROW t = ty { t }
+
+block:
+  | LBRACE nls ss = stmts RBRACE { mk_block ss }
+
+stmts:
+  | { [] }
+  | s = stmt { [s] }
+  | s = stmt NL nls ss = stmts { s :: ss }
+
+stmt:
+  | LET x = IDENT t = option(preceded(COLON, ty)) EQ e = expr { mks (Let (x, t, e)) $startpos }
+  | x = IDENT EQ e = expr { mks (Assign (x, e)) $startpos }
+  | WHILE c = expr b = block { mks (While (c, b)) $startpos }
+  | RETURN e = option(expr) { mks (Return e) $startpos }
+  | e = expr { mks (Expr e) $startpos }
+
+expr:
+  | n = INT { mk (Int n) $startpos }
+  | TRUE { mk (Bool true) $startpos }
+  | FALSE { mk (Bool false) $startpos }
+  | LPAREN RPAREN { mk Unit $startpos }
+  | x = IDENT { mk (Var x) $startpos }
+  | LPAREN e = expr RPAREN { e }
+  | f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN { mk (Call (f, args)) $startpos }
+  | n = UIDENT LBRACE nls fs = inits RBRACE { mk (StructLit (n, fs)) $startpos }
+  | e = expr DOT f = IDENT { mk (Field (e, f)) $startpos }
+  | a = expr o = binop b = expr { mk (Binop (o, a, b)) $startpos }
+  | MINUS e = expr %prec UNARY { mk (Unop (Neg, e)) $startpos }
+  | BANG e = expr %prec UNARY { mk (Unop (Not, e)) $startpos }
+  | i = if_expr { i }
+  | b = block { mk (Block b) $startpos }
+
+if_expr:
+  | IF c = expr b = block { mk (If (c, b, None)) $startpos }
+  | IF c = expr b = block ELSE e = block { mk (If (c, b, Some e)) $startpos }
+  | IF c = expr b = block ELSE i = if_expr
+    { mk (If (c, b, Some { stmts = []; tail = Some i })) $startpos }
+
+inits:
+  | { [] }
+  | x = IDENT COLON e = expr nls { [(x, e)] }
+  | x = IDENT COLON e = expr COMMA nls fs = inits { (x, e) :: fs }
+
+%inline binop:
+  | PLUS { Add } | MINUS { Sub } | STAR { Mul } | SLASH { Div } | PERCENT { Rem }
+  | EQEQ { Eq } | NE { Ne } | LT { Lt } | LE { Le } | GT { Gt } | GE { Ge }
+  | ANDAND { And } | OROR { Or }
