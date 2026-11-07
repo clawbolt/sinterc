@@ -14,8 +14,8 @@ type env = {
   vars : (string * ty) list;         (* 局部变量，内层在前 *)
 }
 
-(* if-else 和块表达式的类型，按位置记录，给代码生成用。 *)
-let types : (pos, t) Hashtbl.t = Hashtbl.create 64
+(* 每个表达式的类型，按表达式 id 记录。 *)
+let types : (int, t) Hashtbl.t = Hashtbl.create 256
 
 let builtins = [ "print_i64", ([ TI64 ], TUnit); "print_bool", ([ TBool ], TUnit) ]
 
@@ -38,7 +38,13 @@ let check_ty env pos = function
   | TStruct n when not (Hashtbl.mem env.structs n) -> err pos "未知类型 %s" n
   | _ -> ()
 
+(* 每个表达式的类型按 id 记下来，给降级用。 *)
 let rec expr env (x : expr) : t =
+  let t = expr1 env x in
+  Hashtbl.replace types x.id t;
+  t
+
+and expr1 env (x : expr) : t =
   let pos = x.pos in
   match x.e with
   | Int _ -> Ty TI64
@@ -49,7 +55,8 @@ let rec expr env (x : expr) : t =
       | Some t -> Ty t
       | None -> err pos "未定义的变量 %s" v)
   | Binop (op, a, b) -> (
-      let ta = expr env a and tb = expr env b in
+      let ta = expr env a in
+      let tb = expr env b in
       match op with
       | Add | Sub | Mul | Div | Rem ->
           expect a.pos TI64 ta; expect b.pos TI64 tb; Ty TI64
@@ -110,13 +117,8 @@ let rec expr env (x : expr) : t =
       Ty TUnit
   | If (c, a, Some b) ->
       expect c.pos TBool (expr env c);
-      let r = join pos (block env a) (block env b) in
-      Hashtbl.replace types pos r;
-      r
-  | Block b ->
-      let r = block env b in
-      Hashtbl.replace types pos r;
-      r
+      join pos (block env a) (block env b)
+  | Block b -> block env b
 
 and block env (b : block) : t =
   let rec go env = function

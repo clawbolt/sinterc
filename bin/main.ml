@@ -28,7 +28,7 @@ let () =
   in
   close_in ic;
   (try Typeck.program prog with Typeck.Error (pos, msg) -> fail file pos msg);
-  let c = Emit_c.program prog in
+  let c = Emit_c.program prog (Mir.lower prog) in
   match out with
   | None -> print_string c
   | Some o ->

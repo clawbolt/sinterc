@@ -15,7 +15,7 @@ type binop =
 
 type unop = Neg | Not
 
-type expr = { e : expr_desc; pos : pos }
+type expr = { e : expr_desc; pos : pos; id : int }   (* id：每个表达式唯一 *)
 
 and expr_desc =
   | Int of int64

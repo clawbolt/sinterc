@@ -2,7 +2,8 @@
 open Ast
 
 let p (pos : Lexing.position) = { line = pos.pos_lnum; col = pos.pos_cnum - pos.pos_bol + 1 }
-let mk e pos = { e; pos = p pos }
+let next_id = ref 0
+let mk e pos = incr next_id; { e; pos = p pos; id = !next_id }
 let mks s pos = { s; spos = p pos }
 
 (* 没有分号：块的最后一条若是表达式语句，就是块的值。 *)

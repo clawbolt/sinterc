@@ -1,5 +1,5 @@
-(* C0 的 C 后端。块和 if 用 GCC/Clang 的语句表达式 `({ ... })`；
-   求值顺序一律从左到右：有副作用的操作数先存进临时变量（C 本身不规定参数的求值顺序）。 *)
+(* C 后端：从 MIR 生成 C。每个基本块是一个标签，块之间用 goto 跳转；
+   MIR 已经按从左到右的顺序把操作数存进了局部变量，这里不需要再处理求值顺序。 *)
 open Ast
 
 let prelude = {|#include <stdint.h>
@@ -24,125 +24,6 @@ let cty = function
   | TUnit -> "void"
   | TStruct n -> "S_" ^ n
 
-let counter = ref 0
-let fresh base = incr counter; Printf.sprintf "%s_%d" base !counter
-
-(* 没有副作用、也不会 panic 的表达式，可以直接嵌进 C 表达式。 *)
-let rec pure (x : expr) =
-  match x.e with
-  | Int _ | Bool _ | Unit | Var _ -> true
-  | Field (a, _) -> pure a
-  | _ -> false
-
-let rec expr env (x : expr) : string =
-  match x.e with
-  | Int n -> Printf.sprintf "INT64_C(%Ld)" n
-  | Bool b -> if b then "true" else "false"
-  | Unit -> "((void)0)"
-  | Var v -> List.assoc v env
-  | Binop (And, a, b) -> Printf.sprintf "(%s && %s)" (expr env a) (expr env b)
-  | Binop (Or, a, b) -> Printf.sprintf "(%s || %s)" (expr env a) (expr env b)
-  | Binop (op, a, b) ->
-      let apply l r =
-        match op with
-        | Add -> Printf.sprintf "sn_add(%s, %s)" l r
-        | Sub -> Printf.sprintf "sn_sub(%s, %s)" l r
-        | Mul -> Printf.sprintf "sn_mul(%s, %s)" l r
-        | Div -> Printf.sprintf "sn_div(%s, %s)" l r
-        | Rem -> Printf.sprintf "sn_rem(%s, %s)" l r
-        | Eq -> Printf.sprintf "(%s == %s)" l r
-        | Ne -> Printf.sprintf "(%s != %s)" l r
-        | Lt -> Printf.sprintf "(%s < %s)" l r
-        | Le -> Printf.sprintf "(%s <= %s)" l r
-        | Gt -> Printf.sprintf "(%s > %s)" l r
-        | Ge -> Printf.sprintf "(%s >= %s)" l r
-        | And | Or -> assert false
-      in
-      in_order env [ a; b ] (function [ l; r ] -> apply l r | _ -> assert false)
-  | Unop (Neg, a) -> Printf.sprintf "sn_neg(%s)" (expr env a)
-  | Unop (Not, a) -> Printf.sprintf "(!%s)" (expr env a)
-  | Call (f, args) ->
-      in_order env args (fun xs -> Printf.sprintf "u_%s(%s)" f (String.concat ", " xs))
-  | StructLit (n, inits) ->
-      in_order env (List.map snd inits) (fun xs ->
-          let fs = List.map2 (fun (f, _) v -> Printf.sprintf ".f_%s = %s" f v) inits xs in
-          Printf.sprintf "((S_%s){ %s })" n (String.concat ", " fs))
-  | Field (a, f) -> Printf.sprintf "(%s).f_%s" (expr env a) f
-  | If (c, a, None) ->
-      Printf.sprintf "({ if (%s) %s ((void)0); })" (expr env c) (block_stmt env a)
-  | If (c, a, Some b) -> (
-      match Hashtbl.find_opt Typeck.types x.pos with
-      | Some (Typeck.Ty t) when t <> TUnit ->
-          let tmp = fresh "t" in
-          Printf.sprintf "({ %s %s; if (%s) %s else %s %s; })" (cty t) tmp (expr env c)
-            (block_into env tmp a) (block_into env tmp b) tmp
-      | _ ->
-          Printf.sprintf "({ if (%s) %s else %s ((void)0); })" (expr env c)
-            (block_stmt env a) (block_stmt env b))
-  | Block b -> (
-      let body, tail = stmts env b in
-      match tail with
-      | Some t -> Printf.sprintf "({ %s%s; })" body t
-      | None -> Printf.sprintf "({ %s((void)0); })" body)
-
-(* 按从左到右的顺序求值：不纯的操作数先存进临时变量。 *)
-and in_order env (xs : expr list) (k : string list -> string) : string =
-  if List.for_all pure xs then k (List.map (expr env) xs)
-  else
-    let decls, names =
-      List.split
-        (List.map
-           (fun x ->
-             if pure x then ("", expr env x)
-             else
-               let t = fresh "a" in
-               (Printf.sprintf "__auto_type %s = %s; " t (expr env x), t))
-           xs)
-    in
-    Printf.sprintf "({ %s%s; })" (String.concat "" decls) (k names)
-
-(* 块里的语句，返回（语句文本，尾表达式文本）；`let` 依次扩展环境。 *)
-and stmts env (b : block) : string * string option =
-  let buf = Buffer.create 64 in
-  let rec go env = function
-    | [] -> Option.map (expr env) b.tail
-    | (s : stmt) :: rest -> (
-        match s.s with
-        | Let (v, _, e) ->
-            let cv = fresh ("v_" ^ v) in
-            Buffer.add_string buf (Printf.sprintf "__auto_type %s = %s; " cv (expr env e));
-            go ((v, cv) :: env) rest
-        | Assign (v, e) ->
-            Buffer.add_string buf (Printf.sprintf "%s = %s; " (List.assoc v env) (expr env e));
-            go env rest
-        | While (c, body) ->
-            Buffer.add_string buf (Printf.sprintf "while (%s) %s " (expr env c) (block_stmt env body));
-            go env rest
-        | Return None -> Buffer.add_string buf "return; "; go env rest
-        | Return (Some e) ->
-            Buffer.add_string buf (Printf.sprintf "return %s; " (expr env e));
-            go env rest
-        | Expr e ->
-            Buffer.add_string buf (Printf.sprintf "%s; " (expr env e));
-            go env rest)
-  in
-  let tail = go env b.stmts in
-  (Buffer.contents buf, tail)
-
-(* 块作为 C 语句：尾表达式只求值、丢掉结果。 *)
-and block_stmt env b =
-  let body, tail = stmts env b in
-  match tail with
-  | Some t -> Printf.sprintf "{ %s%s; }" body t
-  | None -> Printf.sprintf "{ %s}" body
-
-(* 块的值写进临时变量 `tmp`；块以 return 结束时没有尾表达式。 *)
-and block_into env tmp b =
-  let body, tail = stmts env b in
-  match tail with
-  | Some t -> Printf.sprintf "{ %s%s = %s; }" body tmp t
-  | None -> Printf.sprintf "{ %s}" body
-
 (* 结构体按依赖顺序输出：按值包含的结构体先定义（类型检查已经排除了成环）。 *)
 let struct_order (p : program) =
   let defs = List.filter_map (function Struct s -> Some (s.name, s.fields) | _ -> None) p in
@@ -158,45 +39,100 @@ let struct_order (p : program) =
   List.iter (fun (n, _) -> visit n) defs;
   List.rev !out
 
-let program (p : program) : string =
-  counter := 0;
-  let b = Buffer.create 1024 in
+(* ---------- 从 MIR 生成 ---------- *)
+
+let place (p : Mir.place) =
+  List.fold_left (fun s f -> Printf.sprintf "%s.f_%s" s f) (Printf.sprintf "l%d" p.base) p.proj
+
+let operand = function
+  | Mir.Const (Mir.CInt n) -> Printf.sprintf "INT64_C(%Ld)" n
+  | Mir.Const (Mir.CBool b) -> if b then "true" else "false"
+  | Mir.Copy p -> place p
+
+let rvalue = function
+  | Mir.Use o -> operand o
+  | Mir.Bin (op, a, b) -> (
+      let a = operand a and b = operand b in
+      let f name = Printf.sprintf "sn_%s(%s, %s)" name a b in
+      let c sym = Printf.sprintf "(%s %s %s)" a sym b in
+      match op with
+      | Add -> f "add" | Sub -> f "sub" | Mul -> f "mul" | Div -> f "div" | Rem -> f "rem"
+      | Eq -> c "==" | Ne -> c "!=" | Lt -> c "<" | Le -> c "<=" | Gt -> c ">" | Ge -> c ">="
+      | And -> c "&&" | Or -> c "||")
+  | Mir.Un (Neg, a) -> Printf.sprintf "sn_neg(%s)" (operand a)
+  | Mir.Un (Not, a) -> Printf.sprintf "(!%s)" (operand a)
+  | Mir.Call (f, args) -> Printf.sprintf "u_%s(%s)" f (String.concat ", " (List.map operand args))
+  | Mir.Agg (n, fs) ->
+      let fs = List.map (fun (f, o) -> Printf.sprintf ".f_%s = %s" f (operand o)) fs in
+      Printf.sprintf "((S_%s){ %s })" n (String.concat ", " fs)
+
+(* 从入口能走到的块；走不到的块（return 之后的死代码）不输出。 *)
+let reachable (f : Mir.func) =
+  let seen = Array.make (Array.length f.blocks) false in
+  let rec go i =
+    if not seen.(i) then begin
+      seen.(i) <- true;
+      match f.blocks.(i).term with
+      | Mir.Goto j -> go j
+      | Mir.Branch (_, a, b) -> go a; go b
+      | Mir.Return | Mir.Unterminated -> ()
+    end
+  in
+  go 0;
+  seen
+
+let signature (f : Mir.func) =
+  let ps =
+    if f.params = [] then "void"
+    else
+      String.concat ", "
+        (List.map (fun l -> Printf.sprintf "%s l%d" (cty f.locals.(l).lty) l) f.params)
+  in
+  Printf.sprintf "static %s u_%s(%s)" (cty f.ret) f.name ps
+
+let func b (f : Mir.func) =
+  let add s = Buffer.add_string b s in
+  add (signature f ^ " {\n");
+  Array.iteri
+    (fun i (l : Mir.local_info) ->
+      if not (List.mem i f.params) then
+        add (Printf.sprintf "  %s l%d;%s\n" (cty l.lty) i
+               (if l.lname = "" then "" else Printf.sprintf "  /* %s */" l.lname)))
+    f.locals;
+  let seen = reachable f in
+  Array.iteri
+    (fun i (blk : Mir.block) ->
+      if seen.(i) then begin
+        add (Printf.sprintf "bb%d: ;\n" i);
+        List.iter
+          (function
+            | Mir.Assign (p, rv) -> add (Printf.sprintf "  %s = %s;\n" (place p) (rvalue rv))
+            | Mir.Eval rv -> add (Printf.sprintf "  %s;\n" (rvalue rv)))
+          blk.stmts;
+        match blk.term with
+        | Mir.Goto j -> add (Printf.sprintf "  goto bb%d;\n" j)
+        | Mir.Branch (o, a, c) ->
+            add (Printf.sprintf "  if (%s) goto bb%d; else goto bb%d;\n" (operand o) a c)
+        | Mir.Return | Mir.Unterminated -> (
+            match f.ret_local with
+            | Some r -> add (Printf.sprintf "  return l%d;\n" r)
+            | None -> add "  return;\n")
+      end)
+    f.blocks;
+  add "}\n"
+
+let program (p : program) (fs : Mir.func list) : string =
+  let b = Buffer.create 4096 in
   let add s = Buffer.add_string b s in
   add prelude;
   add "\n";
-  List.iter (fun (n, fs) ->
+  List.iter
+    (fun (n, fs) ->
       add (Printf.sprintf "typedef struct S_%s {" n);
       List.iter (fun (f : field) -> add (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname)) fs;
       add (Printf.sprintf " } S_%s;\n" n))
     (struct_order p);
-  let sig_of name params ret =
-    let ps =
-      if params = [] then "void"
-      else String.concat ", " (List.map (fun (x, t) -> Printf.sprintf "%s v_%s" (cty t) x) params)
-    in
-    Printf.sprintf "static %s u_%s(%s)" (cty ret) name ps
-  in
-  List.iter (function
-      | Fn { name; params; ret; _ } -> add (sig_of name params ret ^ ";\n")
-      | Struct _ -> ())
-    p;
-  List.iter (function
-      | Fn { name; params; ret; body; _ } ->
-          let env = List.map (fun (x, _) -> (x, "v_" ^ x)) params in
-          let s, tail = stmts env body in
-          let tail_text =
-            match tail, body.tail with
-            | Some t, Some te ->
-                let never =
-                  match te.e with
-                  | If _ | Block _ -> Hashtbl.find_opt Typeck.types te.pos = Some Typeck.Never
-                  | _ -> false
-                in
-                if ret = TUnit || never then t ^ "; " else Printf.sprintf "return %s; " t
-            | _ -> ""
-          in
-          add (Printf.sprintf "%s {\n  %s%s\n}\n" (sig_of name params ret) s tail_text)
-      | Struct _ -> ())
-    p;
+  List.iter (fun f -> add (signature f ^ ";\n")) fs;
+  List.iter (func b) fs;
   add "int main(void) { u_main(); return 0; }\n";
   Buffer.contents b
