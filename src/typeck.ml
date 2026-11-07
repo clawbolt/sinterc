@@ -31,6 +31,17 @@ let sigs : (string, (mode * ty) list * ty) Hashtbl.t = Hashtbl.create 16
 let struct_tbl : (string, field list) Hashtbl.t = Hashtbl.create 16
 let linear_tbl : (string, unit) Hashtbl.t = Hashtbl.create 16
 
+(* 枚举定义：变体按声明顺序，下标就是运行时的标签（Lean M8）。 *)
+let enum_tbl : (string, (string * ty option) list) Hashtbl.t = Hashtbl.create 16
+
+(* 变体的下标和载荷类型。 *)
+let variant n v =
+  let rec go i = function
+    | [] -> None
+    | (w, t) :: rest -> if w = v then Some (i, t) else go (i + 1) rest
+  in
+  go 0 (Hashtbl.find enum_tbl n)
+
 (* linear 值必须被显式消费，不能在作用域结束时自动析构。 *)
 let rec is_linear = function
   | TStruct n -> Hashtbl.mem linear_tbl n
@@ -46,7 +57,11 @@ let rec needs_drop = function
       ||
       match Hashtbl.find_opt struct_tbl n with
       | Some fs -> List.exists (fun (f : field) -> needs_drop f.fty) fs
-      | None -> false)
+      | None -> (
+          (* 枚举：某个变体的载荷需要析构 *)
+          match Hashtbl.find_opt enum_tbl n with
+          | Some vs -> List.exists (function _, Some t -> needs_drop t | _, None -> false) vs
+          | None -> false))
   | TResult (a, b) -> needs_drop a || needs_drop b
   | TI64 | TBool | TUnit | TRef _ | TArena _ -> false
 
@@ -122,7 +137,7 @@ let expect pos want got =
 
 (* param：函数参数的类型，可以是 Arena。 *)
 let rec check_ty ?(param = false) env pos = function
-  | TStruct n when not (Hashtbl.mem env.structs n) -> err pos "未知类型 %s" n
+  | TStruct n when not (Hashtbl.mem env.structs n || Hashtbl.mem enum_tbl n) -> err pos "未知类型 %s" n
   | TBox TUnit -> err pos "Box 里不能放 ()"
   | TBox t ->
       if is_linear t then err pos "Box 里不能放 linear 值（还不能从 Box 里移出）";
@@ -157,6 +172,18 @@ and check1 env want (x : expr) : t =
           Ty want
       | _ ->
           err x.pos "这里需要 %s，%s(…) 是 Result" (string_of_ty want) (if ok then "Ok" else "Err"))
+  | Variant (v, a) -> (
+      match want with
+      | TStruct n when Hashtbl.mem enum_tbl n -> (
+          match variant n v, a with
+          | None, _ -> err x.pos "枚举 %s 没有变体 %s" n v
+          | Some (_, Some t), Some a ->
+              ignore (check env t a);
+              Ty want
+          | Some (_, None), None -> Ty want
+          | Some (_, Some t), None -> err x.pos ".%s 带一个 %s 类型的载荷，要写 .%s(…)" v (string_of_ty t) v
+          | Some (_, None), Some _ -> err x.pos ".%s 没有载荷，不能写 .%s(…)" v v)
+      | _ -> err x.pos "这里需要 %s，.%s 是枚举的变体" (string_of_ty want) v)
   | If (c, a, Some b) ->
       expect c.pos TBool (expr env c);
       expect x.pos want (block env ~want a);
@@ -289,6 +316,7 @@ and expr1 env (x : expr) : t =
       Ty (TStruct n)
   | Field (a, f) -> (
       match expr env a with
+      | Ty (TStruct n) when Hashtbl.mem enum_tbl n -> err pos "%s 是枚举，不能取字段 %s（用 match）" n f
       | Ty (TStruct n) -> (
           let fs = Hashtbl.find env.structs n in
           match List.find_opt (fun (g : field) -> g.fname = f) fs with
@@ -307,6 +335,8 @@ and expr1 env (x : expr) : t =
   | ResLit (ok, _) ->
       err pos "无法确定 %s(…) 的类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方"
         (if ok then "Ok" else "Err")
+  | Variant (v, _) ->
+      err pos "无法确定 .%s 的类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方" v
   | Try a -> (
       match expr env a with
       | Never -> Never
@@ -337,12 +367,13 @@ and arena env want pos r (b : block) : t =
   t
 
 and match_ env want pos (s : expr) arms : t =
-  let t, e =
-    match expr env s with
-    | Ty (TResult (t, e)) -> (t, e)
-    | Never -> err s.pos "不能 match 一个不会返回的值"
-    | Ty t -> err s.pos "%s 不是 Result，不能 match" (string_of_ty t)
-  in
+  match expr env s with
+  | Ty (TResult (t, e)) -> result_match env want pos t e arms
+  | Ty (TStruct n) when Hashtbl.mem enum_tbl n -> enum_match env want pos n arms
+  | Never -> err s.pos "不能 match 一个不会返回的值"
+  | Ty t -> err s.pos "%s 不是 Result 或枚举，不能 match" (string_of_ty t)
+
+and result_match env want pos t e arms : t =
   List.iter
     (fun (n, _, _) -> if n <> "Ok" && n <> "Err" then err pos "match 的分支只能是 Ok 和 Err，不能是 %s" n)
     arms;
@@ -352,7 +383,8 @@ and match_ env want pos (s : expr) arms : t =
     | [] -> err pos "match 缺少 %s 分支" n
     | _ -> err pos "match 有两个 %s 分支" n
   in
-  let bind (_, x, (a : expr)) ty =
+  let bind (n, x, (a : expr)) ty =
+    if x = "" then err a.pos "%s 分支要写 %s(x)" n n;
     if ty = TUnit then begin
       if x <> "_" then err a.pos "这个分支的值是 ()，绑定名请写 _（而不是 %s）" x;
       env
@@ -367,6 +399,36 @@ and match_ env want pos (s : expr) arms : t =
       ignore (check eb w ae);
       Ty w
   | None -> join pos "match " (expr ea ao) (expr eb ae)
+
+(* 枚举的 match（Lean M8（一））：必须穷尽，每个变体恰好一个分支；带载荷的变体绑定载荷。 *)
+and enum_match env want pos n arms : t =
+  let vs = Hashtbl.find enum_tbl n in
+  List.iter
+    (fun (v, _, (a : expr)) -> if not (List.mem_assoc v vs) then err a.pos "枚举 %s 没有变体 %s" n v)
+    arms;
+  let bodies =
+    List.map
+      (fun (v, pty) ->
+        match List.filter (fun (w, _, _) -> w = v) arms with
+        | [ (_, x, (a : expr)) ] -> (
+            match pty with
+            | Some t ->
+                if x = "" then err a.pos ".%s 带载荷，分支要写 .%s(x) 或 .%s(_)" v v v;
+                ({ env with vars = (x, (t, false)) :: env.vars }, a)
+            | None ->
+                if x <> "" then err a.pos ".%s 没有载荷，分支要写 .%s => …" v v;
+                (env, a))
+        | [] -> err pos "match 没有覆盖 .%s（枚举的 match 必须穷尽）" v
+        | _ -> err pos "match 有两个 .%s 分支" v)
+      vs
+  in
+  match want, bodies with
+  | Some w, _ ->
+      List.iter (fun (env', a) -> ignore (check env' w a)) bodies;
+      Ty w
+  | None, (env', a) :: rest ->
+      List.fold_left (fun acc (env', a) -> join pos "match " acc (expr env' a)) (expr env' a) rest
+  | None, [] -> err pos "空枚举不能 match"
 
 (* want：块的值的期望类型（块最后的表达式按它检查）。 *)
 and block ?want env (b : block) : t =
@@ -458,16 +520,26 @@ and errdefer env pos (e : expr) =
       | _ -> err pos "errdefer 的调用必须以 sink 方式传入恰好一个 linear 变量（出错时由它消费）")
   | _ -> err pos "errdefer 后面必须是一个函数调用"
 
-(* 整个程序的准备：结构体、函数签名、结构体字段。返回检查函数体用的环境。 *)
+(* 整个程序的准备：结构体、枚举、函数签名、字段和载荷。返回检查函数体用的环境。 *)
 let prepare (p : program) =
   let structs = Hashtbl.create 16 and fns = Hashtbl.create 16 in
   Hashtbl.reset linear_tbl;
+  Hashtbl.reset enum_tbl;
   List.iter
     (function
       | Struct { name; fields; linear; ipos } ->
-          if Hashtbl.mem structs name then err ipos "结构体 %s 重复定义" name;
+          if Hashtbl.mem structs name || Hashtbl.mem enum_tbl name then err ipos "类型 %s 重复定义" name;
           Hashtbl.add structs name fields;
           if linear then Hashtbl.replace linear_tbl name ()
+      | Enum { name; variants; ipos } ->
+          if Hashtbl.mem structs name || Hashtbl.mem enum_tbl name then err ipos "类型 %s 重复定义" name;
+          if variants = [] then err ipos "枚举 %s 至少要有一个变体" name;
+          List.iteri
+            (fun i (v, _) ->
+              if List.exists (fun (w, _) -> w = v) (List.filteri (fun j _ -> j < i) variants) then
+                err ipos "枚举 %s 的变体 %s 重复" name v)
+            variants;
+          Hashtbl.add enum_tbl name variants
       | Fn { name; params; ret; ipos; _ } ->
           if Hashtbl.mem fns name || List.mem_assoc name builtins || List.mem name special then
             err ipos "函数 %s 重复定义" name;
@@ -476,22 +548,25 @@ let prepare (p : program) =
   Hashtbl.reset sigs;
   Hashtbl.iter (Hashtbl.replace sigs) fns;
   List.iter (fun (f, s) -> Hashtbl.replace sigs f s) builtins;
-  (* 结构体不能包含自己，经过 Box 也不行（还没有 Option，这样的值造不出来）。 *)
+  (* 结构体、枚举不能包含自己，经过 Box 也不行（递归类型的析构还没有证明）。 *)
   let rec visit path n =
     if List.mem n path then
-      err { line = 1; col = 1 } "结构体 %s 包含自己（还不支持递归类型）" n;
+      err { line = 1; col = 1 } "类型 %s 包含自己（还不支持递归类型）" n;
+    let rec inner = function
+      | TStruct m -> visit (n :: path) m
+      | TBox t -> inner t
+      | TResult (a, b) -> inner a; inner b
+      | _ -> ()
+    in
     match Hashtbl.find_opt structs n with
-    | Some fs ->
-        let rec inner = function
-          | TStruct m -> visit (n :: path) m
-          | TBox t -> inner t
-          | TResult (a, b) -> inner a; inner b
-          | _ -> ()
-        in
-        List.iter (fun (f : field) -> inner f.fty) fs
-    | None -> ()
+    | Some fs -> List.iter (fun (f : field) -> inner f.fty) fs
+    | None -> (
+        match Hashtbl.find_opt enum_tbl n with
+        | Some vs -> List.iter (fun (_, t) -> Option.iter inner t) vs
+        | None -> ())
   in
   Hashtbl.iter (fun n _ -> visit [] n) structs;
+  Hashtbl.iter (fun n _ -> visit [] n) enum_tbl;
   Hashtbl.reset struct_tbl;
   Hashtbl.iter (Hashtbl.replace struct_tbl) structs;
   let env0 = { structs; fns; ret = TUnit; vars = []; guards = [] } in
@@ -507,6 +582,18 @@ let prepare (p : program) =
               if is_linear f.fty && not linear then
                 err ipos "%s 的字段 %s 是 linear 的，%s 也必须标 linear" name f.fname name)
             fields
+      | Enum { name; variants; ipos } ->
+          List.iter
+            (fun (v, t) ->
+              match t with
+              | None -> ()
+              | Some t ->
+                  if region_names t <> [] then
+                    err ipos "%s 的变体 %s 的载荷不能含引用或区域（区域类型还没有实现）" name v;
+                  check_ty env0 ipos t;
+                  if t = TUnit then err ipos "%s 的变体 %s：没有载荷请直接写 %s" name v v;
+                  if is_linear t then err ipos "%s 的变体 %s：载荷暂不能是 linear 值" name v)
+            variants
       | Fn _ -> ())
     p;
   env0
@@ -531,7 +618,7 @@ let check_fn env0 = function
       let env = { env0 with ret; vars } in
       expect ipos ret (block env ~want:ret body);
       regions := []
-  | Struct _ -> ()
+  | Struct _ | Enum _ -> ()
 
 let check_main env0 =
   match Hashtbl.find_opt env0.fns "main" with

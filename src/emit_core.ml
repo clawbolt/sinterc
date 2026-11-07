@@ -42,7 +42,8 @@ let operands = function
   | Bin (_, a, b) -> [ a; b ]
   | Call (_, os) -> os
   | Agg (_, fs) -> List.map snd fs
-  | MkRes (_, _, o) -> Option.to_list o
+  | MkRes (_, _, o) | MkEnum (_, _, o) -> Option.to_list o
+  | Payload (o, _) | TagIs (o, _) -> [ o ]
 
 (* 一个函数导出成 (变量个数, 节点列表)；节点是 (操作, 后继, 是否出错出口)。 *)
 let func (f : func) =

@@ -6,7 +6,7 @@ type ty =
   | TI64
   | TBool
   | TUnit
-  | TStruct of string
+  | TStruct of string   (* 用户定义的结构体或枚举，按名字区分 *)
   | TBox of ty          (* 拥有一块堆内存 *)
   | TResult of ty * ty  (* 内建的 Result<T, E> *)
   | TRef of ty * string (* &T in a：区域 a 里的只读引用 *)
@@ -34,7 +34,9 @@ and expr_desc =
   | Deref of expr       (* *b：读出 Box 里的值，不移动 *)
   | ResLit of bool * expr   (* Ok(e) 为 true，Err(e) 为 false *)
   | Try of expr             (* e? *)
-  | Match of expr * (string * string * expr) list   (* match r { Ok(x) => a, Err(y) => b } *)
+  | Variant of string * expr option   (* .A(e) / .B：枚举的构造，类型由上下文确定 *)
+  | Match of expr * (string * string * expr) list
+      (* match r { Ok(x) => a, Err(y) => b }，或 match s { .A(x) => a, .B => b }；没写绑定时绑定名是 "" *)
   | Arena of string * block   (* arena |a| { … } *)
   | If of expr * block * block option
   | Block of block
@@ -60,6 +62,7 @@ type mode = MLet | MInout | MSink
 
 type item =
   | Struct of { name : string; fields : field list; linear : bool; ipos : pos }
+  | Enum of { name : string; variants : (string * ty option) list; ipos : pos }   (* 每个变体至多一个载荷 *)
   | Fn of { name : string; params : (mode * string * ty) list; ret : ty; body : block; ipos : pos }
 
 type program = item list

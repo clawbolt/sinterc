@@ -34,6 +34,9 @@ type rvalue =
   | Unwrap of operand * bool              (* 取出 Result 里 Ok（true）或 Err（false）的值 *)
   | Consume of ty * operand               (* consume(x)：消费 linear 值，析构它的字段 *)
   | Alloc of ty * place * operand         (* alloc(a, e)：在区域 a 里分配并存入 e *)
+  | MkEnum of ty * int * operand option   (* .A(e) / .B：第 i 个变体（Lean M8 的 mk） *)
+  | Payload of operand * int              (* 取出第 i 个变体的载荷；没有载荷时只把枚举标记为已移走 *)
+  | TagIs of operand * int                (* 枚举的标签是不是 i（只读） *)
 
 (* Drop 的原因，用来报 linear 值没有被消费的错误。 *)
 type why = End | Ret | Err
@@ -227,6 +230,12 @@ let rec expr st env (x : expr) : operand option =
   | ResLit (ok, a) -> (
       let oa = expr st env a in
       match ty_of x with Some ty -> value st x (MkRes (ty, ok, oa)) | None -> dummy)
+  | Variant (v, a) -> (
+      let oa = Option.bind a (expr st env) in
+      match ty_of x with
+      | Some (TStruct n as ty) -> (
+          match Typeck.variant n v with Some (i, _) -> value st x (MkEnum (ty, i, oa)) | None -> dummy)
+      | _ -> dummy)
   | If (c, a, b) ->
       let oc = Option.get (expr st env c) in
       let ty = ty_of x in
@@ -285,6 +294,7 @@ let rec expr st env (x : expr) : operand option =
           dummy)
   | Match (s, arms) -> (
       match ty_of s with
+      | Some (TStruct n) when Hashtbl.mem Typeck.enum_tbl n -> enum_match st env x s n arms
       | Some (TResult (tt, te)) ->
           let o = Option.get (expr st env s) in
           let ty = ty_of x in
@@ -319,6 +329,51 @@ let rec expr st env (x : expr) : operand option =
       | _ ->
           ignore (expr st env s);
           dummy)
+
+(* 枚举的 match（Lean M8（一））：按标签依次比较，跳到对应分支，最后一个变体不用比较。
+   分支开始时把载荷移进分支变量（枚举整个变成已移走）；没有载荷的变体也把枚举标记为已移走。
+   各分支结束时状态不同的变量由 own.ml 合并成“可能已初始化”，按 drop flag 析构。 *)
+and enum_match st env (x : expr) (s : expr) n arms =
+  let vs = Hashtbl.find Typeck.enum_tbl n in
+  let o = Option.get (expr st env s) in
+  let p = place_of o in
+  let ty = ty_of x in
+  let t = Option.bind ty (fun ty -> if ty = TUnit then None else Some (temp st ty x.pos)) in
+  let last = List.length vs - 1 in
+  let arms_blocks = List.map (fun _ -> new_block st) vs and join = new_block st in
+  List.iteri
+    (fun i b ->
+      if i = last then terminate st (Goto b)
+      else begin
+        let c = temp st TBool x.pos in
+        emit st (Assign (whole c, TagIs (Copy p, i)));
+        let next = new_block st in
+        terminate st (Branch (Copy (whole c), b, next));
+        st.cur <- next
+      end)
+    arms_blocks;
+  List.iteri
+    (fun i ((v, pty), b) ->
+      st.cur <- b;
+      let _, bind, (e : expr) = List.find (fun (w, _, _) -> w = v) arms in
+      st.scopes <- [] :: st.scopes;
+      let env' =
+        match pty with
+        | None ->
+            (match o with Move _ -> emit st (Eval (Payload (o, i))) | _ -> ());
+            env
+        | Some pty ->
+            let l = new_local ~pos:e.pos st bind pty in
+            own st l pty;
+            emit st (Assign (whole l, Payload (o, i)));
+            (bind, l) :: env
+      in
+      let v = close_scope st (expr st env' e) (ty_of e) e.pos in
+      (match t, v with Some t, Some v -> emit st (Assign (whole t, Use v)) | _ -> ());
+      terminate st (Goto join))
+    (List.combine vs arms_blocks);
+  st.cur <- join;
+  result t ty x.pos
 
 (* if / match 的结果：放在临时变量 t 里；() 时没有；Never 时用占位值。 *)
 and result t ty pos =
@@ -545,5 +600,5 @@ let lower (p : program) : func list =
   List.filter_map
     (function
       | Fn { name; params; ret; body; ipos } -> Some (lower_fn name params ret body ipos)
-      | Struct _ -> None)
+      | Struct _ | Enum _ -> None)
     p

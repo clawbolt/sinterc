@@ -19,7 +19,8 @@ let operands = function
   | Bin (_, a, b) -> [ a; b ]
   | Call (_, os) -> os
   | Agg (_, fs) -> List.map snd fs
-  | MkRes (_, _, o) -> Option.to_list o
+  | MkRes (_, _, o) | MkEnum (_, _, o) -> Option.to_list o
+  | Payload (o, _) | TagIs (o, _) -> [ o ]
 
 let op_place = function Copy p | Move p | Ref p | RefMut p -> Some p | Const _ -> None
 

@@ -24,7 +24,8 @@ let operands = function
   | Bin (_, a, b) -> [ a; b ]
   | Call (_, os) -> os
   | Agg (_, fs) -> List.map snd fs
-  | MkRes (_, _, o) -> Option.to_list o
+  | MkRes (_, _, o) | MkEnum (_, _, o) -> Option.to_list o
+  | Payload (o, _) | TagIs (o, _) -> [ o ]
 
 let moved rv = List.filter_map (function Move p -> Some p.base | _ -> None) (operands rv)
 

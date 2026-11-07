@@ -14,7 +14,7 @@ let keywords = [
   "fn", FN; "struct", STRUCT; "let", LET; "var", VAR; "if", IF; "else", ELSE;
   "while", WHILE; "return", RETURN; "true", TRUE; "false", FALSE;
   "inout", INOUT; "sink", SINK; "linear", LINEAR; "errdefer", ERRDEFER; "match", MATCH;
-  "arena", ARENA; "in", IN;
+  "arena", ARENA; "in", IN; "enum", ENUM;
 ]
 }
 

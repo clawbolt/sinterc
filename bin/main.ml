@@ -76,7 +76,7 @@ let () =
                       internal :=
                         Printf.sprintf "%s（第 %d 行：%s）" name ipos.line (Printexc.to_string e) :: !internal;
                       []))
-          | Ast.Struct _ -> [])
+          | Ast.Struct _ | Ast.Enum _ -> [])
         prog
     in
     let total = !both + !neither + List.length !only_lean + !only_sn + List.length !internal in

@@ -61,10 +61,24 @@ let rec cty = function
   | TRef (t, _) -> cty t ^ "*"
   | TArena _ -> "sn_arena"
 
-(* 析构一个值：先析构 Box 里面的值，再释放 Box；结构体逐个析构字段；Result 按标志析构其中一边。 *)
+(* 析构一个值：先析构 Box 里面的值，再释放 Box；结构体逐个析构字段；Result 按标志析构其中一边；
+   枚举按运行时标签析构对应变体的载荷（Lean M8 的 dropOne）。 *)
 let rec drop_code ty lv =
   match ty with
   | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
+  | TStruct n when Hashtbl.mem Typeck.enum_tbl n ->
+      let cases =
+        List.concat
+          (List.mapi
+             (fun i (_, t) ->
+               match t with
+               | Some t ->
+                   let d = drop_code t (Printf.sprintf "%s.u.v%d" lv i) in
+                   if d = "" then [] else [ Printf.sprintf "case %d: %sbreak; " i d ]
+               | None -> [])
+             (Hashtbl.find Typeck.enum_tbl n))
+      in
+      if cases = [] then "" else Printf.sprintf "switch (%s.tag) { %sdefault: break; } " lv (String.concat "" cases)
   | TStruct n ->
       String.concat ""
         (List.map
@@ -83,6 +97,22 @@ let type_defs (p : program) (fs : Mir.func list) =
     match t with
     | TBox t | TRef (t, _) -> visit t
     | (TStruct _ | TResult _) when Hashtbl.mem seen (cty t) -> ()
+    | TStruct n when Hashtbl.mem Typeck.enum_tbl n ->
+        (* 枚举：标签加上各个载荷的 union *)
+        Hashtbl.replace seen (cty t) ();
+        let vs = Hashtbl.find Typeck.enum_tbl n in
+        List.iter (fun (_, t) -> Option.iter visit t) vs;
+        let pays =
+          List.concat
+            (List.mapi
+               (fun i (_, t) ->
+                 match t with Some t -> [ Printf.sprintf " %s v%d;" (cty t) i ] | None -> [])
+               vs)
+        in
+        Buffer.add_string b
+          (Printf.sprintf "typedef struct S_%s { int64_t tag;%s } S_%s;\n" n
+             (if pays = [] then "" else Printf.sprintf " union {%s } u;" (String.concat "" pays))
+             n)
     | TStruct n ->
         Hashtbl.replace seen (cty t) ();
         let fields = Hashtbl.find Typeck.struct_tbl n in
@@ -102,7 +132,9 @@ let type_defs (p : program) (fs : Mir.func list) =
              (field y "e") (cty t))
     | TI64 | TBool | TUnit | TArena _ -> ()
   in
-  List.iter (function Struct s -> visit (TStruct s.name) | Fn _ -> ()) p;
+  List.iter
+    (function Struct s -> visit (TStruct s.name) | Enum e -> visit (TStruct e.name) | Fn _ -> ())
+    p;
   List.iter
     (fun (f : Mir.func) ->
       visit f.ret;
@@ -159,6 +191,11 @@ let rvalue fn rv =
       in
       Printf.sprintf "((%s){ .ok = %b%s })" (cty t) ok payload
   | Mir.Unwrap (o, ok) -> Printf.sprintf "%s.%s" (operand o) (if ok then "v" else "e")
+  | Mir.MkEnum (t, i, o) ->
+      let payload = match o with Some o -> Printf.sprintf ", .u.v%d = %s" i (operand o) | None -> "" in
+      Printf.sprintf "((%s){ .tag = %d%s })" (cty t) i payload
+  | Mir.Payload (o, i) -> Printf.sprintf "%s.u.v%d" (operand o) i
+  | Mir.TagIs (o, i) -> Printf.sprintf "(%s.tag == %d)" (operand o) i
   | Mir.Consume _ -> failwith "Consume 只出现在 Eval 里"
   | Mir.Alloc (t, a, o) ->
       let t = cty t in
@@ -211,7 +248,7 @@ let func b (f : Mir.func) =
           (function
             | Mir.Assign (p, rv) -> add (Printf.sprintf "  %s = %s;\n" (place p) (rvalue rv))
             | Mir.Eval (Mir.Consume (t, o)) -> add (Printf.sprintf "  %s\n" (drop_code t (operand o)))
-            | Mir.Eval (Mir.Unwrap _) -> ()      (* 只把 Result 标记为已移走，没有代码 *)
+            | Mir.Eval (Mir.Unwrap _ | Mir.Payload _) -> ()   (* 只把值标记为已移走，没有代码 *)
             | Mir.Eval rv -> add (Printf.sprintf "  %s;\n" (rvalue rv))
             | Mir.Proj (q, p) -> add (Printf.sprintf "  l%d = &%s;\n" q (place p))
             | Mir.DropNow l ->

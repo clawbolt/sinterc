@@ -25,7 +25,7 @@ let ty_of_name = function
 %token <int64> INT
 %token <string> IDENT UIDENT
 %token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
-%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR
+%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM
 %token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ
 %token PLUS MINUS STAR SLASH PERCENT BANG
 %token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
@@ -57,6 +57,8 @@ item:
     { Struct { name = n; fields = fs; linear = false; ipos = p $startpos } }
   | LINEAR STRUCT n = UIDENT LBRACE nls fs = fields RBRACE
     { Struct { name = n; fields = fs; linear = true; ipos = p $startpos } }
+  | ENUM n = UIDENT LBRACE nls vs = variants RBRACE
+    { Enum { name = n; variants = vs; ipos = p $startpos } }
   | FN n = IDENT LPAREN ps = separated_list(COMMA, param) RPAREN r = ret b = block
     { Fn { name = n; params = ps; ret = r; body = b; ipos = p $startpos } }
 
@@ -67,6 +69,17 @@ fields:
 
 field:
   | n = IDENT COLON t = ty { { fname = n; fty = t } }
+
+(* 变体：A、A(T)，或者 A(x: T)（名字只作说明） *)
+variants:
+  | { [] }
+  | v = variant nls { [v] }
+  | v = variant COMMA nls vs = variants { v :: vs }
+
+variant:
+  | n = UIDENT { (n, None) }
+  | n = UIDENT LPAREN t = ty RPAREN { (n, Some t) }
+  | n = UIDENT LPAREN IDENT COLON t = ty RPAREN { (n, Some t) }
 
 param:
   | n = IDENT COLON t = ty { (MLet, n, arena_param n t) }
@@ -120,7 +133,9 @@ expr:
       | "Ok" -> mk (ResLit (true, a)) $startpos
       | "Err" -> mk (ResLit (false, a)) $startpos
       | _ -> mk (Call (n, [ a ])) $startpos }
-  | MATCH s = expr LBRACE nls a = arm sep b = arm nls RBRACE { mk (Match (s, [ a; b ])) $startpos }
+  | MATCH s = expr LBRACE nls a = arms RBRACE { mk (Match (s, a)) $startpos }
+  | DOT n = UIDENT { mk (Variant (n, None)) $startpos }
+  | DOT n = UIDENT LPAREN a = expr RPAREN { mk (Variant (n, Some a)) $startpos }
   | a = expr o = binop b = expr { mk (Binop (o, a, b)) $startpos }
   | MINUS e = expr %prec UNARY { mk (Unop (Neg, e)) $startpos }
   | BANG e = expr %prec UNARY { mk (Unop (Not, e)) $startpos }
@@ -136,6 +151,13 @@ if_expr:
 
 arm:
   | n = UIDENT LPAREN x = IDENT RPAREN FATARROW e = expr { (n, x, e) }
+  | DOT n = UIDENT LPAREN x = IDENT RPAREN FATARROW e = expr { (n, x, e) }
+  | DOT n = UIDENT FATARROW e = expr { (n, "", e) }
+
+arms:
+  | { [] }
+  | a = arm { [a] }
+  | a = arm sep rest = arms { a :: rest }
 
 sep:
   | NL nls { () }
