@@ -35,8 +35,9 @@ and expr_desc =
   | ResLit of bool * expr   (* Ok(e) 为 true，Err(e) 为 false *)
   | Try of expr             (* e? *)
   | Variant of string * expr option   (* .A(e) / .B：枚举的构造，类型由上下文确定 *)
-  | Match of expr * (string * string * expr) list
-      (* match r { Ok(x) => a, Err(y) => b }，或 match s { .A(x) => a, .B => b }；没写绑定时绑定名是 "" *)
+  | Match of bool * expr * (string * string * expr) list
+      (* match r { Ok(x) => a, Err(y) => b }，或 match s { .A(x) => a, .B => b }；没写绑定时绑定名是 ""。
+         true：match let s { … }，按借用匹配 *)
   | Arena of string * block   (* arena |a| { … } *)
   | If of expr * block * block option
   | Block of block

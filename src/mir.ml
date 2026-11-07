@@ -10,7 +10,7 @@ open Ast
 type local = int
 
 (* 位置：一个局部变量加上字段 / 解引用路径。at 是源代码位置，用来报错。PTag 是 Result 的 ok 标志。 *)
-type proj = PField of string | PDeref | PTag
+type proj = PField of string | PDeref | PTag | PVar of int   (* PVar i：枚举第 i 个变体的载荷 *)
 
 type place = { base : local; proj : proj list; at : pos }
 
@@ -292,9 +292,9 @@ let rec expr st env (x : expr) : operand option =
       | _ ->
           ignore (expr st env a);
           dummy)
-  | Match (s, arms) -> (
+  | Match (borrow, s, arms) -> (
       match ty_of s with
-      | Some (TStruct n) when Hashtbl.mem Typeck.enum_tbl n -> enum_match st env x s n arms
+      | Some (TStruct n) when Hashtbl.mem Typeck.enum_tbl n -> enum_match st env x borrow s n arms
       | Some (TResult (tt, te)) ->
           let o = Option.get (expr st env s) in
           let ty = ty_of x in
@@ -330,13 +330,24 @@ let rec expr st env (x : expr) : operand option =
           ignore (expr st env s);
           dummy)
 
-(* 枚举的 match（Lean M8（一））：按标签依次比较，跳到对应分支，最后一个变体不用比较。
-   分支开始时把载荷移进分支变量（枚举整个变成已移走）；没有载荷的变体也把枚举标记为已移走。
-   各分支结束时状态不同的变量由 own.ml 合并成“可能已初始化”，按 drop flag 析构。 *)
-and enum_match st env (x : expr) (s : expr) n arms =
+(* 枚举的 match（Lean M8（一）、M8（二））：按标签依次比较，跳到对应分支，最后一个变体不用比较。
+   按移动：分支开始时把载荷移进分支变量（枚举整个变成已移走）；没有载荷的变体也把枚举标记为已移走。
+   各分支结束时状态不同的变量由 own.ml 合并成“可能已初始化”，按 drop flag 析构。
+   按借用（match let，或者被匹配的位置不能整个移走，和 let 绑定投影的规则相同）：
+   需要析构的载荷绑定成投影，由 borrow.ml 锁住源对象；可复制的载荷直接复制。枚举本身不动。 *)
+and enum_match st env (x : expr) explicit (s : expr) n arms =
   let vs = Hashtbl.find Typeck.enum_tbl n in
-  let o = Option.get (expr st env s) in
-  let p = place_of o in
+  let needs = Typeck.needs_drop (TStruct n) in
+  let borrowed, p, o =
+    if is_place s then begin
+      let p = place st env s in
+      let b = needs && (explicit || not (owned_whole st p)) in
+      (b, p, if needs && not b then Move p else Copy p)
+    end
+    else
+      let o = Option.get (expr st env s) in
+      (false, place_of o, o)
+  in
   let ty = ty_of x in
   let t = Option.bind ty (fun ty -> if ty = TUnit then None else Some (temp st ty x.pos)) in
   let last = List.length vs - 1 in
@@ -358,10 +369,20 @@ and enum_match st env (x : expr) (s : expr) n arms =
       let _, bind, (e : expr) = List.find (fun (w, _, _) -> w = v) arms in
       st.scopes <- [] :: st.scopes;
       let env' =
+        let pay = { p with proj = p.proj @ [ PVar i ] } in
         match pty with
         | None ->
             (match o with Move _ -> emit st (Eval (Payload (o, i))) | _ -> ());
             env
+        | Some pty when borrowed && Typeck.needs_drop pty ->
+            let q = new_local ~lref:true ~pos:e.pos st bind pty in
+            st.proots <- (q, root st p.base) :: st.proots;
+            emit st (Proj (q, pay));
+            (bind, q) :: env
+        | Some pty when borrowed ->
+            let l = new_local ~pos:e.pos st bind pty in
+            emit st (Assign (whole l, Use (Copy pay)));
+            (bind, l) :: env
         | Some pty ->
             let l = new_local ~pos:e.pos st bind pty in
             own st l pty;

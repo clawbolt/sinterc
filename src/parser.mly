@@ -133,7 +133,8 @@ expr:
       | "Ok" -> mk (ResLit (true, a)) $startpos
       | "Err" -> mk (ResLit (false, a)) $startpos
       | _ -> mk (Call (n, [ a ])) $startpos }
-  | MATCH s = expr LBRACE nls a = arms RBRACE { mk (Match (s, a)) $startpos }
+  | MATCH s = expr LBRACE nls a = arms RBRACE { mk (Match (false, s, a)) $startpos }
+  | MATCH LET s = expr LBRACE nls a = arms RBRACE { mk (Match (true, s, a)) $startpos }
   | DOT n = UIDENT { mk (Variant (n, None)) $startpos }
   | DOT n = UIDENT LPAREN a = expr RPAREN { mk (Variant (n, Some a)) $startpos }
   | a = expr o = binop b = expr { mk (Binop (o, a, b)) $startpos }

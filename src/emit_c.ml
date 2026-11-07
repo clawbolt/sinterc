@@ -153,7 +153,8 @@ let place f (p : Mir.place) =
     (fun s -> function
       | Mir.PField f -> Printf.sprintf "%s.f_%s" s f
       | Mir.PDeref -> Printf.sprintf "(*%s)" s
-      | Mir.PTag -> Printf.sprintf "%s.ok" s)
+      | Mir.PTag -> Printf.sprintf "%s.ok" s
+      | Mir.PVar i -> Printf.sprintf "%s.u.v%d" s i)
     (local f p.base) p.proj
 
 let operand f = function

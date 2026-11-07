@@ -190,7 +190,7 @@ and check1 env want (x : expr) : t =
       expect x.pos want (block env ~want b);
       Ty want
   | Block b -> block env ~want b
-  | Match (s, arms) -> match_ env (Some want) x.pos s arms
+  | Match (b, s, arms) -> match_ env (Some want) x.pos b s arms
   | Arena (r, b) -> arena env (Some want) x.pos r b
   | _ ->
       let t = expr1 env x in
@@ -348,7 +348,7 @@ and expr1 env (x : expr) : t =
                 (string_of_ty e')
           | r -> err pos "? 只能用在返回 Result 的函数里（这个函数返回 %s）" (string_of_ty r))
       | Ty t -> err pos "%s 不是 Result，不能用 ?" (string_of_ty t))
-  | Match (s, arms) -> match_ env None pos s arms
+  | Match (b, s, arms) -> match_ env None pos b s arms
   | Arena (r, b) -> arena env None pos r b
 
 (* arena |r| { … }：r 比所有外层区域都活得短。块的值的类型不能含 r（R3）。 *)
@@ -366,10 +366,15 @@ and arena env want pos r (b : block) : t =
   | _ -> ());
   t
 
-and match_ env want pos (s : expr) arms : t =
+(* borrow：match let s { … }，只用于枚举，s 必须是位置（Lean M8（二））。 *)
+and match_ env want pos borrow (s : expr) arms : t =
   match expr env s with
+  | Ty (TStruct n) when Hashtbl.mem enum_tbl n ->
+      if borrow && root s = None then
+        err s.pos "match let 后面必须是变量、字段或解引用（要借用的位置）";
+      enum_match env want pos n arms
+  | Ty (TResult _) when borrow -> err pos "match let 只用于枚举"
   | Ty (TResult (t, e)) -> result_match env want pos t e arms
-  | Ty (TStruct n) when Hashtbl.mem enum_tbl n -> enum_match env want pos n arms
   | Never -> err s.pos "不能 match 一个不会返回的值"
   | Ty t -> err s.pos "%s 不是 Result 或枚举，不能 match" (string_of_ty t)
 
