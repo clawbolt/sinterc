@@ -1,0 +1,10 @@
+struct P { a: Box<I64>, n: I64 }
+
+fn eat(sink p: P) -> I64 { p.n }
+
+fn main() {
+    let p = P { a: box(1), n: 2 }
+    let a = p.a
+    print_i64(eat(p))
+    print_i64(*a)
+}

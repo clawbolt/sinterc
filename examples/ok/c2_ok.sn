@@ -1,0 +1,31 @@
+struct P { a: Box<I64>, n: I64 }
+
+fn get(b: Box<I64>) -> I64 { *b }
+
+fn inc(inout x: I64) { x = x + 1 }
+
+fn reset(inout b: Box<I64>, sink v: I64) { b = box(v) }
+
+fn sum(p: P, q: P) -> I64 { *p.a + *q.a }
+
+fn main() {
+    var b = box(1)
+    print_i64(get(b))
+    reset(b, 5)
+    print_i64(*b)
+    var n = 10
+    inc(n)
+    print_i64(n)
+    let p = P { a: box(2), n: 3 }
+    print_i64(sum(p, p))
+    let a = p.a
+    print_i64(*a + p.n)
+    var x = P { a: box(8), n: 0 }
+    let pa = x.a
+    print_i64(*pa)
+    x = P { a: box(9), n: 1 }
+    print_i64(*x.a)
+    inc(x.n)
+    print_i64(x.n)
+    print_i64(get(box(3)))
+}

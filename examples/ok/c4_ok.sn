@@ -1,0 +1,37 @@
+struct P { x: I64, y: I64 }
+
+fn first(a: Arena, n: I64) -> &I64 in a {
+    alloc(a, n * 2)
+}
+
+fn add(r: &I64 in x, s: &I64 in y) -> I64 { *r + *s }
+
+fn try_alloc(a: Arena, n: I64) -> Result<&I64 in a, I64> {
+    if n < 0 { return Err(n) }
+    Ok(alloc(a, n))
+}
+
+fn run(n: I64) -> Result<I64, I64> {
+    arena |a| {
+        let base = alloc(a, 1)
+        let r = try_alloc(a, n)?
+        Ok(*r + *base)
+    }
+}
+
+fn main() {
+    let total = arena |a| {
+        let r = first(a, 5)
+        let p = alloc(a, P { x: 1, y: 2 })
+        arena |b| {
+            var s = alloc(b, 100)
+            print_i64(add(r, s))
+            s = r
+            print_i64(add(r, s))
+        }
+        *r + (*p).x + (*p).y
+    }
+    print_i64(total)
+    print_i64(match run(4) { Ok(v) => v, Err(e) => e })
+    print_i64(match run(-1) { Ok(v) => v, Err(e) => e })
+}

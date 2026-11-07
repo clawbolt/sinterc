@@ -1,0 +1,12 @@
+fn show(x: I64) -> I64 {
+    print_i64(x)
+    x
+}
+
+fn sub(a: I64, b: I64) -> I64 {
+    a - b
+}
+
+fn main() {
+    print_i64(sub(show(1), show(2)))
+}

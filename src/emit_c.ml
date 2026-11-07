@@ -215,7 +215,7 @@ let func b (f : Mir.func) =
                 add (Printf.sprintf "  %s\n" (drop_code f.locals.(l).lty (local f l)))
             | Mir.DropIf (l, fl) ->
                 add (Printf.sprintf "  if (l%d) { %s}\n" fl (drop_code f.locals.(l).lty (local f l)))
-            | Mir.Live _ -> ()
+            | Mir.Live _ | Mir.Raise -> ()
             | Mir.Enter l -> add (Printf.sprintf "  %s.head = 0;\n" (local f l))
             | Mir.Leave l -> add (Printf.sprintf "  sn_arena_free(&%s);\n" (local f l))
             | Mir.Drop _ -> failwith "Drop 应当已由 Own.elaborate 展开")

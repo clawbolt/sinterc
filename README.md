@@ -63,3 +63,19 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 
 `borrow.ml` 对应 Lean M3（二）和 M4（一）–（四）：后向数据流算出每个程序点之后还会用到的投影，
 投影活着时检查它的源对象有没有被移动、修改、以 `inout` 传入或析构；调用时再两两检查实参的排他性。
+
+## 翻译验证（C5）
+
+```
+sh validate.sh
+```
+
+`sinterc 文件.sn --emit=core -o 文件.lean` 把每个函数检查、展开之后的 MIR 翻译成 Lean M7（五·下）的 CFG（`emit_core.ml`），
+生成的文件调用 `lean/Core/C5.lean` 的 `report`，用已证明健全的 `cfgOk` 复核；注解由 Lean 自己推断，编译器的推断不参与。
+
+- `examples/ok/`：正常编译，每个函数都必须被 Lean 接受；
+- `examples/bad/`：编译器本来会拒绝的程序，用 `--unchecked` 跳过编译器的所有权检查后导出，Lean 必须独立地拒绝。
+
+导出范围：所有权（含调用约定和排他性）、`linear`、`errdefer` 展开后的出错出口、区域。
+不导出的：投影的锁表（通过投影读取算作读源对象）、`Result` 里的引用、errdefer 的登记规则（前端规则，编译器检查）。
+按 drop flag 析构导出为空操作，之后再给这个变量赋值时 Lean 会保守地拒绝。

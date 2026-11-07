@@ -1,0 +1,10 @@
+fn take(sink b: Box<I64>) -> I64 { *b }
+
+fn main() {
+    let b = box(1)
+    var i = 0
+    while i < 2 {
+        print_i64(take(b))
+        i = i + 1
+    }
+}

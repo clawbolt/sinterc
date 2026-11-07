@@ -1,0 +1,22 @@
+linear struct Tx { id: I64 }
+
+fn begin(id: I64) -> Result<Tx, I64> {
+    if id < 0 { return Err(id) }
+    Ok(Tx { id: id })
+}
+
+fn check(v: I64) -> Result<(), I64> {
+    if v > 100 { return Err(v) }
+    Ok(())
+}
+
+fn commit(sink t: Tx) { consume(t) }
+
+fn rollback(sink t: Tx) { consume(t) }
+fn main() { }
+fn f(id: I64) -> Result<(), I64> {
+    let tx = begin(id)?
+    errdefer rollback(tx)
+    check(id)?
+    Ok(())
+}

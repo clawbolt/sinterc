@@ -115,6 +115,7 @@ let step check f flag need st s =
       let r = release l in
       st.(l) <- Uninit;
       r @ set l false
+  | Raise -> [ s ]
   | Enter l ->
       st.(l) <- Init;
       [ s ]
@@ -170,12 +171,13 @@ let pass check f flag need inn =
           out)
     f.blocks
 
-let elaborate (f : func) : func =
+(* check 为假时不报错（--unchecked：把编译器会拒绝的程序也导出给 Lean，看 Lean 是否独立地拒绝）。 *)
+let elaborate ?(check = true) (f : func) : func =
   let inn = analyze f in
   let n = Array.length f.locals in
   let need = Array.make n false in
   (* 第一遍：报错，并找出需要 drop flag 的变量 *)
-  ignore (pass true f (Array.make n None) need inn);
+  ignore (pass check f (Array.make n None) need inn);
   let extra = ref [] in
   let flag =
     Array.init n (fun l ->

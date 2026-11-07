@@ -1,0 +1,7 @@
+fn take(sink b: Box<I64>) -> I64 { *b }
+
+fn main() {
+    let b = box(1)
+    if true { print_i64(take(b)) }
+    print_i64(*b)
+}

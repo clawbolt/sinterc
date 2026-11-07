@@ -30,7 +30,7 @@ let uses (f : func) s =
     | Assign (p, rv) -> p :: List.filter_map op_place (operands rv)
     | Eval rv -> List.filter_map op_place (operands rv)
     | Proj (_, p) -> [ p ]
-    | Drop _ | DropNow _ | DropIf _ | Live _ | Enter _ | Leave _ -> []
+    | Drop _ | DropNow _ | DropIf _ | Live _ | Enter _ | Leave _ | Raise -> []
   in
   List.sort_uniq compare (List.filter (is_proj f) (List.map (fun (p : place) -> p.base) ps))
 
@@ -83,7 +83,7 @@ let writes s =
   | Assign (p, rv) -> (p.base, "修改", p.at) :: of_ops rv
   | Eval rv -> of_ops rv
   | DropNow l | DropIf (l, _) -> [ (l, "析构", Mir.nopos) ]
-  | Drop _ | Proj _ | Live _ | Enter _ | Leave _ -> []
+  | Drop _ | Proj _ | Live _ | Enter _ | Leave _ | Raise -> []
 
 (* 同一次调用里的实参两两检查。 *)
 let exclusive (f : func) = function

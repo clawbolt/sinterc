@@ -1,0 +1,24 @@
+struct Point { x: I64, y: I64 }
+
+fn add(a: Point, b: Point) -> Point {
+    Point { x: a.x + b.x, y: a.y + b.y }
+}
+
+fn fact(n: I64) -> I64 {
+    if n <= 1 { 1 } else { n * fact(n - 1) }
+}
+
+fn main() {
+    let p = add(Point { x: 1, y: 2 }, Point { x: 10, y: 20 })
+    print_i64(p.x)
+    print_i64(p.y)
+    print_i64(fact(20))
+    var i = 0
+    var s = 0
+    while i < 5 {
+        i = i + 1
+        s = s + i
+    }
+    print_i64(s)
+    print_bool(s == 15 && !false)
+}

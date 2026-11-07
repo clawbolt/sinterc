@@ -45,6 +45,7 @@ type stmt =
   | Live of local * pos * string          (* 检查：这里 l 必须已初始化，否则报这条错误 *)
   | Enter of local                        (* 进入 arena 块：创建区域 *)
   | Leave of local                        (* 离开 arena 块（包括 return、出错返回穿过它）：整块释放 *)
+  | Raise                                 (* 标记：这个块以出错返回结束（导出给 Lean 时用） *)
   | Drop of local * pos * why             (* 降级产生：如果还拥有这个值就析构 *)
   | DropNow of local                      (* 展开后：一定拥有，直接析构 *)
   | DropIf of local * local               (* 展开后：第二个局部（drop flag）为真时析构 *)
@@ -69,6 +70,8 @@ type func = {
   locals : local_info array;
   blocks : block array;          (* 0 号块是入口 *)
   roots : local array;           (* 投影最终指向哪个局部的内部；其他局部是自己 *)
+  arenas : (local * int) list;   (* arena 块的局部 → 嵌套层数（从 0 开始，不算区域参数） *)
+  refarena : (local * local) list;   (* 引用类型的局部 → 它的区域所在的 arena 块的局部；区域参数的引用不在这里 *)
 }
 
 let nopos = { line = 0; col = 0 }
@@ -90,12 +93,20 @@ type st = {
   mutable scopes : local list list;   (* 每层作用域拥有的、需要析构的局部，内层在前 *)
   mutable proots : (local * local) list;   (* 投影 → 它指向的局部 *)
   mutable regions : local list;        (* 当前所在的 arena 块，内层在前 *)
+  mutable arenas : (local * int) list;
+  mutable refarena : (local * local) list;
   mutable guards : (local * string * (string * local) list * expr) list;
       (* 生效的 errdefer：要消费的局部、它的名字、登记时的环境、调用表达式；内层在前 *)
 }
 
 let new_local ?(lref = false) ?(pos = nopos) st lname lty =
   st.locals <- { lname; lty; lref; lpos = pos } :: st.locals;
+  (match lty with
+  | TRef (_, r) -> (
+      match List.find_opt (fun a -> (List.nth st.locals (st.nlocals - a)).lname = r) st.regions with
+      | Some a -> st.refarena <- (st.nlocals, a) :: st.refarena
+      | None -> ())
+  | _ -> ());
   st.nlocals <- st.nlocals + 1;
   st.nlocals - 1
 
@@ -240,6 +251,7 @@ let rec expr st env (x : expr) : operand option =
       (* 块的值先存进块外的临时变量，再释放区域：值的类型不含这个区域（R3），可以安全带出 *)
       let l = new_local ~pos:x.pos st r (TArena r) in
       emit st (Enter l);
+      st.arenas <- (l, List.length st.regions) :: st.arenas;
       st.regions <- l :: st.regions;
       let v = block st ((r, l) :: env) b in
       let v =
@@ -329,12 +341,14 @@ and unwrap st o ty ok pos =
 (* 离开函数（返回值已经放好）。出错返回时先执行生效的 errdefer，内层的先执行；
    然后析构所有作用域里的局部，再释放穿过的区域（M7（四））。之后的代码走不到。 *)
 and exit_fn st at why =
-  if why = Err then
+  if why = Err then begin
+    emit st Raise;
     List.iter
       (fun (l, v, env, e) ->
         emit st (Live (l, at, Printf.sprintf "%s 在这里出错返回之前已经被消费，errdefer 会重复消费它" v));
         ignore (expr st env e))
-      st.guards;
+      st.guards
+  end;
   List.iter (List.iter (fun l -> emit st (Drop (l, at, why)))) st.scopes;
   List.iter (fun l -> emit st (Leave l)) st.regions;
   terminate st Return;
@@ -487,6 +501,8 @@ let lower_fn name params ret body ipos =
       scopes = [ [] ];
       proots = [];
       regions = [];
+      arenas = [];
+      refarena = [];
       guards = [];
     }
   in
@@ -516,6 +532,8 @@ let lower_fn name params ret body ipos =
     locals = Array.of_list (List.rev st.locals);
     blocks;
     roots = Array.init st.nlocals (root st);
+    arenas = st.arenas;
+    refarena = st.refarena;
   }
 
 let lower (p : program) : func list =

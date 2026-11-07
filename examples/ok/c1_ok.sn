@@ -1,0 +1,33 @@
+struct Pair { a: Box<I64>, n: I64 }
+
+fn take(sink b: Box<I64>) -> I64 {
+    *b + 1
+}
+
+fn make(x: I64) -> Box<I64> {
+    box(x * 10)
+}
+
+fn main() {
+    let b = box(41)
+    print_i64(take(b))
+    var c = make(1)
+    c = make(2)
+    print_i64(*c)
+    var i = 0
+    while i < 3 {
+        let t = box(i)
+        i = *t + 1
+    }
+    let p = Pair { a: box(7), n: 3 }
+    print_i64(*p.a + p.n)
+    let d = box(5)
+    if i > 100 { print_i64(take(d)) }
+    let e = box(6)
+    if i < 100 { print_i64(take(e)) }
+    var m = box(1)
+    print_i64(take(m))
+    m = box(2)
+    print_i64(*m)
+    print_i64(*make(4))
+}
