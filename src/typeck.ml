@@ -16,6 +16,7 @@ type env = {
   vars : (string * (ty * bool)) list;
       (* 局部变量和它是否可修改（var、inout / sink 参数），内层在前 *)
   guards : string list;              (* 当前生效的 errdefer 要消费的变量 *)
+  tbounds : (string * string) list;  (* 当前泛型函数的类型参数的 trait 约束，(T, Show) 表示 T: Show *)
 }
 
 (* 每个表达式的类型，按表达式 id 记录。 *)
@@ -181,6 +182,15 @@ let inst_tbl : (string, string * ty list) Hashtbl.t = Hashtbl.create 16
 let gparams : (string, (string * bool) list) Hashtbl.t = Hashtbl.create 16
 let gfns : (string, item) Hashtbl.t = Hashtbl.create 16
 
+(* trait（Lean M10）：每个方法当作带一个类型参数 Self 的泛型函数，Self 换成实现的类型。
+   traits：trait → 方法名；methods：方法名 → trait；impls：(trait, 类型) 有 impl；
+   gbounds：泛型函数（和方法）的类型参数要满足的 trait 约束。
+   impl 里的方法是普通的具体函数，名字记作 方法<类型>（和泛型函数的实例同一种写法），单态化时直接调用它。 *)
+let traits : (string, string list) Hashtbl.t = Hashtbl.create 16
+let methods : (string, string) Hashtbl.t = Hashtbl.create 16
+let impls : (string * string, unit) Hashtbl.t = Hashtbl.create 16
+let gbounds : (string, (string * string) list) Hashtbl.t = Hashtbl.create 16
+
 (* 每个泛型调用（按调用表达式的 id）推出的类型实参，给降级时找实例的名字用。 *)
 let call_inst : (int, ty list) Hashtbl.t = Hashtbl.create 16
 
@@ -237,7 +247,7 @@ and instantiate g ts =
     | Enum { variants; ipos; _ } ->
         Hashtbl.replace enum_tbl name
           (List.map (fun (v, t) -> (v, Option.map (resolve sc ipos) t)) variants)
-    | Fn _ -> ()
+    | Fn _ | Trait _ | Impl _ -> ()
   end;
   TStruct name
 
@@ -492,8 +502,28 @@ and call env want (x : expr) f args : t =
                   t)
             tps
         in
+        (* trait 约束：类型参数要在当前函数里写了同样的约束，具体类型要有 impl（Lean M10 的 RespectsT） *)
+        let named = List.combine (List.map fst tps) ts in
+        List.iter
+          (fun (n, tr) ->
+            let t = List.assoc n named in
+            let ok =
+              match t with
+              | TParam (m, _) -> List.mem (m, tr) env.tbounds
+              | t -> Hashtbl.mem impls (tr, string_of_ty t)
+            in
+            if not ok then
+              match Hashtbl.mem methods f, t with
+              | true, TParam (m, _) -> err pos "%s 没有写约束 %s，不能调用 %s（要写 %s: %s）" m tr f m tr
+              | true, _ -> err pos "%s 没有实现 %s，不能调用 %s" (string_of_ty t) tr f
+              | false, TParam (m, _) -> err pos "%s 要求 %s: %s，但 %s 没有写约束 %s" f n tr m tr
+              | false, _ -> err pos "%s 没有实现 %s（%s 要求 %s: %s）" (string_of_ty t) tr f n tr)
+          (Option.value (Hashtbl.find_opt gbounds f) ~default:[]);
         Hashtbl.replace call_inst x.id ts;
-        if List.for_all (fun t -> params_of t = []) ts && not (Hashtbl.mem requested (inst_name f ts))
+        (* 方法调用直接用 impl 里的函数，不用生成实例 *)
+        if List.for_all (fun t -> params_of t = []) ts
+           && (not (Hashtbl.mem methods f))
+           && not (Hashtbl.mem requested (inst_name f ts))
         then begin
           Hashtbl.replace requested (inst_name f ts) ();
           Queue.add (f, ts) pending
@@ -733,6 +763,8 @@ and errdefer env pos (e : expr) =
       | _ -> err pos "errdefer 的调用必须以 sink 方式传入恰好一个 linear 变量（出错时由它消费）")
   | _ -> err pos "errdefer 后面必须是一个函数调用"
 
+let mode_name = function MLet -> "let" | MInout -> "inout" | MSink -> "sink"
+
 (* 整个程序的准备：结构体、枚举（含泛型定义）、函数签名、字段和载荷。返回检查函数体用的环境。 *)
 let prepare (p : program) =
   let fns = Hashtbl.create 16 in
@@ -745,6 +777,10 @@ let prepare (p : program) =
   Hashtbl.reset gfns;
   Hashtbl.reset call_inst;
   Hashtbl.reset requested;
+  Hashtbl.reset traits;
+  Hashtbl.reset methods;
+  Hashtbl.reset impls;
+  Hashtbl.reset gbounds;
   Queue.clear pending;
   let defined n = Hashtbl.mem struct_tbl n || Hashtbl.mem enum_tbl n || Hashtbl.mem gtypes n in
   (* what 不为空：结构体、枚举的类型参数，不能标 linear *)
@@ -780,7 +816,16 @@ let prepare (p : program) =
       | Fn { name; ipos; _ } ->
           if Hashtbl.mem fns name || List.mem_assoc name builtins || List.mem name special then
             err ipos "函数 %s 重复定义" name;
-          Hashtbl.add fns name ([], TUnit))
+          Hashtbl.add fns name ([], TUnit)
+      | Trait { name; methods = ms; ipos } ->
+          if Hashtbl.mem traits name then err ipos "trait %s 重复定义" name;
+          List.iteri
+            (fun i (m : msig) ->
+              if List.exists (fun (n : msig) -> n.mname = m.mname) (List.filteri (fun j _ -> j < i) ms) then
+                err m.mpos "trait %s 的方法 %s 重复" name m.mname)
+            ms;
+          Hashtbl.add traits name (List.map (fun (m : msig) -> m.mname) ms)
+      | Impl _ -> ())
     p;
   (* 结构体、枚举不能包含自己，经过 Box 或泛型类型的实参也不行（递归类型的析构还没有证明）。
      按名字检查，所以泛型类型的实例化一定会结束。 *)
@@ -797,7 +842,7 @@ let prepare (p : program) =
     let raw = function
       | Struct { fields; _ } -> List.map (fun (f : field) -> f.fty) fields
       | Enum { variants; _ } -> List.filter_map snd variants
-      | Fn _ -> []
+      | Fn _ | Trait _ | Impl _ -> []
     in
     match Hashtbl.find_opt struct_tbl n, Hashtbl.find_opt enum_tbl n, Hashtbl.find_opt gtypes n with
     | Some fs, _, _ -> List.iter (fun (f : field) -> inner f.fty) fs
@@ -816,16 +861,23 @@ let prepare (p : program) =
             (List.map (fun (f : field) -> { f with fty = resolve [] ipos f.fty }) fields)
       | Enum { name; tparams = []; variants; ipos; _ } ->
           Hashtbl.replace enum_tbl name (List.map (fun (v, t) -> (v, Option.map (resolve [] ipos) t)) variants)
-      | Struct _ | Enum _ | Fn _ -> ())
+      | Struct _ | Enum _ | Fn _ | Trait _ | Impl _ -> ())
     p;
-  (* 函数签名：泛型函数的类型参数解析成 TParam *)
+  (* 函数签名：泛型函数的类型参数解析成 TParam；trait 的方法是带类型参数 Self 的泛型函数；
+     impl 里的方法登记成 方法<类型> *)
   List.iter
     (function
       | Struct { tparams; ipos; _ } | Enum { tparams; ipos; _ } ->
           List.iter (fun (t, _) -> if defined t then err ipos "类型参数 %s 和已有的类型同名" t) tparams
-      | Fn { name; tparams; params; ret; ipos; _ } ->
+      | Fn { name; tparams; bounds; params; ret; ipos; _ } ->
           tparams_ok "" ipos tparams;
-          List.iter (fun (t, _) -> if defined t then err ipos "类型参数 %s 和已有的类型同名" t) tparams;
+          List.iter
+            (fun (t, _) ->
+              if defined t then err ipos "类型参数 %s 和已有的类型同名" t;
+              if t = "Self" then err ipos "Self 不能用作类型参数的名字")
+            tparams;
+          List.iter (fun (_, tr) -> if not (Hashtbl.mem traits tr) then err ipos "未知 trait %s" tr) bounds;
+          if bounds <> [] then Hashtbl.replace gbounds name bounds;
           let sc = List.map (fun (t, lin) -> (t, TParam (t, lin))) tparams in
           let ps = List.map (fun (m, _, t) -> (m, resolve sc ipos t)) params in
           let ret = resolve sc ipos ret in
@@ -834,12 +886,45 @@ let prepare (p : program) =
               err ipos "泛型函数暂不支持区域参数和引用（区域和泛型的组合还没有实现）";
             Hashtbl.replace gparams name tparams
           end;
-          Hashtbl.replace fns name (ps, ret))
+          Hashtbl.replace fns name (ps, ret)
+      | Trait { name; methods = ms; _ } ->
+          (* Self 可以是任何类型（包括 linear 的），调用处的效果只由参数约定决定（Lean M10） *)
+          let sc = [ ("Self", TParam ("Self", true)) ] in
+          List.iter
+            (fun (m : msig) ->
+              if Hashtbl.mem fns m.mname || List.mem_assoc m.mname builtins || List.mem m.mname special
+                 || Hashtbl.mem methods m.mname
+              then err m.mpos "方法名 %s 和已有的函数或方法同名（暂不支持重载）" m.mname;
+              let ps = List.map (fun (md, _, t) -> (md, resolve sc m.mpos t)) m.mparams in
+              let ret = resolve sc m.mpos m.mret in
+              if List.exists (fun (_, t) -> region_names t <> []) ps || region_names ret <> [] then
+                err m.mpos "trait 的方法暂不支持区域参数和引用";
+              Hashtbl.replace fns m.mname (ps, ret);
+              Hashtbl.replace gparams m.mname [ ("Self", true) ];
+              Hashtbl.replace gbounds m.mname [ ("Self", name) ];
+              Hashtbl.replace methods m.mname name)
+            ms
+      | Impl { trait = tr; self; fns = ms; ipos } ->
+          if not (Hashtbl.mem traits tr) then err ipos "未知 trait %s" tr;
+          let st = resolve [] ipos self in
+          type_arg ipos st;
+          (match st with TArena _ -> err ipos "不能为 Arena 实现 trait" | _ -> ());
+          if Hashtbl.mem impls (tr, string_of_ty st) then err ipos "%s 已经实现过 %s" (string_of_ty st) tr;
+          Hashtbl.replace impls (tr, string_of_ty st) ();
+          List.iter
+            (function
+              | Fn { name; tparams; params; ret; ipos; _ } ->
+                  if tparams <> [] then err ipos "impl 里的方法暂不能有类型参数";
+                  let sc = [ ("Self", st) ] in
+                  Hashtbl.replace fns (inst_name name [ st ])
+                    (List.map (fun (md, _, t) -> (md, resolve sc ipos t)) params, resolve sc ipos ret)
+              | Struct _ | Enum _ | Trait _ | Impl _ -> ())
+            ms)
     p;
   Hashtbl.reset sigs;
   Hashtbl.iter (Hashtbl.replace sigs) fns;
   List.iter (fun (f, s) -> Hashtbl.replace sigs f s) builtins;
-  let env0 = { structs = struct_tbl; fns; ret = TUnit; vars = []; guards = [] } in
+  let env0 = { structs = struct_tbl; fns; ret = TUnit; vars = []; guards = []; tbounds = [] } in
   (* 字段和载荷的规则；泛型定义按类型参数是抽象类型的实例检查 *)
   let abstract name tparams =
     if tparams = [] then name
@@ -869,6 +954,46 @@ let prepare (p : program) =
                   if t = TUnit then err ipos "%s 的变体 %s：没有载荷请直接写 %s" name v v;
                   if is_linear t then err ipos "%s 的变体 %s：载荷暂不能是 linear 值" name v)
             (Hashtbl.find enum_tbl (abstract name tparams))
+      | Impl { trait = tr; self; fns = ms; ipos } ->
+          (* impl 和 trait 一致：方法一样，每个方法的参数约定和类型相同（Self 换成实现的类型，Lean M10 的 Conforms） *)
+          let st = resolve [] ipos self in
+          check_ty env0 ipos st;
+          let what = Printf.sprintf "impl %s for %s" tr (string_of_ty st) in
+          let names = Hashtbl.find traits tr in
+          let got = List.filter_map (function Fn f -> Some (f.name, f.ipos) | _ -> None) ms in
+          List.iteri
+            (fun i (n, at) ->
+              if List.mem_assoc n (List.filteri (fun j _ -> j < i) got) then err at "%s 里的方法 %s 重复" what n;
+              if not (List.mem n names) then err at "trait %s 没有方法 %s" tr n)
+            got;
+          List.iter (fun n -> if not (List.mem_assoc n got) then err ipos "%s 缺少方法 %s" what n) names;
+          let s = [ ("Self", st) ] in
+          List.iter
+            (fun (n, at) ->
+              let tps, tret = Hashtbl.find fns n in
+              let ips, iret = Hashtbl.find fns (inst_name n [ st ]) in
+              if List.length tps <> List.length ips then
+                err at "%s 的方法 %s 有 %d 个参数，trait 里声明的是 %d 个" what n (List.length ips) (List.length tps);
+              List.iteri
+                (fun i ((m1, t1), (m2, t2)) ->
+                  let t1 = subst s t1 in
+                  if m1 <> m2 then
+                    err at "%s 的方法 %s 的第 %d 个参数约定是 %s，trait 里声明的是 %s" what n (i + 1) (mode_name m2)
+                      (mode_name m1);
+                  if t1 <> t2 then
+                    err at "%s 的方法 %s 的第 %d 个参数类型是 %s，应为 %s" what n (i + 1) (string_of_ty t2)
+                      (string_of_ty t1))
+                (List.combine tps ips);
+              if subst s tret <> iret then
+                err at "%s 的方法 %s 返回 %s，应为 %s" what n (string_of_ty iret) (string_of_ty (subst s tret)))
+            got
+      | Trait { methods = ms; _ } ->
+          List.iter
+            (fun (m : msig) ->
+              let ps, ret = Hashtbl.find fns m.mname in
+              List.iter (fun (_, t) -> check_ty env0 m.mpos t; if t = TUnit then err m.mpos "C0 不支持 () 类型的参数") ps;
+              check_ty env0 m.mpos ret)
+            ms
       | Fn _ -> ())
     p;
   env0
@@ -892,6 +1017,31 @@ let resolve_item = function
       it
   | it -> it
 
+(* 整个程序的条目逐个解析：impl 换成它的方法（普通函数，名字是 方法<类型>，Self 换成实现的类型）；
+   trait 只有签名，已经登记过，不再留在程序里。 *)
+let resolve_items = function
+  | Fn _ as it -> [ resolve_item it ]
+  | Impl { self; fns; ipos; _ } ->
+      let st = resolve [] ipos self in
+      List.filter_map
+        (function
+          | Fn f ->
+              let name = inst_name f.name [ st ] in
+              let ps, ret = Hashtbl.find sigs name in
+              Some
+                (Fn
+                   {
+                     f with
+                     name;
+                     params = List.map2 (fun (m, x, _) (_, t) -> (m, x, t)) f.params ps;
+                     ret;
+                     body = map_body ~fresh:false (resolve [ ("Self", st) ]) f.body;
+                   })
+          | Struct _ | Enum _ | Trait _ | Impl _ -> None)
+        fns
+  | Trait _ -> []
+  | (Struct _ | Enum _) as it -> [ it ]
+
 (* 泛型函数 f 按类型实参 ts 的实例：复制函数体（表达式换新的 id），类型参数换成具体类型。 *)
 let instance (f, ts) =
   match Hashtbl.find gfns f with
@@ -902,6 +1052,7 @@ let instance (f, ts) =
           g with
           name = inst_name f ts;
           tparams = [];
+          bounds = [];
           params = List.map (fun (m, x, t) -> (m, x, subst s t)) g.params;
           ret = subst s g.ret;
           body = map_body ~fresh:true (fun _ -> subst s) g.body;
@@ -910,7 +1061,7 @@ let instance (f, ts) =
 
 (* 检查一个函数。 *)
 let check_fn env0 = function
-  | Fn { params; ret; body; ipos; _ } ->
+  | Fn { params; ret; body; ipos; bounds; _ } ->
       (* 区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3） *)
       regions :=
         List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) params)
@@ -925,10 +1076,10 @@ let check_fn env0 = function
         params;
       check_ty env0 ipos ret;
       let vars = List.rev_map (fun (m, x, t) -> (x, (t, m <> MLet))) params in
-      let env = { env0 with ret; vars } in
+      let env = { env0 with ret; vars; tbounds = bounds } in
       expect ipos ret (block env ~want:ret body);
       regions := []
-  | Struct _ | Enum _ -> ()
+  | Struct _ | Enum _ | Trait _ | Impl _ -> ()
 
 let check_main env0 =
   match Hashtbl.find_opt env0.fns "main" with
@@ -936,10 +1087,10 @@ let check_main env0 =
   | Some _ -> err { line = 1; col = 1 } "main 必须是 fn main()，没有参数、没有返回值、没有类型参数"
   | None -> err { line = 1; col = 1 } "缺少 fn main()"
 
-(* 检查整个程序。返回解析过类型的程序，后面接上用到的泛型函数实例（单态化），每个实例照常检查。 *)
+(* 检查整个程序。返回解析过类型的程序（impl 换成它的方法），后面接上用到的泛型函数实例（单态化），每个实例照常检查。 *)
 let program (p : program) : program =
   let env0 = prepare p in
-  let p = List.map resolve_item p in
+  let p = List.concat_map resolve_items p in
   List.iter (check_fn env0) p;
   check_main env0;
   let rec drain acc =

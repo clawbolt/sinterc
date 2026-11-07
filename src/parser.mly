@@ -15,6 +15,17 @@ let mk_block ss =
 (* 参数 a: Arena 引入名为 a 的区域。 *)
 let arena_param n = function TArena _ -> TArena n | t -> t
 
+(* 类型参数 <T, U: Show + linear>：拆成 (名字, 是否 linear) 和 trait 约束 (名字, trait)。 *)
+let split_tparams tp =
+  ( List.map (fun (n, bs) -> (n, List.mem "" bs)) tp,
+    List.concat_map (fun (n, bs) -> List.filter_map (fun b -> if b = "" then None else Some (n, b)) bs) tp )
+
+(* 结构体、枚举的类型参数不能写 trait 约束。 *)
+let plain_tparams pos tp =
+  let tp, bs = split_tparams tp in
+  if bs <> [] then raise (Syntax (p pos, "结构体和枚举的类型参数暂不能写 trait 约束"));
+  tp
+
 let ty_of_name = function
   | "I64" -> TI64
   | "Bool" -> TBool
@@ -25,7 +36,7 @@ let ty_of_name = function
 %token <int64> INT
 %token <string> IDENT UIDENT
 %token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
-%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM
+%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM TRAIT IMPL FOR
 %token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ
 %token PLUS MINUS STAR SLASH PERCENT BANG
 %token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
@@ -54,22 +65,45 @@ nls:
 
 item:
   | STRUCT n = UIDENT tp = tparams LBRACE nls fs = fields RBRACE
-    { Struct { name = n; tparams = tp; fields = fs; linear = false; ipos = p $startpos } }
+    { Struct { name = n; tparams = plain_tparams $startpos tp; fields = fs; linear = false; ipos = p $startpos } }
   | LINEAR STRUCT n = UIDENT tp = tparams LBRACE nls fs = fields RBRACE
-    { Struct { name = n; tparams = tp; fields = fs; linear = true; ipos = p $startpos } }
+    { Struct { name = n; tparams = plain_tparams $startpos tp; fields = fs; linear = true; ipos = p $startpos } }
   | ENUM n = UIDENT tp = tparams LBRACE nls vs = variants RBRACE
-    { Enum { name = n; tparams = tp; variants = vs; ipos = p $startpos } }
-  | FN n = IDENT tp = tparams LPAREN ps = separated_list(COMMA, param) RPAREN r = ret b = block
-    { Fn { name = n; tparams = tp; params = ps; ret = r; body = b; ipos = p $startpos } }
+    { Enum { name = n; tparams = plain_tparams $startpos tp; variants = vs; ipos = p $startpos } }
+  | f = fn_item { f }
+  | TRAIT n = UIDENT LBRACE nls ms = msigs RBRACE
+    { Trait { name = n; methods = ms; ipos = p $startpos } }
+  | IMPL t = UIDENT FOR s = ty LBRACE nls fs = impl_fns RBRACE
+    { Impl { trait = t; self = s; fns = fs; ipos = p $startpos } }
 
-(* 类型参数：<T, U: linear> *)
+fn_item:
+  | FN n = IDENT tp = tparams LPAREN ps = separated_list(COMMA, param) RPAREN r = ret b = block
+    { let tp, bs = split_tparams tp in
+      Fn { name = n; tparams = tp; bounds = bs; params = ps; ret = r; body = b; ipos = p $startpos } }
+
+(* trait 里的方法签名，没有函数体 *)
+msigs:
+  | { [] }
+  | FN n = IDENT LPAREN ps = separated_list(COMMA, param) RPAREN r = ret nls ms = msigs
+    { { mname = n; mparams = ps; mret = r; mpos = p $startpos } :: ms }
+
+impl_fns:
+  | { [] }
+  | f = fn_item nls fs = impl_fns { f :: fs }
+
+(* 类型参数：<T, U: linear, V: Show + Eq> *)
 tparams:
   | { [] }
   | LT ts = separated_nonempty_list(COMMA, tparam) GT { ts }
 
 tparam:
-  | n = UIDENT { (n, false) }
-  | n = UIDENT COLON LINEAR { (n, true) }
+  | n = UIDENT { (n, []) }
+  | n = UIDENT COLON bs = separated_nonempty_list(PLUS, bound) { (n, bs) }
+
+(* "" 表示 linear *)
+bound:
+  | LINEAR { "" }
+  | t = UIDENT { t }
 
 fields:
   | { [] }

@@ -34,7 +34,7 @@ let () =
   Lexing.set_filename lexbuf file;
   let prog =
     try Parser.program Lexer.token lexbuf with
-    | Lexer.Error (pos, msg) -> fail file pos msg
+    | Lexer.Error (pos, msg) | Ast.Syntax (pos, msg) -> fail file pos msg
     | Parser.Error ->
         let p = Lexing.lexeme_start_p lexbuf in
         fail file { line = p.pos_lnum; col = p.pos_cnum - p.pos_bol + 1 }
@@ -77,7 +77,7 @@ let () =
                       internal :=
                         Printf.sprintf "%s（第 %d 行：%s）" name ipos.line (Printexc.to_string e) :: !internal;
                       []))
-          | Ast.Struct _ | Ast.Enum _ -> [])
+          | Ast.Struct _ | Ast.Enum _ | Ast.Trait _ | Ast.Impl _ -> [])
         prog
     in
     let total = !both + !neither + List.length !only_lean + !only_sn + List.length !internal in

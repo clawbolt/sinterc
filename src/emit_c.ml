@@ -142,7 +142,7 @@ let type_defs (p : program) (fs : Mir.func list) =
   List.iter
     (function
       | Struct { name; tparams = []; _ } | Enum { name; tparams = []; _ } -> visit (TStruct name)
-      | Struct _ | Enum _ | Fn _ -> ())   (* 泛型定义本身没有 C 类型，用到的实例从函数的局部变量找到 *)
+      | Struct _ | Enum _ | Fn _ | Trait _ | Impl _ -> ())   (* 泛型定义本身没有 C 类型，用到的实例从函数的局部变量找到 *)
     p;
   List.iter
     (fun (f : Mir.func) ->

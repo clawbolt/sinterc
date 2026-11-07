@@ -62,7 +62,8 @@ type field = { fname : string; fty : ty }
 (* 参数约定：let 只读借用（默认），inout 可变借用，sink 转移所有权。 *)
 type mode = MLet | MInout | MSink
 
-(* tparams：类型参数，true 表示标了 linear（只有函数可以标）。 *)
+(* tparams：类型参数，true 表示标了 linear（只有函数可以标）。
+   bounds：函数类型参数的 trait 约束，(T, Show) 表示 T: Show。 *)
 type item =
   | Struct of { name : string; tparams : (string * bool) list; fields : field list; linear : bool; ipos : pos }
   | Enum of { name : string; tparams : (string * bool) list; variants : (string * ty option) list; ipos : pos }
@@ -70,13 +71,21 @@ type item =
   | Fn of {
       name : string;
       tparams : (string * bool) list;
+      bounds : (string * string) list;
       params : (mode * string * ty) list;
       ret : ty;
       body : block;
       ipos : pos;
     }
+  | Trait of { name : string; methods : msig list; ipos : pos }   (* 方法签名里可以用 Self *)
+  | Impl of { trait : string; self : ty; fns : item list; ipos : pos }   (* fns 都是 Fn *)
+
+and msig = { mname : string; mparams : (mode * string * ty) list; mret : ty; mpos : pos }
 
 type program = item list
+
+(* 解析时发现的、语法规则表达不了的错误。 *)
+exception Syntax of pos * string
 
 (* 表达式的 id：解析时依次分配，实例化泛型函数时复制出的表达式也从这里取新的。 *)
 let next_id = ref 0

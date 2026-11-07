@@ -593,5 +593,5 @@ let lower (p : program) : func list =
   List.filter_map
     (function
       | Fn { name; params; ret; body; ipos; _ } -> Some (lower_fn name params ret body ipos)
-      | Struct _ | Enum _ -> None)
+      | Struct _ | Enum _ | Trait _ | Impl _ -> None)
     p
