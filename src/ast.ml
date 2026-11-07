@@ -8,7 +8,7 @@ type ty =
   | TUnit
   | TStruct of string   (* 用户定义的结构体或枚举，按名字区分 *)
   | TBox of ty          (* 拥有一块堆内存 *)
-  | TResult of ty * ty  (* 内建的 Result<T, E> *)
+  | TResult of ty * ty  (* Result<T, E>：变体为 Ok(T)、Err(E) 的枚举（还没有泛型，单独记） *)
   | TRef of ty * string (* &T in a：区域 a 里的只读引用 *)
   | TArena of string    (* 区域本身，只能作为函数参数类型或 arena 块引入的名字 *)
 
@@ -32,9 +32,8 @@ and expr_desc =
   | StructLit of string * (string * expr) list
   | Field of expr * string
   | Deref of expr       (* *b：读出 Box 里的值，不移动 *)
-  | ResLit of bool * expr   (* Ok(e) 为 true，Err(e) 为 false *)
   | Try of expr             (* e? *)
-  | Variant of string * expr option   (* .A(e) / .B：枚举的构造，类型由上下文确定 *)
+  | Variant of string * expr option   (* .A(e) / .B / Ok(e) / Err(e)：枚举的构造，类型由上下文确定 *)
   | Match of bool * expr * (string * string * expr) list
       (* match r { Ok(x) => a, Err(y) => b }，或 match s { .A(x) => a, .B => b }；没写绑定时绑定名是 ""。
          true：match let s { … }，按借用匹配 *)

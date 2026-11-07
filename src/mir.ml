@@ -9,8 +9,8 @@ open Ast
 
 type local = int
 
-(* 位置：一个局部变量加上字段 / 解引用路径。at 是源代码位置，用来报错。PTag 是 Result 的 ok 标志。 *)
-type proj = PField of string | PDeref | PTag | PVar of int   (* PVar i：枚举第 i 个变体的载荷 *)
+(* 位置：一个局部变量加上字段 / 解引用路径。at 是源代码位置，用来报错。 *)
+type proj = PField of string | PDeref | PVar of int   (* PVar i：枚举第 i 个变体的载荷 *)
 
 type place = { base : local; proj : proj list; at : pos }
 
@@ -30,8 +30,6 @@ type rvalue =
   | Call of string * operand list
   | Agg of string * (string * operand) list   (* 结构体字面量 *)
   | BoxNew of ty * operand                (* box(e)：分配堆内存并存入 e *)
-  | MkRes of ty * bool * operand option   (* Ok(e) / Err(e)；值是 () 时没有操作数 *)
-  | Unwrap of operand * bool              (* 取出 Result 里 Ok（true）或 Err（false）的值 *)
   | Consume of ty * operand               (* consume(x)：消费 linear 值，析构它的字段 *)
   | Alloc of ty * place * operand         (* alloc(a, e)：在区域 a 里分配并存入 e *)
   | MkEnum of ty * int * operand option   (* .A(e) / .B：第 i 个变体（Lean M8 的 mk） *)
@@ -81,7 +79,6 @@ let nopos = { line = 0; col = 0 }
 
 let whole ?(at = nopos) l = { base = l; proj = []; at }
 
-let tag (p : place) = Copy { p with proj = p.proj @ [ PTag ] }
 
 (* ---------- 降级 ---------- *)
 
@@ -227,15 +224,12 @@ let rec expr st env (x : expr) : operand option =
   | StructLit (n, inits) ->
       let fs = List.map (fun (f, e) -> (f, Option.get (expr st env e))) inits in
       value st x (Agg (n, fs))
-  | ResLit (ok, a) -> (
-      let oa = expr st env a in
-      match ty_of x with Some ty -> value st x (MkRes (ty, ok, oa)) | None -> dummy)
   | Variant (v, a) -> (
       let oa = Option.bind a (expr st env) in
       match ty_of x with
-      | Some (TStruct n as ty) -> (
-          match Typeck.variant n v with Some (i, _) -> value st x (MkEnum (ty, i, oa)) | None -> dummy)
-      | _ -> dummy)
+      | Some ty -> (
+          match Typeck.variant ty v with Some (i, _) -> value st x (MkEnum (ty, i, oa)) | None -> dummy)
+      | None -> dummy)
   | If (c, a, b) ->
       let oc = Option.get (expr st env c) in
       let ty = ty_of x in
@@ -277,67 +271,39 @@ let rec expr st env (x : expr) : operand option =
   | Try a -> (
       match ty_of a with
       | Some (TResult (t, e)) ->
-          (* 出错：把错误值包成函数返回的 Err，执行 errdefer，出错返回；否则取出 Ok 的值 *)
+          (* 出错：把错误值包成函数返回的 Err，执行 errdefer，出错返回；否则取出 Ok 的值。
+             Result 是枚举，Ok 的标签是 0，Err 是 1 *)
           let o = Option.get (expr st env a) in
+          let c = temp st TBool x.pos in
+          emit st (Assign (whole c, TagIs (Copy (place_of o), 0)));
           let bok = new_block st and berr = new_block st in
-          terminate st (Branch (tag (place_of o), bok, berr));
+          terminate st (Branch (Copy (whole c), bok, berr));
           st.cur <- berr;
-          let ev = unwrap st o e false x.pos in
+          let ev = unwrap st o e 1 x.pos in
           (match st.fret with
-          | Some r -> emit st (Assign (whole r, MkRes (st.fret_ty, false, ev)))
+          | Some r -> emit st (Assign (whole r, MkEnum (st.fret_ty, 1, ev)))
           | None -> ());
           exit_fn st x.pos Err;
           st.cur <- bok;
-          unwrap st o t true x.pos
+          unwrap st o t 0 x.pos
       | _ ->
           ignore (expr st env a);
           dummy)
   | Match (borrow, s, arms) -> (
       match ty_of s with
-      | Some (TStruct n) when Hashtbl.mem Typeck.enum_tbl n -> enum_match st env x borrow s n arms
-      | Some (TResult (tt, te)) ->
-          let o = Option.get (expr st env s) in
-          let ty = ty_of x in
-          let t = Option.bind ty (fun ty -> if ty = TUnit then None else Some (temp st ty x.pos)) in
-          let bok = new_block st and berr = new_block st and join = new_block st in
-          terminate st (Branch (tag (place_of o), bok, berr));
-          let arm ok pty =
-            let _, b, (e : expr) = List.find (fun (n, _, _) -> n = if ok then "Ok" else "Err") arms in
-            st.scopes <- [] :: st.scopes;
-            let env' =
-              if pty = TUnit then begin
-                (match o with Move _ -> emit st (Eval (Unwrap (o, ok))) | _ -> ());
-                env
-              end
-              else begin
-                let l = new_local ~pos:e.pos st b pty in
-                own st l pty;
-                emit st (Assign (whole l, Unwrap (o, ok)));
-                (b, l) :: env
-              end
-            in
-            let v = close_scope st (expr st env' e) (ty_of e) e.pos in
-            (match t, v with Some t, Some v -> emit st (Assign (whole t, Use v)) | _ -> ());
-            terminate st (Goto join)
-          in
-          st.cur <- bok;
-          arm true tt;
-          st.cur <- berr;
-          arm false te;
-          st.cur <- join;
-          result t ty x.pos
+      | Some sty when Typeck.variants sty <> None -> enum_match st env x borrow s sty arms
       | _ ->
           ignore (expr st env s);
           dummy)
 
-(* 枚举的 match（Lean M8（一）、M8（二））：按标签依次比较，跳到对应分支，最后一个变体不用比较。
+(* 枚举（含 Result）的 match（Lean M8（一）、M8（二））：按标签依次比较，跳到对应分支，最后一个变体不用比较。
    按移动：分支开始时把载荷移进分支变量（枚举整个变成已移走）；没有载荷的变体也把枚举标记为已移走。
    各分支结束时状态不同的变量由 own.ml 合并成“可能已初始化”，按 drop flag 析构。
    按借用（match let，或者被匹配的位置不能整个移走，和 let 绑定投影的规则相同）：
    需要析构的载荷绑定成投影，由 borrow.ml 锁住源对象；可复制的载荷直接复制。枚举本身不动。 *)
-and enum_match st env (x : expr) explicit (s : expr) n arms =
-  let vs = Hashtbl.find Typeck.enum_tbl n in
-  let needs = Typeck.needs_drop (TStruct n) in
+and enum_match st env (x : expr) explicit (s : expr) sty arms =
+  let vs = Option.get (Typeck.variants sty) in
+  let needs = Typeck.needs_drop sty in
   let borrowed, p, o =
     if is_place s then begin
       let p = place st env s in
@@ -403,14 +369,14 @@ and result t ty pos =
   | _ -> if ty = None then dummy else None
 
 (* 取出 Result 里一边的值，存进临时变量。值是 () 时没有临时变量，但仍要把 Result 标记为已移走。 *)
-and unwrap st o ty ok pos =
+and unwrap st o ty i pos =
   if ty = TUnit then begin
-    (match o with Move _ -> emit st (Eval (Unwrap (o, ok))) | _ -> ());
+    (match o with Move _ -> emit st (Eval (Payload (o, i))) | _ -> ());
     None
   end
   else begin
     let v = temp st ty pos in
-    emit st (Assign (whole v, Unwrap (o, ok)));
+    emit st (Assign (whole v, Payload (o, i)));
     Some (use_local v ty pos)
   end
 
@@ -550,7 +516,9 @@ and block st env (b : Ast.block) : operand option =
             (match st.fret, o with
             | Some r, Some o -> emit st (Assign (whole r, Use o))
             | _ -> ());
-            let why = match e with Some { e = ResLit (false, _); _ } -> Err | _ -> Ret in
+            let why =
+              match e, st.fret_ty with Some { e = Variant ("Err", _); _ }, TResult _ -> Err | _ -> Ret
+            in
             exit_fn st s.spos why;
             ignore (go env rest);
             dummy

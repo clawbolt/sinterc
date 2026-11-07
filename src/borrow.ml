@@ -15,11 +15,11 @@ let succs (b : block) =
   match b.term with Goto j -> [ j ] | Branch (_, a, c) -> [ a; c ] | Return | Unterminated -> []
 
 let operands = function
-  | Use o | Un (_, o) | BoxNew (_, o) | Unwrap (o, _) | Consume (_, o) | Alloc (_, _, o) -> [ o ]
+  | Use o | Un (_, o) | BoxNew (_, o) | Consume (_, o) | Alloc (_, _, o) -> [ o ]
   | Bin (_, a, b) -> [ a; b ]
   | Call (_, os) -> os
   | Agg (_, fs) -> List.map snd fs
-  | MkRes (_, _, o) | MkEnum (_, _, o) -> Option.to_list o
+  | MkEnum (_, _, o) -> Option.to_list o
   | Payload (o, _) | TagIs (o, _) -> [ o ]
 
 let op_place = function Copy p | Move p | Ref p | RefMut p -> Some p | Const _ -> None

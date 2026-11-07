@@ -130,8 +130,7 @@ expr:
   | e = expr QUESTION { mk (Try e) $startpos($2) }
   | n = UIDENT LPAREN a = expr RPAREN
     { match n with
-      | "Ok" -> mk (ResLit (true, a)) $startpos
-      | "Err" -> mk (ResLit (false, a)) $startpos
+      | "Ok" | "Err" -> mk (Variant (n, Some a)) $startpos
       | _ -> mk (Call (n, [ a ])) $startpos }
   | MATCH s = expr LBRACE nls a = arms RBRACE { mk (Match (false, s, a)) $startpos }
   | MATCH LET s = expr LBRACE nls a = arms RBRACE { mk (Match (true, s, a)) $startpos }

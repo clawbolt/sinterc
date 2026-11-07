@@ -38,11 +38,11 @@ let reachable (f : func) =
   seen
 
 let operands = function
-  | Use o | Un (_, o) | BoxNew (_, o) | Unwrap (o, _) | Consume (_, o) | Alloc (_, _, o) -> [ o ]
+  | Use o | Un (_, o) | BoxNew (_, o) | Consume (_, o) | Alloc (_, _, o) -> [ o ]
   | Bin (_, a, b) -> [ a; b ]
   | Call (_, os) -> os
   | Agg (_, fs) -> List.map snd fs
-  | MkRes (_, _, o) | MkEnum (_, _, o) -> Option.to_list o
+  | MkEnum (_, _, o) -> Option.to_list o
   | Payload (o, _) | TagIs (o, _) -> [ o ]
 
 (* 一个函数导出成 (变量个数, 节点列表)；节点是 (操作, 后继, 是否出错出口)。 *)

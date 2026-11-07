@@ -34,13 +34,24 @@ let linear_tbl : (string, unit) Hashtbl.t = Hashtbl.create 16
 (* 枚举定义：变体按声明顺序，下标就是运行时的标签（Lean M8）。 *)
 let enum_tbl : (string, (string * ty option) list) Hashtbl.t = Hashtbl.create 16
 
+(* 一个类型的变体（不是枚举时为 None）。Result<T, E> 就是变体 Ok(T)、Err(E) 的枚举，() 载荷记作没有载荷。 *)
+let variants = function
+  | TStruct n -> Hashtbl.find_opt enum_tbl n
+  | TResult (t, e) ->
+      let pay t = if t = TUnit then None else Some t in
+      Some [ ("Ok", pay t); ("Err", pay e) ]
+  | _ -> None
+
 (* 变体的下标和载荷类型。 *)
-let variant n v =
+let variant ty v =
   let rec go i = function
     | [] -> None
     | (w, t) :: rest -> if w = v then Some (i, t) else go (i + 1) rest
   in
-  go 0 (Hashtbl.find enum_tbl n)
+  go 0 (Option.value (variants ty) ~default:[])
+
+(* 报错时变体的写法：Ok / Err 不带点。 *)
+let vname v = if v = "Ok" || v = "Err" then v else "." ^ v
 
 (* linear 值必须被显式消费，不能在作用域结束时自动析构。 *)
 let rec is_linear = function
@@ -165,25 +176,22 @@ and check env want (x : expr) : t =
 
 and check1 env want (x : expr) : t =
   match x.e with
-  | ResLit (ok, a) -> (
-      match want with
-      | TResult (t, e) ->
-          ignore (check env (if ok then t else e) a);
-          Ty want
-      | _ ->
-          err x.pos "这里需要 %s，%s(…) 是 Result" (string_of_ty want) (if ok then "Ok" else "Err"))
   | Variant (v, a) -> (
-      match want with
-      | TStruct n when Hashtbl.mem enum_tbl n -> (
-          match variant n v, a with
-          | None, _ -> err x.pos "枚举 %s 没有变体 %s" n v
-          | Some (_, Some t), Some a ->
-              ignore (check env t a);
-              Ty want
-          | Some (_, None), None -> Ty want
-          | Some (_, Some t), None -> err x.pos ".%s 带一个 %s 类型的载荷，要写 .%s(…)" v (string_of_ty t) v
-          | Some (_, None), Some _ -> err x.pos ".%s 没有载荷，不能写 .%s(…)" v v)
-      | _ -> err x.pos "这里需要 %s，.%s 是枚举的变体" (string_of_ty want) v)
+      let is_result = match want with TResult _ -> true | _ -> false in
+      let w = vname v in
+      match variant want v, a with
+      | _ when variants want = None -> err x.pos "这里需要 %s，%s 是枚举的变体" (string_of_ty want) w
+      | None, _ -> err x.pos "%s 没有变体 %s" (string_of_ty want) w
+      | Some (_, Some t), Some a ->
+          ignore (check env t a);
+          Ty want
+      | Some (_, None), None -> Ty want
+      | Some (_, None), Some a when is_result ->
+          (* Ok(()) / Err(())：Result 里 () 载荷记作没有载荷 *)
+          ignore (check env TUnit a);
+          Ty want
+      | Some (_, Some t), None -> err x.pos "%s 带一个 %s 类型的载荷，要写 %s(…)" w (string_of_ty t) w
+      | Some (_, None), Some _ -> err x.pos "%s 没有载荷，不能写 %s(…)" w w)
   | If (c, a, Some b) ->
       expect c.pos TBool (expr env c);
       expect x.pos want (block env ~want a);
@@ -332,11 +340,8 @@ and expr1 env (x : expr) : t =
       expect c.pos TBool (expr env c);
       join pos "if " (block env a) (block env b)
   | Block b -> block env b
-  | ResLit (ok, _) ->
-      err pos "无法确定 %s(…) 的类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方"
-        (if ok then "Ok" else "Err")
   | Variant (v, _) ->
-      err pos "无法确定 .%s 的类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方" v
+      err pos "无法确定 %s 的类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方" (vname v)
   | Try a -> (
       match expr env a with
       | Never -> Never
@@ -366,65 +371,43 @@ and arena env want pos r (b : block) : t =
   | _ -> ());
   t
 
-(* borrow：match let s { … }，只用于枚举，s 必须是位置（Lean M8（二））。 *)
+(* 枚举（含 Result）的 match（Lean M8）：必须穷尽，每个变体恰好一个分支；带载荷的变体绑定载荷。
+   borrow：match let s { … }，s 必须是位置（Lean M8（二））。 *)
 and match_ env want pos borrow (s : expr) arms : t =
   match expr env s with
-  | Ty (TStruct n) when Hashtbl.mem enum_tbl n ->
-      if borrow && root s = None then
-        err s.pos "match let 后面必须是变量、字段或解引用（要借用的位置）";
-      enum_match env want pos n arms
-  | Ty (TResult _) when borrow -> err pos "match let 只用于枚举"
-  | Ty (TResult (t, e)) -> result_match env want pos t e arms
   | Never -> err s.pos "不能 match 一个不会返回的值"
-  | Ty t -> err s.pos "%s 不是 Result 或枚举，不能 match" (string_of_ty t)
+  | Ty ty -> (
+      match variants ty with
+      | None -> err s.pos "%s 不是 Result 或枚举，不能 match" (string_of_ty ty)
+      | Some vs ->
+          if borrow && root s = None then
+            err s.pos "match let 后面必须是变量、字段或解引用（要借用的位置）";
+          enum_match env want pos ty vs arms)
 
-and result_match env want pos t e arms : t =
+and enum_match env want pos ty vs arms : t =
+  let is_result = match ty with TResult _ -> true | _ -> false in
   List.iter
-    (fun (n, _, _) -> if n <> "Ok" && n <> "Err" then err pos "match 的分支只能是 Ok 和 Err，不能是 %s" n)
-    arms;
-  let find n =
-    match List.filter (fun (m, _, _) -> m = n) arms with
-    | [ a ] -> a
-    | [] -> err pos "match 缺少 %s 分支" n
-    | _ -> err pos "match 有两个 %s 分支" n
-  in
-  let bind (n, x, (a : expr)) ty =
-    if x = "" then err a.pos "%s 分支要写 %s(x)" n n;
-    if ty = TUnit then begin
-      if x <> "_" then err a.pos "这个分支的值是 ()，绑定名请写 _（而不是 %s）" x;
-      env
-    end
-    else { env with vars = (x, (ty, false)) :: env.vars }
-  in
-  let ((_, _, ao) as a) = find "Ok" and ((_, _, ae) as b) = find "Err" in
-  let ea = bind a t and eb = bind b e in
-  match want with
-  | Some w ->
-      ignore (check ea w ao);
-      ignore (check eb w ae);
-      Ty w
-  | None -> join pos "match " (expr ea ao) (expr eb ae)
-
-(* 枚举的 match（Lean M8（一））：必须穷尽，每个变体恰好一个分支；带载荷的变体绑定载荷。 *)
-and enum_match env want pos n arms : t =
-  let vs = Hashtbl.find enum_tbl n in
-  List.iter
-    (fun (v, _, (a : expr)) -> if not (List.mem_assoc v vs) then err a.pos "枚举 %s 没有变体 %s" n v)
+    (fun (v, _, (a : expr)) ->
+      if not (List.mem_assoc v vs) then err a.pos "%s 没有变体 %s" (string_of_ty ty) (vname v))
     arms;
   let bodies =
     List.map
       (fun (v, pty) ->
-        match List.filter (fun (w, _, _) -> w = v) arms with
+        let w = vname v in
+        match List.filter (fun (u, _, _) -> u = v) arms with
         | [ (_, x, (a : expr)) ] -> (
             match pty with
             | Some t ->
-                if x = "" then err a.pos ".%s 带载荷，分支要写 .%s(x) 或 .%s(_)" v v v;
+                if x = "" then err a.pos "%s 带载荷，分支要写 %s(x) 或 %s(_)" w w w;
                 ({ env with vars = (x, (t, false)) :: env.vars }, a)
             | None ->
-                if x <> "" then err a.pos ".%s 没有载荷，分支要写 .%s => …" v v;
+                (* Result 里的 () 载荷：分支写 Ok(_) *)
+                if x <> "" && not (is_result && x = "_") then
+                  if is_result then err a.pos "%s 的值是 ()，分支要写 %s(_)" w w
+                  else err a.pos "%s 没有载荷，分支要写 %s => …" w w;
                 (env, a))
-        | [] -> err pos "match 没有覆盖 .%s（枚举的 match 必须穷尽）" v
-        | _ -> err pos "match 有两个 .%s 分支" v)
+        | [] -> err pos "match 没有覆盖 %s（枚举的 match 必须穷尽）" w
+        | _ -> err pos "match 有两个 %s 分支" w)
       vs
   in
   match want, bodies with
