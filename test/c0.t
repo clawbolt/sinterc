@@ -18,8 +18,8 @@ C0 骨架的端到端测试：编译成 C，用系统的 cc 编译运行。
   >     print_i64(p.x)
   >     print_i64(p.y)
   >     print_i64(fact(20))
-  >     let i = 0
-  >     let s = 0
+  >     var i = 0
+  >     var s = 0
   >     while i < 5 {
   >         i = i + 1
   >         s = s + i

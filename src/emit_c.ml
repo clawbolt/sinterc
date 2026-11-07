@@ -16,13 +16,29 @@ static int64_t sn_rem(int64_t a, int64_t b) { if (b == 0) sn_panic("除以零");
 static int64_t sn_neg(int64_t a) { if (a == INT64_MIN) sn_panic("整数溢出"); return -a; }
 static void u_print_i64(int64_t x) { printf("%lld\n", (long long)x); }
 static void u_print_bool(bool b) { puts(b ? "true" : "false"); }
+/* 原型阶段统计还没释放的 Box，程序结束时检查有没有泄漏。 */
+static long long sn_live = 0;
+static void *sn_alloc(size_t n) { void *p = malloc(n); if (!p) sn_panic("内存不足"); sn_live++; return p; }
+static void sn_free(void *p) { free(p); sn_live--; }
 |}
 
-let cty = function
+let rec cty = function
   | TI64 -> "int64_t"
   | TBool -> "bool"
   | TUnit -> "void"
   | TStruct n -> "S_" ^ n
+  | TBox t -> cty t ^ "*"
+
+(* 析构一个值：先析构 Box 里面的值，再释放 Box；结构体逐个析构字段。 *)
+let rec drop_code ty lv =
+  match ty with
+  | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
+  | TStruct n ->
+      String.concat ""
+        (List.map
+           (fun (f : field) -> drop_code f.fty (lv ^ ".f_" ^ f.fname))
+           (Hashtbl.find Typeck.struct_tbl n))
+  | TI64 | TBool | TUnit -> ""
 
 (* 结构体按依赖顺序输出：按值包含的结构体先定义（类型检查已经排除了成环）。 *)
 let struct_order (p : program) =
@@ -32,7 +48,8 @@ let struct_order (p : program) =
     if not (List.mem_assoc n !out) then
       match List.assoc_opt n defs with
       | Some fs ->
-          List.iter (fun (f : field) -> match f.fty with TStruct m -> visit m | _ -> ()) fs;
+          let rec dep = function TStruct m -> visit m | TBox t -> dep t | _ -> () in
+          List.iter (fun (f : field) -> dep f.fty) fs;
           if not (List.mem_assoc n !out) then out := (n, fs) :: !out
       | None -> ()
   in
@@ -42,12 +59,16 @@ let struct_order (p : program) =
 (* ---------- 从 MIR 生成 ---------- *)
 
 let place (p : Mir.place) =
-  List.fold_left (fun s f -> Printf.sprintf "%s.f_%s" s f) (Printf.sprintf "l%d" p.base) p.proj
+  List.fold_left
+    (fun s -> function
+      | Mir.PField f -> Printf.sprintf "%s.f_%s" s f
+      | Mir.PDeref -> Printf.sprintf "(*%s)" s)
+    (Printf.sprintf "l%d" p.base) p.proj
 
 let operand = function
   | Mir.Const (Mir.CInt n) -> Printf.sprintf "INT64_C(%Ld)" n
   | Mir.Const (Mir.CBool b) -> if b then "true" else "false"
-  | Mir.Copy p -> place p
+  | Mir.Copy p | Mir.Move p -> place p
 
 let rvalue = function
   | Mir.Use o -> operand o
@@ -65,6 +86,9 @@ let rvalue = function
   | Mir.Agg (n, fs) ->
       let fs = List.map (fun (f, o) -> Printf.sprintf ".f_%s = %s" f (operand o)) fs in
       Printf.sprintf "((S_%s){ %s })" n (String.concat ", " fs)
+  | Mir.BoxNew (t, o) ->
+      let t = cty t in
+      Printf.sprintf "({ %s *p_ = sn_alloc(sizeof(%s)); *p_ = %s; p_; })" t t (operand o)
 
 (* 从入口能走到的块；走不到的块（return 之后的死代码）不输出。 *)
 let reachable (f : Mir.func) =
@@ -107,7 +131,13 @@ let func b (f : Mir.func) =
         List.iter
           (function
             | Mir.Assign (p, rv) -> add (Printf.sprintf "  %s = %s;\n" (place p) (rvalue rv))
-            | Mir.Eval rv -> add (Printf.sprintf "  %s;\n" (rvalue rv)))
+            | Mir.Eval rv -> add (Printf.sprintf "  %s;\n" (rvalue rv))
+            | Mir.DropNow l ->
+                add (Printf.sprintf "  %s\n" (drop_code f.locals.(l).lty (Printf.sprintf "l%d" l)))
+            | Mir.DropIf (l, fl) ->
+                add (Printf.sprintf "  if (l%d) { %s}\n" fl
+                       (drop_code f.locals.(l).lty (Printf.sprintf "l%d" l)))
+            | Mir.Drop _ -> failwith "Drop 应当已由 Own.elaborate 展开")
           blk.stmts;
         match blk.term with
         | Mir.Goto j -> add (Printf.sprintf "  goto bb%d;\n" j)
@@ -134,5 +164,10 @@ let program (p : program) (fs : Mir.func list) : string =
     (struct_order p);
   List.iter (fun f -> add (signature f ^ ";\n")) fs;
   List.iter (func b) fs;
-  add "int main(void) { u_main(); return 0; }\n";
+  add
+    "int main(void) {\n\
+    \  u_main();\n\
+    \  if (sn_live != 0) { fprintf(stderr, \"leak: %lld 个 Box 没有释放\\n\", sn_live); return 102; }\n\
+    \  return 0;\n\
+     }\n";
   Buffer.contents b

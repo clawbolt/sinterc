@@ -20,7 +20,7 @@ let ty_of_name = function
 
 %token <int64> INT
 %token <string> IDENT UIDENT
-%token FN STRUCT LET IF ELSE WHILE RETURN TRUE FALSE
+%token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX
 %token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ
 %token PLUS MINUS STAR SLASH PERCENT BANG
 %token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
@@ -67,6 +67,7 @@ param:
 ty:
   | n = UIDENT { ty_of_name n }
   | LPAREN RPAREN { TUnit }
+  | BOX LT t = ty GT { TBox t }
 
 ret:
   | { TUnit }
@@ -81,7 +82,8 @@ stmts:
   | s = stmt NL nls ss = stmts { s :: ss }
 
 stmt:
-  | LET x = IDENT t = option(preceded(COLON, ty)) EQ e = expr { mks (Let (x, t, e)) $startpos }
+  | LET x = IDENT t = option(preceded(COLON, ty)) EQ e = expr { mks (Let (false, x, t, e)) $startpos }
+  | VAR x = IDENT t = option(preceded(COLON, ty)) EQ e = expr { mks (Let (true, x, t, e)) $startpos }
   | x = IDENT EQ e = expr { mks (Assign (x, e)) $startpos }
   | WHILE c = expr b = block { mks (While (c, b)) $startpos }
   | RETURN e = option(expr) { mks (Return e) $startpos }
@@ -100,6 +102,7 @@ expr:
   | a = expr o = binop b = expr { mk (Binop (o, a, b)) $startpos }
   | MINUS e = expr %prec UNARY { mk (Unop (Neg, e)) $startpos }
   | BANG e = expr %prec UNARY { mk (Unop (Not, e)) $startpos }
+  | STAR e = expr %prec UNARY { mk (Deref e) $startpos }
   | i = if_expr { i }
   | b = block { mk (Block b) $startpos }
 

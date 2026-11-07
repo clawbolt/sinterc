@@ -11,11 +11,23 @@ type env = {
   structs : (string, field list) Hashtbl.t;
   fns : (string, ty list * ty) Hashtbl.t;
   ret : ty;                          (* 当前函数的返回类型 *)
-  vars : (string * ty) list;         (* 局部变量，内层在前 *)
+  vars : (string * (ty * bool)) list;   (* 局部变量和它是否可重新赋值（var），内层在前 *)
 }
 
 (* 每个表达式的类型，按表达式 id 记录。 *)
 let types : (int, t) Hashtbl.t = Hashtbl.create 256
+
+(* 结构体定义，给降级和代码生成判断哪些类型需要析构。 *)
+let struct_tbl : (string, field list) Hashtbl.t = Hashtbl.create 16
+
+(* 需要析构的类型：Box，以及含有 Box 的结构体。这些类型的值只能移动，不能复制。 *)
+let rec needs_drop = function
+  | TBox _ -> true
+  | TStruct n -> (
+      match Hashtbl.find_opt struct_tbl n with
+      | Some fs -> List.exists (fun (f : field) -> needs_drop f.fty) fs
+      | None -> false)
+  | TI64 | TBool | TUnit -> false
 
 let builtins = [ "print_i64", ([ TI64 ], TUnit); "print_bool", ([ TBool ], TUnit) ]
 
@@ -34,8 +46,10 @@ let expect pos want got =
   | Ty t when t = want -> ()
   | Ty t -> err pos "类型不匹配：需要 %s，实际是 %s" (string_of_ty want) (string_of_ty t)
 
-let check_ty env pos = function
+let rec check_ty env pos = function
   | TStruct n when not (Hashtbl.mem env.structs n) -> err pos "未知类型 %s" n
+  | TBox TUnit -> err pos "Box 里不能放 ()"
+  | TBox t -> check_ty env pos t
   | _ -> ()
 
 (* 每个表达式的类型按 id 记下来，给降级用。 *)
@@ -52,7 +66,7 @@ and expr1 env (x : expr) : t =
   | Unit -> Ty TUnit
   | Var v -> (
       match List.assoc_opt v env.vars with
-      | Some t -> Ty t
+      | Some (t, _) -> Ty t
       | None -> err pos "未定义的变量 %s" v)
   | Binop (op, a, b) -> (
       let ta = expr env a in
@@ -64,12 +78,23 @@ and expr1 env (x : expr) : t =
           expect a.pos TI64 ta; expect b.pos TI64 tb; Ty TBool
       | Eq | Ne -> (
           match ta, tb with
-          | Ty (TStruct _ | TUnit), _ | _, Ty (TStruct _ | TUnit) ->
-              err pos "C0 只能比较 I64 和 Bool"
+          | Ty (TStruct _ | TUnit | TBox _), _ | _, Ty (TStruct _ | TUnit | TBox _) ->
+              err pos "只能比较 I64 和 Bool"
           | _ -> ignore (join pos ta tb); Ty TBool)
       | And | Or -> expect a.pos TBool ta; expect b.pos TBool tb; Ty TBool)
   | Unop (Neg, a) -> expect a.pos TI64 (expr env a); Ty TI64
   | Unop (Not, a) -> expect a.pos TBool (expr env a); Ty TBool
+  | Call ("box", [ a ]) -> (
+      match expr env a with
+      | Ty TUnit -> err pos "Box 里不能放 ()"
+      | Ty t -> Ty (TBox t)
+      | Never -> Never)
+  | Call ("box", _) -> err pos "box 需要 1 个参数"
+  | Deref a -> (
+      match expr env a with
+      | Ty (TBox t) -> Ty t
+      | Never -> Never
+      | Ty t -> err pos "%s 不是 Box，不能解引用" (string_of_ty t))
   | Call (f, args) ->
       let ps, r =
         match Hashtbl.find_opt env.fns f with
@@ -129,7 +154,7 @@ and block env (b : block) : t =
     | (s : stmt) :: rest -> (
         let pos = s.spos in
         match s.s with
-        | Let (v, ann, e) ->
+        | Let (mut, v, ann, e) ->
             let t = expr env e in
             let ty =
               match ann, t with
@@ -138,10 +163,11 @@ and block env (b : block) : t =
               | None, Never -> err pos "%s 的初值不会返回，无法推断类型" v
             in
             if ty = TUnit then err pos "C0 不支持 () 类型的变量 %s" v;
-            go { env with vars = (v, ty) :: env.vars } rest
+            go { env with vars = (v, (ty, mut)) :: env.vars } rest
         | Assign (v, e) ->
             (match List.assoc_opt v env.vars with
-            | Some t -> expect e.pos t (expr env e)
+            | Some (t, true) -> expect e.pos t (expr env e)
+            | Some (_, false) -> err pos "%s 是用 let 声明的，不能重新赋值（需要的话改用 var）" v
             | None -> err pos "未定义的变量 %s" v);
             go env rest
         | While (c, body) ->
@@ -171,21 +197,27 @@ let program (p : program) =
           if Hashtbl.mem structs name then err ipos "结构体 %s 重复定义" name;
           Hashtbl.add structs name fields
       | Fn { name; params; ret; ipos; _ } ->
-          if Hashtbl.mem fns name || List.mem_assoc name builtins then
+          if Hashtbl.mem fns name || List.mem_assoc name builtins || name = "box" then
             err ipos "函数 %s 重复定义" name;
           Hashtbl.add fns name (List.map snd params, ret))
     p;
-  (* 结构体按值包含结构体，不能成环。 *)
+  (* 结构体不能包含自己，经过 Box 也不行（还没有 Option，这样的值造不出来）。 *)
   let rec visit path n =
     if List.mem n path then
-      err { line = 1; col = 1 } "结构体 %s 按值包含自己" n;
+      err { line = 1; col = 1 } "结构体 %s 包含自己（C1b 不支持递归类型）" n;
     match Hashtbl.find_opt structs n with
     | Some fs ->
-        List.iter (fun (f : field) ->
-            match f.fty with TStruct m -> visit (n :: path) m | _ -> ()) fs
+        let rec inner = function
+          | TStruct m -> visit (n :: path) m
+          | TBox t -> inner t
+          | _ -> ()
+        in
+        List.iter (fun (f : field) -> inner f.fty) fs
     | None -> ()
   in
   Hashtbl.iter (fun n _ -> visit [] n) structs;
+  Hashtbl.reset struct_tbl;
+  Hashtbl.iter (Hashtbl.replace struct_tbl) structs;
   let env0 = { structs; fns; ret = TUnit; vars = [] } in
   List.iter
     (function
@@ -202,7 +234,7 @@ let program (p : program) =
               if t = TUnit then err ipos "C0 不支持 () 类型的参数 %s" x)
             params;
           check_ty env0 ipos ret;
-          let env = { env0 with ret; vars = List.rev params } in
+          let env = { env0 with ret; vars = List.rev_map (fun (x, t) -> (x, (t, false))) params } in
           expect ipos ret (block env body))
     p;
   match Hashtbl.find_opt fns "main" with

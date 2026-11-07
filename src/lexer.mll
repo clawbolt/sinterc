@@ -11,7 +11,7 @@ let pos lexbuf =
   { Ast.line = p.pos_lnum; col = p.pos_cnum - p.pos_bol + 1 }
 
 let keywords = [
-  "fn", FN; "struct", STRUCT; "let", LET; "if", IF; "else", ELSE;
+  "fn", FN; "struct", STRUCT; "let", LET; "var", VAR; "if", IF; "else", ELSE;
   "while", WHILE; "return", RETURN; "true", TRUE; "false", FALSE;
 ]
 }
@@ -32,7 +32,7 @@ rule token = parse
   | lower alnum* as s     { match List.assoc_opt s keywords with
                             | Some k -> k
                             | None -> IDENT s }
-  | upper alnum* as s     { UIDENT s }
+  | upper alnum* as s     { if s = "Box" then BOX else UIDENT s }
   | "->"  { ARROW }
   | "=="  { EQEQ }  | "!="  { NE }
   | "<="  { LE }    | ">="  { GE }

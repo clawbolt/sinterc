@@ -7,6 +7,7 @@ type ty =
   | TBool
   | TUnit
   | TStruct of string
+  | TBox of ty          (* 拥有一块堆内存 *)
 
 type binop =
   | Add | Sub | Mul | Div | Rem
@@ -27,13 +28,14 @@ and expr_desc =
   | Call of string * expr list
   | StructLit of string * (string * expr) list
   | Field of expr * string
+  | Deref of expr       (* *b：读出 Box 里的值，不移动 *)
   | If of expr * block * block option
   | Block of block
 
 and stmt = { s : stmt_desc; spos : pos }
 
 and stmt_desc =
-  | Let of string * ty option * expr
+  | Let of bool * string * ty option * expr   (* true：var，可以重新赋值 *)
   | Assign of string * expr
   | While of expr * block
   | Return of expr option
@@ -50,8 +52,9 @@ type item =
 
 type program = item list
 
-let string_of_ty = function
+let rec string_of_ty = function
   | TI64 -> "I64"
   | TBool -> "Bool"
   | TUnit -> "()"
   | TStruct n -> n
+  | TBox t -> "Box<" ^ string_of_ty t ^ ">"

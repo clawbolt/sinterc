@@ -27,8 +27,14 @@ let () =
           (Printf.sprintf "语法错误（在 '%s' 附近）" (Lexing.lexeme lexbuf))
   in
   close_in ic;
-  (try Typeck.program prog with Typeck.Error (pos, msg) -> fail file pos msg);
-  let c = Emit_c.program prog (Mir.lower prog) in
+  (* 类型检查、降级、所有权检查都可能报错 *)
+  let fs =
+    try
+      Typeck.program prog;
+      List.map Own.elaborate (Mir.lower prog)
+    with Typeck.Error (pos, msg) -> fail file pos msg
+  in
+  let c = Emit_c.program prog fs in
   match out with
   | None -> print_string c
   | Some o ->
