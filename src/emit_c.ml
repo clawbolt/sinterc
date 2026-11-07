@@ -80,9 +80,18 @@ let rec cty = function
   | TArena _ -> "sn_arena"
   | TApp _ | TParam _ -> failwith "泛型的类型参数不会出现在生成的 C 里"
 
-(* 析构一个值：先析构 Box 里面的值，再释放 Box；结构体逐个析构字段；
-   枚举（含 Result）按运行时标签析构对应变体的载荷（Lean M8 的 dropOne）。 *)
+(* 析构一个值：先析构 Box 里面的值，再释放 Box；结构体、枚举（含 Result）调用这个类型的析构函数。
+   析构函数每个类型一个（type_defs 生成），所以经过 Box 的递归类型（链表、树）的析构是递归调用（Lean M11）。 *)
+let drop_fn t = "sn_drop_" ^ cty t
+
 let rec drop_code ty lv =
+  match ty with
+  | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
+  | (TStruct _ | TResult _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
+  | TI64 | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TApp _ | TParam _ -> ""
+
+(* 析构函数的函数体：结构体逐个析构字段；枚举按运行时标签析构对应变体的载荷（Lean M8 的 dropOne）。 *)
+let drop_body ty lv =
   match ty, Typeck.variants ty with
   | _, Some vs ->
       let cases =
@@ -97,25 +106,35 @@ let rec drop_code ty lv =
              vs)
       in
       if cases = [] then "" else Printf.sprintf "switch (%s.tag) { %sdefault: break; } " lv (String.concat "" cases)
-  | TBox t, _ -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
-  | TStruct n, _ ->
+  | TStruct n, None ->
       String.concat ""
-        (List.map
-           (fun (f : field) -> drop_code f.fty (lv ^ ".f_" ^ f.fname))
-           (Hashtbl.find Typeck.struct_tbl n))
-  | (TI64 | TBool | TUnit | TRef _ | TArena _ | TResult _ | TApp _ | TParam _), _ -> ""
+        (List.map (fun (f : field) -> drop_code f.fty (lv ^ ".f_" ^ f.fname)) (Hashtbl.find Typeck.struct_tbl n))
+  | _ -> ""
 
-(* 类型定义按依赖顺序输出：按值包含的类型先定义，Box 指向的类型也先定义（类型检查已经排除了成环）。 *)
+(* 类型定义：先给所有结构体、枚举写前向声明，再按依赖顺序写定义（按值包含的类型先定义；
+   Box 指向的类型只需要前向声明，放到后面再处理，所以经过 Box 的递归没有问题）；
+   最后是需要析构的类型的析构函数（先写原型，析构函数之间可以互相调用）。 *)
 let type_defs (p : program) (fs : Mir.func list) =
-  let b = Buffer.create 1024 in
+  let fwd = Buffer.create 256 and defs = Buffer.create 1024 in
+  let protos = Buffer.create 256 and bodies = Buffer.create 1024 in
   let seen = Hashtbl.create 16 in
+  let later = Queue.create () in
+  let declare t =
+    Hashtbl.replace seen (cty t) ();
+    Buffer.add_string fwd (Printf.sprintf "typedef struct %s %s;\n" (cty t) (cty t));
+    if Typeck.needs_drop t then begin
+      Buffer.add_string protos (Printf.sprintf "static void %s(%s *p);\n" (drop_fn t) (cty t));
+      Buffer.add_string bodies
+        (Printf.sprintf "static void %s(%s *p) { %s}\n" (drop_fn t) (cty t) (drop_body t "(*p)"))
+    end
+  in
   let rec visit t =
     match t, Typeck.variants t with
-    | (TBox t | TRef (t, _)), _ -> visit t
+    | (TBox t | TRef (t, _)), _ -> Queue.add t later
     | (TStruct _ | TResult _), _ when Hashtbl.mem seen (cty t) -> ()
     | _, Some vs ->
         (* 枚举（含 Result）：标签加上各个载荷的 union *)
-        Hashtbl.replace seen (cty t) ();
+        declare t;
         List.iter (fun (_, t) -> Option.iter visit t) vs;
         let pays =
           List.concat
@@ -124,19 +143,18 @@ let type_defs (p : program) (fs : Mir.func list) =
                  match t with Some t -> [ Printf.sprintf " %s v%d;" (cty t) i ] | None -> [])
                vs)
         in
-        Buffer.add_string b
-          (Printf.sprintf "typedef struct %s { int64_t tag;%s } %s;\n" (cty t)
-             (if pays = [] then "" else Printf.sprintf " union {%s } u;" (String.concat "" pays))
-             (cty t))
+        Buffer.add_string defs
+          (Printf.sprintf "struct %s { int64_t tag;%s };\n" (cty t)
+             (if pays = [] then "" else Printf.sprintf " union {%s } u;" (String.concat "" pays)))
     | TStruct n, _ ->
-        Hashtbl.replace seen (cty t) ();
+        declare t;
         let fields = Hashtbl.find Typeck.struct_tbl n in
         List.iter (fun (f : field) -> visit f.fty) fields;
-        Buffer.add_string b (Printf.sprintf "typedef struct %s {" (sname n));
+        Buffer.add_string defs (Printf.sprintf "struct %s {" (sname n));
         List.iter
-          (fun (f : field) -> Buffer.add_string b (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname))
+          (fun (f : field) -> Buffer.add_string defs (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname))
           fields;
-        Buffer.add_string b (Printf.sprintf " } %s;\n" (sname n))
+        Buffer.add_string defs " };\n"
     | (TI64 | TBool | TUnit | TArena _ | TResult _ | TApp _ | TParam _), _ -> ()
   in
   List.iter
@@ -149,7 +167,10 @@ let type_defs (p : program) (fs : Mir.func list) =
       visit f.ret;
       Array.iter (fun (l : Mir.local_info) -> visit l.lty) f.locals)
     fs;
-  Buffer.contents b
+  while not (Queue.is_empty later) do
+    visit (Queue.pop later)
+  done;
+  Buffer.contents fwd ^ Buffer.contents defs ^ Buffer.contents protos ^ Buffer.contents bodies
 
 (* ---------- 从 MIR 生成 ---------- *)
 

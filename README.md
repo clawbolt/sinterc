@@ -1,6 +1,6 @@
-# sinterc：Sinter 编译器（C9）
+# sinterc：Sinter 编译器（C10）
 
-附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait。
+附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型。
 支持 `I64`、`Bool`、`()`、结构体、`Box<T>`、函数、`let` / `var` / 赋值、`if`（可作表达式）、`while`、`return`，
 以及内置的 `print_i64`、`print_bool`、`box(e)`、解引用 `*b`。
 参数约定 `let`（默认）/ `inout` / `sink`，`let` 绑定投影；`linear struct`、内建的 `Result<T, E>`、`Ok` / `Err`、`?`、`match`、`errdefer`、`consume(x)`。
@@ -8,6 +8,7 @@
 枚举：`enum E { A(T), B }`、`.A(e)` / `.B`、`match e { .A(x) => …, .B => … }`、按借用的 `match let e { … }`。
 泛型：`fn f<T, U: linear>(…)`、`struct Pair<A, B> { … }`、`enum Option<T> { Some(T), None }`，类型实参从实参和期望的类型推出来。
 trait：`trait Show { fn show(x: Self) -> I64 }`、`impl Show for I64 { … }`、约束 `T: Show + Eq + linear`，静态派发。
+递归类型：经过 `Box` 的链表、树，例如 `struct Node { v: I64, next: Box<List> }`、`enum List { Cons(Node), Nil }`。
 还没有 `inout` 投影、多个载荷的变体、嵌套模式、关联类型、默认方法、trait 对象、泛型 impl、`x.show()` 写法、显式的类型实参（`f::<T>()`）、泛型和区域的组合、区域类型（`Expr<in a>`）、`Mut`、区域里存放引用等（按 Lean 模型逐项加入）。
 
 ## 依赖
@@ -59,7 +60,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   `.A(e)` / `.B` 的类型和 `Ok` / `Err` 一样由上下文确定。`match` 必须穷尽，每个变体恰好一个分支；
   按移动拆开：带载荷的分支把载荷移进分支变量（写 `_` 也会移走，在分支结束时析构），枚举本身变成已移走。
   各分支结束时状态不同的变量按 drop flag 析构；没被 `match` 的枚举在作用域结束时按运行时标签析构载荷。
-  载荷都可复制的枚举整体按值复制（和结构体相同，`copy enum` 的显式标注之后再做）。不支持递归类型。
+  载荷都可复制的枚举整体按值复制（和结构体相同，`copy enum` 的显式标注之后再做）。
 - 按借用的 `match`（Lean M8（二））：`match let x { … }` 显式借用；被匹配的位置不能整个移走时
   （`let` / `inout` 参数、字段、解引用）自动借用，和 `let` 绑定投影的规则相同。枚举本身不动，`match` 之后照常可用。
   需要析构的载荷绑定成投影（不拥有，不能移走）；投影之后还会用到时，被匹配的值不能被移动、修改、以 `inout` 传入或析构。

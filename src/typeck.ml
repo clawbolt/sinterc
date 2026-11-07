@@ -237,6 +237,8 @@ and instantiate g ts =
   let name = inst_name g ts in
   if not (Hashtbl.mem inst_tbl name) then begin
     Hashtbl.replace inst_tbl name (g, ts);
+    if Hashtbl.length inst_tbl > 1000 then
+      err { line = 1; col = 1 } "泛型类型的实例超过 1000 个（可能是类型实参越来越大的递归类型，例如 W<T> 里有 Box<W<Box<T>>>）";
     let ps, it = Hashtbl.find gtypes g in
     let sc = List.combine ps ts in
     match it with
@@ -484,9 +486,12 @@ and call env want (x : expr) f args : t =
     | Some tps ->
         let s = ref [] in
         Option.iter (fun w -> unify s r w) want;
+        (* .A(e) / .B 自己推不出类型，留到类型实参确定之后按期望类型检查 *)
         List.iter2
           (fun (_, p) (a : expr) ->
-            if List.exists (fun n -> not (List.mem_assoc n !s)) (params_of p) then
+            if List.exists (fun n -> not (List.mem_assoc n !s)) (params_of p)
+               && (match a.e with Variant _ -> false | _ -> true)
+            then
               match expr env a with Ty t -> unify s p t | Never -> ())
           ps args;
         let ts =
@@ -827,15 +832,15 @@ let prepare (p : program) =
           Hashtbl.add traits name (List.map (fun (m : msig) -> m.mname) ms)
       | Impl _ -> ())
     p;
-  (* 结构体、枚举不能包含自己，经过 Box 或泛型类型的实参也不行（递归类型的析构还没有证明）。
-     按名字检查，所以泛型类型的实例化一定会结束。 *)
+  (* 结构体、枚举不能不经过 Box 包含自己（大小是无限的）；经过 Box 的递归可以（Lean M11）。
+     泛型类型的实参也算包含（保守：实参只放在 Box 里时也拒绝）。 *)
   let rec visit path n =
     if List.mem n path then
-      err { line = 1; col = 1 } "类型 %s 包含自己（还不支持递归类型）" n;
+      err { line = 1; col = 1 } "类型 %s 不经过 Box 包含自己，大小是无限的（递归要经过 Box，例如 next: Box<List>）" n;
     let rec inner = function
       | TStruct m -> visit (n :: path) m
       | TApp (m, ts) -> visit (n :: path) m; List.iter inner ts
-      | TBox t -> inner t
+      | TBox _ -> ()   (* Box 是指针，经过它的递归大小有限 *)
       | TResult (a, b) -> inner a; inner b
       | _ -> ()
     in
