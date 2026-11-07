@@ -438,6 +438,11 @@ and block st env (b : Ast.block) : operand option =
             st.proots <- (q, root st p.base) :: st.proots;
             emit st (Proj (q, p));
             go ((v, q) :: env) rest
+        | Decl (v, ty) ->
+            (* 一开始未初始化，由 own.ml 的数据流检查读之前有没有赋值 *)
+            let l = new_local ~pos:s.spos st v ty in
+            own st l ty;
+            go ((v, l) :: env) rest
         | Let (_, v, ann, e) ->
             let o = expr st env e in
             let ty =

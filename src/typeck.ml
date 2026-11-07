@@ -52,7 +52,11 @@ let rec needs_drop = function
 
 (* 内建函数按值接收可复制的参数，记作 sink。 *)
 let builtins =
-  [ "print_i64", ([ (MSink, TI64) ], TUnit); "print_bool", ([ (MSink, TBool) ], TUnit) ]
+  [
+    "print_i64", ([ (MSink, TI64) ], TUnit);
+    "print_bool", ([ (MSink, TBool) ], TUnit);
+    "choose", ([], TBool);       (* 对照测试用：按运行时给定的选择序列返回真假 *)
+  ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
 let special = [ "box"; "consume"; "alloc" ]
@@ -375,6 +379,13 @@ and block ?want env (b : block) : t =
     | (s : stmt) :: rest -> (
         let pos = s.spos in
         match s.s with
+        | Decl (v, ty) ->
+            check_ty env pos ty;
+            (match ty with
+            | TUnit -> err pos "C0 不支持 () 类型的变量 %s" v
+            | TArena _ -> err pos "区域不能存进变量"
+            | _ -> ());
+            go { env with vars = (v, (ty, true)) :: env.vars } rest
         | Let (mut, v, ann, e) ->
             let ty =
               match ann with
@@ -447,7 +458,8 @@ and errdefer env pos (e : expr) =
       | _ -> err pos "errdefer 的调用必须以 sink 方式传入恰好一个 linear 变量（出错时由它消费）")
   | _ -> err pos "errdefer 后面必须是一个函数调用"
 
-let program (p : program) =
+(* 整个程序的准备：结构体、函数签名、结构体字段。返回检查函数体用的环境。 *)
+let prepare (p : program) =
   let structs = Hashtbl.create 16 and fns = Hashtbl.create 16 in
   Hashtbl.reset linear_tbl;
   List.iter
@@ -495,26 +507,39 @@ let program (p : program) =
               if is_linear f.fty && not linear then
                 err ipos "%s 的字段 %s 是 linear 的，%s 也必须标 linear" name f.fname name)
             fields
-      | Fn { params; ret; body; ipos; _ } ->
-          (* 区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3） *)
-          regions :=
-            List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) params)
-            |> List.map (fun r -> (r, []));
-          List.iter
-            (fun (m, x, t) ->
-              check_ty ~param:true env0 ipos t;
-              (match t with
-              | TArena _ when m <> MLet -> err ipos "区域参数 %s 只能按 let 传入" x
-              | _ -> ());
-              if t = TUnit then err ipos "C0 不支持 () 类型的参数 %s" x)
-            params;
-          check_ty env0 ipos ret;
-          let vars = List.rev_map (fun (m, x, t) -> (x, (t, m <> MLet))) params in
-          let env = { env0 with ret; vars } in
-          expect ipos ret (block env ~want:ret body))
+      | Fn _ -> ())
     p;
-  regions := [];
-  match Hashtbl.find_opt fns "main" with
+  env0
+
+(* 检查一个函数。 *)
+let check_fn env0 = function
+  | Fn { params; ret; body; ipos; _ } ->
+      (* 区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3） *)
+      regions :=
+        List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) params)
+        |> List.map (fun r -> (r, []));
+      List.iter
+        (fun (m, x, t) ->
+          check_ty ~param:true env0 ipos t;
+          (match t with
+          | TArena _ when m <> MLet -> err ipos "区域参数 %s 只能按 let 传入" x
+          | _ -> ());
+          if t = TUnit then err ipos "C0 不支持 () 类型的参数 %s" x)
+        params;
+      check_ty env0 ipos ret;
+      let vars = List.rev_map (fun (m, x, t) -> (x, (t, m <> MLet))) params in
+      let env = { env0 with ret; vars } in
+      expect ipos ret (block env ~want:ret body);
+      regions := []
+  | Struct _ -> ()
+
+let check_main env0 =
+  match Hashtbl.find_opt env0.fns "main" with
   | Some ([], TUnit) -> ()
   | Some _ -> err { line = 1; col = 1 } "main 必须是 fn main()，没有参数、没有返回值"
   | None -> err { line = 1; col = 1 } "缺少 fn main()"
+
+let program (p : program) =
+  let env0 = prepare p in
+  List.iter (check_fn env0) p;
+  check_main env0

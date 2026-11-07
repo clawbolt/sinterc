@@ -43,6 +43,7 @@ and stmt = { s : stmt_desc; spos : pos }
 
 and stmt_desc =
   | Let of bool * string * ty option * expr   (* true：var，可以重新赋值 *)
+  | Decl of string * ty     (* var x: T，先不给初值；读之前必须赋值 *)
   | Assign of string * expr
   | While of expr * block
   | Return of expr option

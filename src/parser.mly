@@ -96,6 +96,7 @@ stmts:
 stmt:
   | LET x = IDENT t = option(preceded(COLON, ty)) EQ e = expr { mks (Let (false, x, t, e)) $startpos }
   | VAR x = IDENT t = option(preceded(COLON, ty)) EQ e = expr { mks (Let (true, x, t, e)) $startpos }
+  | VAR x = IDENT COLON t = ty { mks (Decl (x, t)) $startpos }
   | x = IDENT EQ e = expr { mks (Assign (x, e)) $startpos }
   | WHILE c = expr b = block { mks (While (c, b)) $startpos }
   | RETURN e = option(expr) { mks (Return e) $startpos }

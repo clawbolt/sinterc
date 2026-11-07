@@ -79,3 +79,14 @@ sh validate.sh
 导出范围：所有权（含调用约定和排他性）、`linear`、`errdefer` 展开后的出错出口、区域。
 不导出的：投影的锁表（通过投影读取算作读源对象）、`Result` 里的引用、errdefer 的登记规则（前端规则，编译器检查）。
 按 drop flag 析构导出为空操作，之后再给这个变量赋值时 Lean 会保守地拒绝。
+
+### 三方对照（C5 后半）
+
+```
+sh diff.sh
+```
+
+`lean/Core/C5b.lean` 把 M7（六）的 22400 个程序打印成 `_batch/suite.sn`，每个函数名 `p<编号>_<y|n>` 带着 Lean（`acceptsG`）的结论。
+`sinterc --batch` 逐个检查这些函数并统计：Lean 接受的 sinterc 必须接受（sinterc 会自动析构 `Box`，所以反过来不要求）；
+sinterc 接受的生成 C，每个按所有长度不超过 3 的选择序列（`choose()` 依次返回的真假）各跑一遍，不能泄漏 `Box` 或区域内存。
+为此加了测试用的内建函数 `choose()`，以及先不给初值的声明 `var x: T`（读之前必须赋值，由所有权检查保证）。

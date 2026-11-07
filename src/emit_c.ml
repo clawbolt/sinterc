@@ -16,6 +16,9 @@ static int64_t sn_rem(int64_t a, int64_t b) { if (b == 0) sn_panic("除以零");
 static int64_t sn_neg(int64_t a) { if (a == INT64_MIN) sn_panic("整数溢出"); return -a; }
 static void u_print_i64(int64_t x) { printf("%lld\n", (long long)x); }
 static void u_print_bool(bool b) { puts(b ? "true" : "false"); }
+/* 对照测试用：按 sn_seq 里的 0 / 1 依次返回假 / 真，用完之后一直返回假（循环因此一定结束）。 */
+static const char *sn_seq = "";
+static bool u_choose(void) { if (*sn_seq) return *sn_seq++ == '1'; return false; }
 /* 原型阶段统计还没释放的 Box，程序结束时检查有没有泄漏。 */
 static long long sn_live = 0;
 static void *sn_alloc(size_t n) { void *p = malloc(n); if (!p) sn_panic("内存不足"); sn_live++; return p; }
@@ -232,7 +235,9 @@ let func b (f : Mir.func) =
     f.blocks;
   add "}\n"
 
-let program (p : program) (fs : Mir.func list) : string =
+(* batch：对照测试的函数名。给了的话不调用 u_main，而是每个函数按所有长度不超过 3 的选择序列各跑一遍，
+   每次跑完检查有没有没释放的 Box 或区域内存块。 *)
+let program ?batch (p : program) (fs : Mir.func list) : string =
   let b = Buffer.create 4096 in
   let add s = Buffer.add_string b s in
   add prelude;
@@ -240,10 +245,43 @@ let program (p : program) (fs : Mir.func list) : string =
   add (type_defs p fs);
   List.iter (fun f -> add (signature f ^ ";\n")) fs;
   List.iter (func b) fs;
-  add
-    "int main(void) {\n\
-    \  u_main();\n\
-    \  if (sn_live != 0) { fprintf(stderr, \"leak: %lld 个 Box 没有释放\\n\", sn_live); return 102; }\n\
-    \  return 0;\n\
-     }\n";
+  (match batch with
+  | None ->
+      add
+        "int main(void) {\n\
+        \  u_main();\n\
+        \  if (sn_live != 0) { fprintf(stderr, \"leak: %lld 个 Box 没有释放\\n\", sn_live); return 102; }\n\
+        \  return 0;\n\
+         }\n"
+  | Some names ->
+      let rec seqs n = if n = 0 then [ "" ] else "" :: List.concat_map (fun s -> [ "1" ^ s; "0" ^ s ]) (seqs (n - 1)) in
+      let seqs = List.sort_uniq compare (seqs 3) in
+      add
+        (Printf.sprintf "static const char *sn_seqs[] = { %s };\n"
+           (String.concat ", " (List.map (Printf.sprintf "\"%s\"") seqs)));
+      add "typedef void (*sn_test)(void);\n";
+      List.iter (fun n -> add (Printf.sprintf "static void t_%s(void) { (void)u_%s(); }\n" n n)) names;
+      add
+        (Printf.sprintf "static const sn_test sn_tests[] = { %s };\n"
+           (String.concat ", " (List.map (( ^ ) "t_") names)));
+      add
+        (Printf.sprintf "static const char *sn_names[] = { %s };\n"
+           (String.concat ", " (List.map (Printf.sprintf "\"%s\"") names)));
+      add
+        (Printf.sprintf
+           "int main(void) {\n\
+           \  int n = %d, m = %d, bad = 0;\n\
+           \  for (int i = 0; i < n; i++)\n\
+           \    for (int s = 0; s < m; s++) {\n\
+           \      sn_seq = sn_seqs[s];\n\
+           \      sn_tests[i]();\n\
+           \      if (sn_live != 0) {\n\
+           \        if (bad < 10) printf(\"%%s 在选择序列 \\\"%%s\\\" 下泄漏 %%lld 块\\n\", sn_names[i], sn_seqs[s], sn_live);\n\
+           \        bad++; sn_live = 0;\n\
+           \      }\n\
+           \    }\n\
+           \  printf(\"运行：%%d 个 sinterc 接受的程序 × %%d 组选择，泄漏 %%d 次\\n\", n, m, bad);\n\
+           \  return bad ? 1 : 0;\n\
+            }\n"
+           (List.length names) (List.length seqs)));
   Buffer.contents b
