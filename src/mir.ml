@@ -30,6 +30,7 @@ type rvalue =
   | Call of string * operand list
   | Agg of string * (string * operand) list   (* 结构体字面量 *)
   | BoxNew of ty * operand                (* box(e)：分配堆内存并存入 e *)
+  | Unbox of ty * operand                 (* unbox(b)：取出 Box 里的值，释放堆内存（Lean M11 的 unbox） *)
   | Consume of ty * operand               (* consume(x)：消费 linear 值，析构它的字段 *)
   | Alloc of ty * place * operand         (* alloc(a, e)：在区域 a 里分配并存入 e *)
   | MkEnum of ty * int * operand option   (* .A(e) / .B：第 i 个变体（Lean M8 的 mk） *)
@@ -208,6 +209,10 @@ let rec expr st env (x : expr) : operand option =
       let oa = Option.get (expr st env a) in
       let ty = match ty_of a with Some t -> t | None -> TI64 in
       value st x (BoxNew (ty, oa))
+  | Call ("unbox", [ a ]) ->
+      let oa = Option.get (expr st env a) in
+      let ty = match ty_of x with Some t -> t | None -> TI64 in
+      value st x (Unbox (ty, oa))
   | Call ("consume", [ a ]) ->
       let oa = Option.get (expr st env a) in
       (match ty_of a with Some ty -> emit st (Eval (Consume (ty, oa))) | None -> ());
@@ -526,6 +531,26 @@ and block st env (b : Ast.block) : operand option =
             exit_fn st s.spos why;
             ignore (go env rest);
             dummy
+        | Destruct (_, bs, e) ->
+            (* 每个字段复制进各自的变量（所有权跟着转过去），然后把结构体标记为已移走、不析构。
+               结构体不能整个移走（参数、投影）时，expr 报错 *)
+            let o = Option.get (expr st env e) in
+            let p = place_of o in
+            let fs =
+              match ty_of e with Some (TStruct m) -> Hashtbl.find Typeck.struct_tbl m | _ -> []
+            in
+            let env' =
+              List.fold_left
+                (fun env (f, x) ->
+                  let ty = (List.find (fun (g : field) -> g.fname = f) fs).fty in
+                  let l = new_local ~pos:s.spos st x ty in
+                  own st l ty;
+                  emit st (Assign (whole l, Use (Copy { p with proj = p.proj @ [ PField f ] })));
+                  (x, l) :: env)
+                env bs
+            in
+            (match o with Move _ -> emit st (Eval (Use o)) | _ -> ());
+            go env' rest
         | Errdefer e ->
             (* 登记：要消费的值此刻必须还活着（M7（六）的登记规则） *)
             let v = Hashtbl.find Typeck.errdefer_targets e.id in

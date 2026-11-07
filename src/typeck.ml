@@ -88,7 +88,7 @@ let builtins =
   ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
-let special = [ "box"; "consume"; "alloc" ]
+let special = [ "box"; "unbox"; "consume"; "alloc" ]
 
 (* 位置表达式（变量、字段、解引用）所在的变量；其他表达式没有。 *)
 let rec root (x : expr) =
@@ -316,6 +316,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | Return e -> Return (Option.map ex e)
       | Expr e -> Expr (ex e)
       | Errdefer e -> Errdefer (ex e)
+      | Destruct (n, bs, e) -> Destruct (n, bs, ex e)
     in
     { s with s = d }
   and blk (b : block) = { stmts = List.map st b.stmts; tail = Option.map ex b.tail } in
@@ -410,7 +411,13 @@ and expr1 env (x : expr) : t =
       | Ty (TStruct n) when Hashtbl.mem linear_tbl n -> Ty TUnit
       | Never -> Never
       | Ty t -> err pos "consume 只能用于 linear 结构体，%s 不是" (string_of_ty t))
-  | Call ((("box" | "consume") as f), _) -> err pos "%s 需要 1 个参数" f
+  | Call ("unbox", [ a ]) -> (
+      (* 取出 Box 里的值：Box 按 sink 交出，堆内存释放（Lean M11 的 unbox） *)
+      match expr env a with
+      | Ty (TBox t) -> Ty t
+      | Never -> Never
+      | Ty t -> err pos "unbox 的参数必须是 Box，%s 不是" (string_of_ty t))
+  | Call ((("box" | "unbox" | "consume") as f), _) -> err pos "%s 需要 1 个参数" f
   | Call ("alloc", [ a; v ]) -> (
       match expr env a with
       | Ty (TArena r) -> (
@@ -729,6 +736,32 @@ and block ?want env (b : block) : t =
             ignore (check env env.ret e);
             ignore (go env rest);
             Never
+        | Destruct (n, bs, e) ->
+            (* 拆开结构体：每个字段都要写，移进各自的变量；linear 结构体只能 consume *)
+            let m =
+              match expr env e with
+              | Ty (TStruct m) when (m = n || inst_of m = Some n) && Hashtbl.mem env.structs m -> m
+              | Ty t -> err e.pos "这里要拆开的是结构体 %s，实际是 %s" n (string_of_ty t)
+              | Never -> err e.pos "不能拆开一个不会返回的值"
+            in
+            if Hashtbl.mem linear_tbl m then err pos "linear 结构体 %s 不能拆开（要用 consume）" n;
+            let fs = Hashtbl.find env.structs m in
+            List.iter
+              (fun (f, _) -> if not (List.exists (fun (g : field) -> g.fname = f) fs) then err pos "%s 没有字段 %s" n f)
+              bs;
+            List.iter
+              (fun (g : field) ->
+                match List.filter (fun (f, _) -> f = g.fname) bs with
+                | [ _ ] -> ()
+                | [] -> err pos "拆开 %s 时缺少字段 %s（每个字段都要写）" n g.fname
+                | _ -> err pos "字段 %s 重复" g.fname)
+              fs;
+            let vars =
+              List.fold_left
+                (fun vs (f, x) -> (x, ((List.find (fun (g : field) -> g.fname = f) fs).fty, false)) :: vs)
+                env.vars bs
+            in
+            go { env with vars } rest
         | Errdefer e ->
             let v = errdefer env pos e in
             if List.mem v env.guards then err pos "%s 已经有一个生效的 errdefer，不能再登记" v;

@@ -158,6 +158,7 @@ stmt:
   | WHILE c = expr b = block { mks (While (c, b)) $startpos }
   | RETURN e = option(expr) { mks (Return e) $startpos }
   | ERRDEFER e = expr { mks (Errdefer e) $startpos }
+  | LET t = UIDENT LBRACE nls bs = binds RBRACE EQ e = expr { mks (Destruct (t, bs, e)) $startpos }
   | e = expr { mks (Expr e) $startpos }
 
 expr:
@@ -216,3 +217,13 @@ inits:
   | PLUS { Add } | MINUS { Sub } | STAR { Mul } | SLASH { Div } | PERCENT { Rem }
   | EQEQ { Eq } | NE { Ne } | LT { Lt } | LE { Le } | GT { Gt } | GE { Ge }
   | ANDAND { And } | OROR { Or }
+
+(* 拆开结构体：let Node { v, next: n } = e *)
+binds:
+  | { [] }
+  | b = bind nls { [b] }
+  | b = bind COMMA nls bs = binds { b :: bs }
+
+bind:
+  | f = IDENT { (f, f) }
+  | f = IDENT COLON x = IDENT { (f, x) }

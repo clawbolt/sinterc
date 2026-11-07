@@ -15,7 +15,7 @@ let succs (b : block) =
   match b.term with Goto j -> [ j ] | Branch (_, a, c) -> [ a; c ] | Return | Unterminated -> []
 
 let operands = function
-  | Use o | Un (_, o) | BoxNew (_, o) | Consume (_, o) | Alloc (_, _, o) -> [ o ]
+  | Use o | Un (_, o) | BoxNew (_, o) | Unbox (_, o) | Consume (_, o) | Alloc (_, _, o) -> [ o ]
   | Bin (_, a, b) -> [ a; b ]
   | Call (_, os) -> os
   | Agg (_, fs) -> List.map snd fs

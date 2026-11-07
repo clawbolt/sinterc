@@ -210,6 +210,9 @@ let rvalue fn rv =
   | Mir.Agg (n, fs) ->
       let fs = List.map (fun (f, o) -> Printf.sprintf ".f_%s = %s" f (operand o)) fs in
       Printf.sprintf "((%s){ %s })" (sname n) (String.concat ", " fs)
+  | Mir.Unbox (t, o) ->
+      let t = cty t in
+      Printf.sprintf "({ %s *p_ = %s; %s v_ = *p_; sn_free(p_); v_; })" t (operand o) t
   | Mir.BoxNew (t, o) ->
       let t = cty t in
       Printf.sprintf "({ %s *p_ = sn_alloc(sizeof(%s)); *p_ = %s; p_; })" t t (operand o)

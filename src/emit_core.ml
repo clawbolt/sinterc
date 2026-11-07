@@ -38,7 +38,7 @@ let reachable (f : func) =
   seen
 
 let operands = function
-  | Use o | Un (_, o) | BoxNew (_, o) | Consume (_, o) | Alloc (_, _, o) -> [ o ]
+  | Use o | Un (_, o) | BoxNew (_, o) | Unbox (_, o) | Consume (_, o) | Alloc (_, _, o) -> [ o ]
   | Bin (_, a, b) -> [ a; b ]
   | Call (_, os) -> os
   | Agg (_, fs) -> List.map snd fs

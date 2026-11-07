@@ -53,6 +53,8 @@ and stmt_desc =
   | Return of expr option
   | Expr of expr
   | Errdefer of expr        (* 出错返回时执行的调用 *)
+  | Destruct of string * (string * string) list * expr
+      (* let Node { v, next: n } = e：把结构体的每个字段移进各自的变量（字段名, 变量名），结构体本身被移走 *)
 
 (* 块：若干语句，最后可以有一个作为值的表达式。 *)
 and block = { stmts : stmt list; tail : expr option }
