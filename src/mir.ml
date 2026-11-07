@@ -33,6 +33,7 @@ type rvalue =
   | MkRes of ty * bool * operand option   (* Ok(e) / Err(e)；值是 () 时没有操作数 *)
   | Unwrap of operand * bool              (* 取出 Result 里 Ok（true）或 Err（false）的值 *)
   | Consume of ty * operand               (* consume(x)：消费 linear 值，析构它的字段 *)
+  | Alloc of ty * place * operand         (* alloc(a, e)：在区域 a 里分配并存入 e *)
 
 (* Drop 的原因，用来报 linear 值没有被消费的错误。 *)
 type why = End | Ret | Err
@@ -42,6 +43,8 @@ type stmt =
   | Eval of rvalue                        (* 只为副作用，例如返回 () 的调用 *)
   | Proj of local * place                 (* let q = p.a：q 指向 p 内部，不拥有值 *)
   | Live of local * pos * string          (* 检查：这里 l 必须已初始化，否则报这条错误 *)
+  | Enter of local                        (* 进入 arena 块：创建区域 *)
+  | Leave of local                        (* 离开 arena 块（包括 return、出错返回穿过它）：整块释放 *)
   | Drop of local * pos * why             (* 降级产生：如果还拥有这个值就析构 *)
   | DropNow of local                      (* 展开后：一定拥有，直接析构 *)
   | DropIf of local * local               (* 展开后：第二个局部（drop flag）为真时析构 *)
@@ -86,6 +89,7 @@ type st = {
   fret_ty : ty;
   mutable scopes : local list list;   (* 每层作用域拥有的、需要析构的局部，内层在前 *)
   mutable proots : (local * local) list;   (* 投影 → 它指向的局部 *)
+  mutable regions : local list;        (* 当前所在的 arena 块，内层在前 *)
   mutable guards : (local * string * (string * local) list * expr) list;
       (* 生效的 errdefer：要消费的局部、它的名字、登记时的环境、调用表达式；内层在前 *)
 }
@@ -197,6 +201,11 @@ let rec expr st env (x : expr) : operand option =
       let oa = Option.get (expr st env a) in
       (match ty_of a with Some ty -> emit st (Eval (Consume (ty, oa))) | None -> ());
       None
+  | Call ("alloc", [ a; v ]) ->
+      let pa = place st env a in
+      let ov = Option.get (expr st env v) in
+      let ty = match ty_of v with Some t -> t | None -> TI64 in
+      value st x (Alloc (ty, pa, ov))
   | Call (f, args) ->
       let modes = List.map fst (fst (Hashtbl.find Typeck.sigs f)) in
       let os = List.map2 (arg st env) modes args in
@@ -227,6 +236,23 @@ let rec expr st env (x : expr) : operand option =
       st.cur <- join;
       result t ty x.pos
   | Block b -> block st env b
+  | Arena (r, b) ->
+      (* 块的值先存进块外的临时变量，再释放区域：值的类型不含这个区域（R3），可以安全带出 *)
+      let l = new_local ~pos:x.pos st r (TArena r) in
+      emit st (Enter l);
+      st.regions <- l :: st.regions;
+      let v = block st ((r, l) :: env) b in
+      let v =
+        match v, ty_of x with
+        | Some ((Copy _ | Move _) as o), Some ty ->
+            let t = temp st ty x.pos in
+            emit st (Assign (whole t, Use o));
+            Some (use_local t ty x.pos)
+        | _ -> v
+      in
+      st.regions <- List.tl st.regions;
+      emit st (Leave l);
+      v
   | Try a -> (
       match ty_of a with
       | Some (TResult (t, e)) ->
@@ -301,7 +327,7 @@ and unwrap st o ty ok pos =
   end
 
 (* 离开函数（返回值已经放好）。出错返回时先执行生效的 errdefer，内层的先执行；
-   然后析构所有作用域里的局部。之后的代码走不到。 *)
+   然后析构所有作用域里的局部，再释放穿过的区域（M7（四））。之后的代码走不到。 *)
 and exit_fn st at why =
   if why = Err then
     List.iter
@@ -310,6 +336,7 @@ and exit_fn st at why =
         ignore (expr st env e))
       st.guards;
   List.iter (List.iter (fun l -> emit st (Drop (l, at, why)))) st.scopes;
+  List.iter (fun l -> emit st (Leave l)) st.regions;
   terminate st Return;
   st.cur <- new_block st
 
@@ -459,6 +486,7 @@ let lower_fn name params ret body ipos =
       fret_ty = ret;
       scopes = [ [] ];
       proots = [];
+      regions = [];
       guards = [];
     }
   in

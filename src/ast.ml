@@ -9,6 +9,8 @@ type ty =
   | TStruct of string
   | TBox of ty          (* 拥有一块堆内存 *)
   | TResult of ty * ty  (* 内建的 Result<T, E> *)
+  | TRef of ty * string (* &T in a：区域 a 里的只读引用 *)
+  | TArena of string    (* 区域本身，只能作为函数参数类型或 arena 块引入的名字 *)
 
 type binop =
   | Add | Sub | Mul | Div | Rem
@@ -33,6 +35,7 @@ and expr_desc =
   | ResLit of bool * expr   (* Ok(e) 为 true，Err(e) 为 false *)
   | Try of expr             (* e? *)
   | Match of expr * (string * string * expr) list   (* match r { Ok(x) => a, Err(y) => b } *)
+  | Arena of string * block   (* arena |a| { … } *)
   | If of expr * block * block option
   | Block of block
 
@@ -67,3 +70,5 @@ let rec string_of_ty = function
   | TStruct n -> n
   | TBox t -> "Box<" ^ string_of_ty t ^ ">"
   | TResult (a, b) -> "Result<" ^ string_of_ty a ^ ", " ^ string_of_ty b ^ ">"
+  | TRef (t, r) -> "&" ^ string_of_ty t ^ " in " ^ r
+  | TArena _ -> "Arena"

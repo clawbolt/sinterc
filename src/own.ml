@@ -20,7 +20,7 @@ let succs (b : block) =
   match b.term with Goto j -> [ j ] | Branch (_, a, c) -> [ a; c ] | Return | Unterminated -> []
 
 let operands = function
-  | Use o | Un (_, o) | BoxNew (_, o) | Unwrap (o, _) | Consume (_, o) -> [ o ]
+  | Use o | Un (_, o) | BoxNew (_, o) | Unwrap (o, _) | Consume (_, o) | Alloc (_, _, o) -> [ o ]
   | Bin (_, a, b) -> [ a; b ]
   | Call (_, os) -> os
   | Agg (_, fs) -> List.map snd fs
@@ -115,6 +115,12 @@ let step check f flag need st s =
       let r = release l in
       st.(l) <- Uninit;
       r @ set l false
+  | Enter l ->
+      st.(l) <- Init;
+      [ s ]
+  | Leave l ->
+      st.(l) <- Uninit;
+      [ s ]
   | Live (l, at, msg) ->
       if check && st.(l) <> Init then raise (Typeck.Error (at, msg));
       []

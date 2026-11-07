@@ -12,16 +12,20 @@ let mk_block ss =
   | { s = Expr e; _ } :: rest -> { stmts = List.rev rest; tail = Some e }
   | _ -> { stmts = ss; tail = None }
 
+(* 参数 a: Arena 引入名为 a 的区域。 *)
+let arena_param n = function TArena _ -> TArena n | t -> t
+
 let ty_of_name = function
   | "I64" -> TI64
   | "Bool" -> TBool
+  | "Arena" -> TArena ""        (* 名字由参数名补上 *)
   | n -> TStruct n
 %}
 
 %token <int64> INT
 %token <string> IDENT UIDENT
 %token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
-%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION
+%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR
 %token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ
 %token PLUS MINUS STAR SLASH PERCENT BANG
 %token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
@@ -65,15 +69,16 @@ field:
   | n = IDENT COLON t = ty { { fname = n; fty = t } }
 
 param:
-  | n = IDENT COLON t = ty { (MLet, n, t) }
-  | LET n = IDENT COLON t = ty { (MLet, n, t) }
-  | INOUT n = IDENT COLON t = ty { (MInout, n, t) }
-  | SINK n = IDENT COLON t = ty { (MSink, n, t) }
+  | n = IDENT COLON t = ty { (MLet, n, arena_param n t) }
+  | LET n = IDENT COLON t = ty { (MLet, n, arena_param n t) }
+  | INOUT n = IDENT COLON t = ty { (MInout, n, arena_param n t) }
+  | SINK n = IDENT COLON t = ty { (MSink, n, arena_param n t) }
 
 ty:
   | n = UIDENT { ty_of_name n }
   | LPAREN RPAREN { TUnit }
   | BOX LT t = ty GT { TBox t }
+  | AMP t = ty IN r = IDENT { TRef (t, r) }
   | RESULT LT t = ty COMMA e = ty GT { TResult (t, e) }
 
 ret:
@@ -104,6 +109,7 @@ expr:
   | LPAREN RPAREN { mk Unit $startpos }
   | x = IDENT { mk (Var x) $startpos }
   | LPAREN e = expr RPAREN { e }
+  | ARENA BAR r = IDENT BAR b = block { mk (Arena (r, b)) $startpos }
   | f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN { mk (Call (f, args)) $startpos }
   | n = UIDENT LBRACE nls fs = inits RBRACE { mk (StructLit (n, fs)) $startpos }
   | e = expr DOT f = IDENT { mk (Field (e, f)) $startpos }

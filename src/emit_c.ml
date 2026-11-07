@@ -20,6 +20,21 @@ static void u_print_bool(bool b) { puts(b ? "true" : "false"); }
 static long long sn_live = 0;
 static void *sn_alloc(size_t n) { void *p = malloc(n); if (!p) sn_panic("内存不足"); sn_live++; return p; }
 static void sn_free(void *p) { free(p); sn_live--; }
+/* 区域：一串内存块，分配时往当前块后面追加，离开 arena 块时整块释放。内存块也计入泄漏检查。 */
+typedef struct sn_chunk { struct sn_chunk *next; size_t used, cap; _Alignas(16) char data[]; } sn_chunk;
+typedef struct { sn_chunk *head; } sn_arena;
+static void *sn_arena_alloc(sn_arena *a, size_t n) {
+  n = (n + 15) & ~(size_t)15;
+  if (!a->head || a->head->used + n > a->head->cap) {
+    size_t cap = n > 4096 ? n : 4096;
+    sn_chunk *c = sn_alloc(sizeof(sn_chunk) + cap);
+    c->next = a->head; c->used = 0; c->cap = cap; a->head = c;
+  }
+  void *p = a->head->data + a->head->used;
+  a->head->used += n;
+  return p;
+}
+static void sn_arena_free(sn_arena *a) { sn_chunk *c = a->head; while (c) { sn_chunk *n = c->next; sn_free(c); c = n; } a->head = 0; }
 |}
 
 (* Result<T, E> 的 C 名字由两个类型拼出来。 *)
@@ -30,6 +45,8 @@ let rec mangle = function
   | TStruct n -> n
   | TBox t -> "B" ^ mangle t
   | TResult (a, b) -> "R" ^ mangle a ^ "_" ^ mangle b ^ "_"
+  | TRef (t, _) -> "P" ^ mangle t
+  | TArena _ -> "A"
 
 let rec cty = function
   | TI64 -> "int64_t"
@@ -38,6 +55,8 @@ let rec cty = function
   | TStruct n -> "S_" ^ n
   | TBox t -> cty t ^ "*"
   | TResult _ as t -> "S_" ^ mangle t
+  | TRef (t, _) -> cty t ^ "*"
+  | TArena _ -> "sn_arena"
 
 (* 析构一个值：先析构 Box 里面的值，再释放 Box；结构体逐个析构字段；Result 按标志析构其中一边。 *)
 let rec drop_code ty lv =
@@ -51,7 +70,7 @@ let rec drop_code ty lv =
   | TResult (a, b) ->
       let da = drop_code a (lv ^ ".v") and db = drop_code b (lv ^ ".e") in
       if da = "" && db = "" then "" else Printf.sprintf "if (%s.ok) { %s} else { %s} " lv da db
-  | TI64 | TBool | TUnit -> ""
+  | TI64 | TBool | TUnit | TRef _ | TArena _ -> ""
 
 (* 类型定义按依赖顺序输出：按值包含的类型先定义，Box 指向的类型也先定义（类型检查已经排除了成环）。 *)
 let type_defs (p : program) (fs : Mir.func list) =
@@ -59,10 +78,10 @@ let type_defs (p : program) (fs : Mir.func list) =
   let seen = Hashtbl.create 16 in
   let rec visit t =
     match t with
-    | TBox t -> visit t
-    | (TStruct _ | TResult _) when Hashtbl.mem seen t -> ()
+    | TBox t | TRef (t, _) -> visit t
+    | (TStruct _ | TResult _) when Hashtbl.mem seen (cty t) -> ()
     | TStruct n ->
-        Hashtbl.replace seen t ();
+        Hashtbl.replace seen (cty t) ();
         let fields = Hashtbl.find Typeck.struct_tbl n in
         List.iter (fun (f : field) -> visit f.fty) fields;
         Buffer.add_string b (Printf.sprintf "typedef struct S_%s {" n);
@@ -71,14 +90,14 @@ let type_defs (p : program) (fs : Mir.func list) =
           fields;
         Buffer.add_string b (Printf.sprintf " } S_%s;\n" n)
     | TResult (x, y) ->
-        Hashtbl.replace seen t ();
+        Hashtbl.replace seen (cty t) ();
         visit x;
         visit y;
         let field ty n = if ty = TUnit then "" else Printf.sprintf " %s %s;" (cty ty) n in
         Buffer.add_string b
           (Printf.sprintf "typedef struct %s { bool ok;%s%s } %s;\n" (cty t) (field x "v")
              (field y "e") (cty t))
-    | TI64 | TBool | TUnit -> ()
+    | TI64 | TBool | TUnit | TArena _ -> ()
   in
   List.iter (function Struct s -> visit (TStruct s.name) | Fn _ -> ()) p;
   List.iter
@@ -138,6 +157,10 @@ let rvalue fn rv =
       Printf.sprintf "((%s){ .ok = %b%s })" (cty t) ok payload
   | Mir.Unwrap (o, ok) -> Printf.sprintf "%s.%s" (operand o) (if ok then "v" else "e")
   | Mir.Consume _ -> failwith "Consume 只出现在 Eval 里"
+  | Mir.Alloc (t, a, o) ->
+      let t = cty t in
+      Printf.sprintf "({ %s *p_ = sn_arena_alloc(&%s, sizeof(%s)); *p_ = %s; p_; })" t (place fn a) t
+        (operand o)
 
 (* 从入口能走到的块；走不到的块（return 之后的死代码）不输出。 *)
 let reachable (f : Mir.func) =
@@ -193,6 +216,8 @@ let func b (f : Mir.func) =
             | Mir.DropIf (l, fl) ->
                 add (Printf.sprintf "  if (l%d) { %s}\n" fl (drop_code f.locals.(l).lty (local f l)))
             | Mir.Live _ -> ()
+            | Mir.Enter l -> add (Printf.sprintf "  %s.head = 0;\n" (local f l))
+            | Mir.Leave l -> add (Printf.sprintf "  sn_arena_free(&%s);\n" (local f l))
             | Mir.Drop _ -> failwith "Drop 应当已由 Own.elaborate 展开")
           blk.stmts;
         match blk.term with

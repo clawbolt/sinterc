@@ -14,6 +14,7 @@ let keywords = [
   "fn", FN; "struct", STRUCT; "let", LET; "var", VAR; "if", IF; "else", ELSE;
   "while", WHILE; "return", RETURN; "true", TRUE; "false", FALSE;
   "inout", INOUT; "sink", SINK; "linear", LINEAR; "errdefer", ERRDEFER; "match", MATCH;
+  "arena", ARENA; "in", IN;
 ]
 }
 
@@ -39,6 +40,7 @@ rule token = parse
   | "=="  { EQEQ }  | "!="  { NE }
   | "<="  { LE }    | ">="  { GE }
   | "&&"  { ANDAND } | "||" { OROR }
+  | '&'   { AMP }    | '|'   { BAR }
   | '<'   { LT }    | '>'   { GT }
   | '='   { EQ }
   | '+'   { PLUS }  | '-'   { MINUS }

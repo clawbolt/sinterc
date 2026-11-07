@@ -36,7 +36,7 @@ let rec is_linear = function
   | TStruct n -> Hashtbl.mem linear_tbl n
   | TResult (a, b) -> is_linear a || is_linear b
   | TBox t -> is_linear t
-  | TI64 | TBool | TUnit -> false
+  | TI64 | TBool | TUnit | TRef _ | TArena _ -> false
 
 (* 需要析构（或者是 linear）的类型：这些类型的值只能移动，不能复制。 *)
 let rec needs_drop = function
@@ -48,14 +48,14 @@ let rec needs_drop = function
       | Some fs -> List.exists (fun (f : field) -> needs_drop f.fty) fs
       | None -> false)
   | TResult (a, b) -> needs_drop a || needs_drop b
-  | TI64 | TBool | TUnit -> false
+  | TI64 | TBool | TUnit | TRef _ | TArena _ -> false
 
 (* 内建函数按值接收可复制的参数，记作 sink。 *)
 let builtins =
   [ "print_i64", ([ (MSink, TI64) ], TUnit); "print_bool", ([ (MSink, TBool) ], TUnit) ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
-let special = [ "box"; "consume" ]
+let special = [ "box"; "consume"; "alloc" ]
 
 (* 位置表达式（变量、字段、解引用）所在的变量；其他表达式没有。 *)
 let rec root (x : expr) =
@@ -66,26 +66,70 @@ let rec root (x : expr) =
 
 let show = function Ty t -> string_of_ty t | Never -> "!"
 
-(* 两个分支的类型合并：Never 和任何类型相容。 *)
+(* ---------- 区域（Lean M5、M7（四）） ----------
+   当前可见的区域，内层在前；每个区域记下比它活得久的区域。
+   函数的区域参数（a: Arena，以及参数类型里出现的其他区域名）之间没有顺序（D3）；
+   arena 块引入的区域比所有外层区域和区域参数都活得短。 *)
+let regions : (string * string list) list ref = ref []
+
+let outlives x y = x = y || match List.assoc_opt y !regions with Some a -> List.mem x a | None -> false
+
+(* got 能不能当作 want 用：外层区域的引用可以当作内层区域的引用（D2 协变），其余要求相同。 *)
+let rec sub got want =
+  match got, want with
+  | TRef (t, x), TRef (t', y) -> t = t' && outlives x y
+  | TResult (a, b), TResult (c, d) -> sub a c && sub b d
+  | _ -> got = want
+
+let rec mentions r = function
+  | TRef (t, x) -> x = r || mentions r t
+  | TArena x -> x = r
+  | TBox t -> mentions r t
+  | TResult (a, b) -> mentions r a || mentions r b
+  | TI64 | TBool | TUnit | TStruct _ -> false
+
+let rec region_names = function
+  | TRef (t, x) -> x :: region_names t
+  | TArena x -> [ x ]
+  | TBox t -> region_names t
+  | TResult (a, b) -> region_names a @ region_names b
+  | TI64 | TBool | TUnit | TStruct _ -> []
+
+let rec rename s = function
+  | TRef (t, x) -> TRef (rename s t, Option.value (List.assoc_opt x s) ~default:x)
+  | TArena x -> TArena (Option.value (List.assoc_opt x s) ~default:x)
+  | TBox t -> TBox (rename s t)
+  | TResult (a, b) -> TResult (rename s a, rename s b)
+  | t -> t
+
+(* 两个分支的类型合并：Never 和任何类型相容；区域不同时取活得短的那个。 *)
 let join pos what a b =
   match a, b with
   | Never, x | x, Never -> x
-  | Ty x, Ty y when x = y -> Ty x
+  | Ty x, Ty y when sub x y -> Ty y
+  | Ty x, Ty y when sub y x -> Ty x
   | _ -> err pos "%s的两个分支类型不同：%s 和 %s" what (show a) (show b)
 
 let expect pos want got =
   match got with
   | Never -> ()
-  | Ty t when t = want -> ()
+  | Ty t when sub t want -> ()
   | Ty t -> err pos "类型不匹配：需要 %s，实际是 %s" (string_of_ty want) (string_of_ty t)
 
-let rec check_ty env pos = function
+(* param：函数参数的类型，可以是 Arena。 *)
+let rec check_ty ?(param = false) env pos = function
   | TStruct n when not (Hashtbl.mem env.structs n) -> err pos "未知类型 %s" n
   | TBox TUnit -> err pos "Box 里不能放 ()"
   | TBox t ->
       if is_linear t then err pos "Box 里不能放 linear 值（还不能从 Box 里移出）";
       check_ty env pos t
   | TResult (a, b) -> check_ty env pos a; check_ty env pos b
+  | TArena _ when not param -> err pos "Arena 只能作为函数参数的类型"
+  | TRef (t, r) ->
+      if not (List.mem_assoc r !regions) then err pos "未知区域 %s" r;
+      if region_names t <> [] then err pos "还不支持指向引用或区域的引用";
+      if t = TUnit then err pos "不能引用 ()";
+      check_ty env pos t
   | _ -> ()
 
 (* 每个表达式的类型按 id 记下来，给降级用。 *)
@@ -116,6 +160,7 @@ and check1 env want (x : expr) : t =
       Ty want
   | Block b -> block env ~want b
   | Match (s, arms) -> match_ env (Some want) x.pos s arms
+  | Arena (r, b) -> arena env (Some want) x.pos r b
   | _ ->
       let t = expr1 env x in
       expect x.pos want t;
@@ -141,8 +186,8 @@ and expr1 env (x : expr) : t =
           expect a.pos TI64 ta; expect b.pos TI64 tb; Ty TBool
       | Eq | Ne -> (
           match ta, tb with
-          | Ty (TStruct _ | TUnit | TBox _ | TResult _), _
-          | _, Ty (TStruct _ | TUnit | TBox _ | TResult _) ->
+          | Ty (TStruct _ | TUnit | TBox _ | TResult _ | TRef _ | TArena _), _
+          | _, Ty (TStruct _ | TUnit | TBox _ | TResult _ | TRef _ | TArena _) ->
               err pos "只能比较 I64 和 Bool"
           | _ -> ignore (join pos "比较" ta tb); Ty TBool)
       | And | Or -> expect a.pos TBool ta; expect b.pos TBool tb; Ty TBool)
@@ -160,11 +205,24 @@ and expr1 env (x : expr) : t =
       | Never -> Never
       | Ty t -> err pos "consume 只能用于 linear 结构体，%s 不是" (string_of_ty t))
   | Call ((("box" | "consume") as f), _) -> err pos "%s 需要 1 个参数" f
+  | Call ("alloc", [ a; v ]) -> (
+      match expr env a with
+      | Ty (TArena r) -> (
+          match expr env v with
+          | Never -> Never
+          | Ty TUnit -> err v.pos "区域里不能放 ()"
+          | Ty t when needs_drop t ->
+              err pos "区域里不能放需要析构或 linear 的值 %s：区域结束时不运行析构（D4）" (string_of_ty t)
+          | Ty t when region_names t <> [] -> err v.pos "还不支持在区域里存放引用"
+          | Ty t -> Ty (TRef (t, r)))
+      | Never -> Never
+      | Ty t -> err a.pos "alloc 的第一个参数必须是区域，%s 不是" (string_of_ty t))
+  | Call ("alloc", _) -> err pos "alloc 需要 2 个参数：区域和值"
   | Deref a -> (
       match expr env a with
-      | Ty (TBox t) -> Ty t
+      | Ty (TBox t | TRef (t, _)) -> Ty t
       | Never -> Never
-      | Ty t -> err pos "%s 不是 Box，不能解引用" (string_of_ty t))
+      | Ty t -> err pos "%s 不是 Box 或引用，不能解引用" (string_of_ty t))
   | Call (f, args) ->
       let ps, r =
         match Hashtbl.find_opt env.fns f with
@@ -176,9 +234,27 @@ and expr1 env (x : expr) : t =
       in
       if List.length ps <> List.length args then
         err pos "%s 需要 %d 个参数，实际给了 %d 个" f (List.length ps) (List.length args);
+      (* 区域参数按实参实例化（M5（四））：Arena 参数取实参的区域，
+         参数类型里的其他区域名取实参类型里对应位置的区域 *)
+      let s = ref [] in
+      let rec bind p t =
+        match p, t with
+        | (TRef (p, x), TRef (t, y)) ->
+            if not (List.mem_assoc x !s) then s := (x, y) :: !s;
+            bind p t
+        | TArena x, TArena y -> if not (List.mem_assoc x !s) then s := (x, y) :: !s
+        | TBox p, TBox t -> bind p t
+        | TResult (a, b), TResult (c, d) -> bind a c; bind b d
+        | _ -> ()
+      in
+      List.iter2
+        (fun (_, p) (a : expr) ->
+          if region_names p <> [] then match expr env a with Ty t -> bind p t | Never -> ())
+        ps args;
+      let s = !s in
       List.iter2
         (fun (m, p) (a : expr) ->
-          ignore (check env p a);
+          ignore (check env (rename s p) a);
           if m = MInout then
             match root a with
             | None -> err a.pos "inout 实参必须是变量、字段或解引用这样的位置"
@@ -187,7 +263,7 @@ and expr1 env (x : expr) : t =
                 | Some (_, true) -> ()
                 | _ -> err a.pos "%s 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）" v))
         ps args;
-      Ty r
+      Ty (rename s r)
   | StructLit (n, inits) ->
       let fs =
         match Hashtbl.find_opt env.structs n with
@@ -239,6 +315,22 @@ and expr1 env (x : expr) : t =
           | r -> err pos "? 只能用在返回 Result 的函数里（这个函数返回 %s）" (string_of_ty r))
       | Ty t -> err pos "%s 不是 Result，不能用 ?" (string_of_ty t))
   | Match (s, arms) -> match_ env None pos s arms
+  | Arena (r, b) -> arena env None pos r b
+
+(* arena |r| { … }：r 比所有外层区域都活得短。块的值的类型不能含 r（R3）。 *)
+and arena env want pos r (b : block) : t =
+  if List.mem_assoc r !regions then err pos "区域 %s 已经存在（内外层区域不能同名）" r;
+  let saved = !regions in
+  regions := (r, List.map fst saved) :: saved;
+  let env' = { env with vars = (r, (TArena r, false)) :: env.vars } in
+  let t = match want with Some w -> block env' ~want:w b | None -> block env' b in
+  regions := saved;
+  (match t with
+  | Ty ty when mentions r ty ->
+      let at = match b.tail with Some e -> e.pos | None -> pos in
+      err at "块的值的类型 %s 含有区域 %s，不能带出这个区域（R3）" (string_of_ty ty) r
+  | _ -> ());
+  t
 
 and match_ env want pos (s : expr) arms : t =
   let t, e =
@@ -296,6 +388,7 @@ and block ?want env (b : block) : t =
                   | Never -> err pos "%s 的初值不会返回，无法推断类型" v)
             in
             if ty = TUnit then err pos "C0 不支持 () 类型的变量 %s" v;
+            (match ty with TArena _ -> err pos "区域不能存进变量" | _ -> ());
             go { env with vars = (v, (ty, mut)) :: env.vars } rest
         | Assign (v, e) ->
             (match List.assoc_opt v env.vars with
@@ -395,15 +488,24 @@ let program (p : program) =
       | Struct { name; fields; linear; ipos } ->
           List.iter
             (fun (f : field) ->
+              if region_names f.fty <> [] then
+                err ipos "结构体字段 %s 不能含引用或区域（区域类型还没有实现）" f.fname;
               check_ty env0 ipos f.fty;
               if f.fty = TUnit then err ipos "C0 不支持 () 类型的字段 %s" f.fname;
               if is_linear f.fty && not linear then
                 err ipos "%s 的字段 %s 是 linear 的，%s 也必须标 linear" name f.fname name)
             fields
       | Fn { params; ret; body; ipos; _ } ->
+          (* 区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3） *)
+          regions :=
+            List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) params)
+            |> List.map (fun r -> (r, []));
           List.iter
-            (fun (_, x, t) ->
-              check_ty env0 ipos t;
+            (fun (m, x, t) ->
+              check_ty ~param:true env0 ipos t;
+              (match t with
+              | TArena _ when m <> MLet -> err ipos "区域参数 %s 只能按 let 传入" x
+              | _ -> ());
               if t = TUnit then err ipos "C0 不支持 () 类型的参数 %s" x)
             params;
           check_ty env0 ipos ret;
@@ -411,6 +513,7 @@ let program (p : program) =
           let env = { env0 with ret; vars } in
           expect ipos ret (block env ~want:ret body))
     p;
+  regions := [];
   match Hashtbl.find_opt fns "main" with
   | Some ([], TUnit) -> ()
   | Some _ -> err { line = 1; col = 1 } "main 必须是 fn main()，没有参数、没有返回值"
