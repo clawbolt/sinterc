@@ -1,7 +1,9 @@
 (* MIR：每个函数一张控制流图。基本块里是简单的赋值语句，块尾是跳转。
    降级时操作数一律从左到右求值；`&&`、`||`、`if`、`while` 都变成分支。
    需要析构的值（Box 和含 Box 的结构体）用 Move 读取；作用域结束和 return 之前插入 Drop，
-   由 own.ml 的数据流检查决定每个 Drop 是直接析构、按 drop flag 析构，还是去掉。 *)
+   由 own.ml 的数据流检查决定每个 Drop 是直接析构、按 drop flag 析构，还是去掉。
+   let / inout 实参传地址（Ref / RefMut）；let 绑定一个不能整个移走的位置时建投影（Proj），
+   由 borrow.ml 检查锁定和排他性。 *)
 open Ast
 
 type local = int
@@ -17,6 +19,8 @@ type operand =
   | Const of const
   | Copy of place
   | Move of place          (* 读出后原位置变成未初始化；只用于整个局部变量 *)
+  | Ref of place           (* let 实参：传地址，被调函数只读 *)
+  | RefMut of place        (* inout 实参：传地址，被调函数可以修改 *)
 
 type rvalue =
   | Use of operand
@@ -29,6 +33,7 @@ type rvalue =
 type stmt =
   | Assign of place * rvalue
   | Eval of rvalue                        (* 只为副作用，例如返回 () 的调用 *)
+  | Proj of local * place                 (* let q = p.a：q 指向 p 内部，不拥有值 *)
   | Drop of local                         (* 降级产生：如果还拥有这个值就析构 *)
   | DropNow of local                      (* 展开后：一定拥有，直接析构 *)
   | DropIf of local * local               (* 展开后：第二个局部（drop flag）为真时析构 *)
@@ -41,7 +46,8 @@ type term =
 
 type block = { mutable stmts : stmt list; mutable term : term }   (* 降级时 stmts 倒序存放 *)
 
-type local_info = { lname : string; lty : ty }
+(* lref：这个局部是指针（let / inout 参数、投影），读写都要经过它，它本身不拥有值。 *)
+type local_info = { lname : string; lty : ty; lref : bool }
 
 type func = {
   name : string;
@@ -50,6 +56,7 @@ type func = {
   ret_local : local option;      (* 返回值放在这里；返回 () 时没有 *)
   locals : local_info array;
   blocks : block array;          (* 0 号块是入口 *)
+  roots : local array;           (* 投影最终指向哪个局部的内部；其他局部是自己 *)
 }
 
 let nopos = { line = 0; col = 0 }
@@ -66,12 +73,17 @@ type st = {
   mutable cur : int;
   mutable fret : local option;
   mutable scopes : local list list;   (* 每层作用域拥有的、需要析构的局部，内层在前 *)
+  mutable proots : (local * local) list;   (* 投影 → 它指向的局部 *)
 }
 
-let new_local st lname lty =
-  st.locals <- { lname; lty } :: st.locals;
+let new_local ?(lref = false) st lname lty =
+  st.locals <- { lname; lty; lref } :: st.locals;
   st.nlocals <- st.nlocals + 1;
   st.nlocals - 1
+
+let info st l = List.nth st.locals (st.nlocals - 1 - l)
+
+let root st l = match List.assoc_opt l st.proots with Some r -> r | None -> l
 
 (* 需要析构的局部登记到当前作用域，作用域结束时插入 Drop。 *)
 let own st l ty =
@@ -112,6 +124,12 @@ let temp st ty =
 (* 读整个局部变量：需要析构的类型移动，其余复制。 *)
 let use_local l ty at = if Typeck.needs_drop ty then Move (whole ~at l) else Copy (whole ~at l)
 
+(* 一个位置是不是可以直接移走的局部（整个变量、拥有它的值）。 *)
+let owned_whole st (p : place) = p.proj = [] && not (info st p.base).lref
+
+let rec is_place (x : expr) =
+  match x.e with Var _ -> true | Field (a, _) | Deref a -> is_place a | _ -> false
+
 let rec expr st env (x : expr) : operand option =
   match x.e with
   | Int n -> Some (Const (CInt n))
@@ -123,8 +141,12 @@ let rec expr st env (x : expr) : operand option =
       | Some ty ->
           let p = place st env x in
           if not (Typeck.needs_drop ty) then Some (Copy p)
-          else if p.proj = [] then Some (Move p)
-          else raise (Typeck.Error (x.pos, "不能从字段或 Box 里移出值（C1b 还不支持部分移动）")))
+          else if owned_whole st p then Some (Move p)
+          else if p.proj = [] then
+            raise
+              (Typeck.Error
+                 (x.pos, Printf.sprintf "%s 不拥有值（是 let / inout 参数或投影），不能移动" (info st p.base).lname))
+          else raise (Typeck.Error (x.pos, "不能从字段或 Box 里移出值（还不支持部分移动）")))
   | Binop (((And | Or) as op), a, b) ->
       let t = temp st TBool in
       let oa = Option.get (expr st env a) in
@@ -153,7 +175,8 @@ let rec expr st env (x : expr) : operand option =
       let ty = match ty_of a with Some t -> t | None -> TI64 in
       value st x (BoxNew (ty, oa))
   | Call (f, args) ->
-      let os = List.map (fun a -> Option.get (expr st env a)) args in
+      let modes = List.map fst (fst (Hashtbl.find Typeck.sigs f)) in
+      let os = List.map2 (arg st env) modes args in
       value st x (Call (f, os))
   | StructLit (n, inits) ->
       let fs = List.map (fun (f, e) -> (f, Option.get (expr st env e))) inits in
@@ -180,6 +203,21 @@ let rec expr st env (x : expr) : operand option =
       | Some t, Some ty -> Some (use_local t ty x.pos)
       | _ -> if ty = None then dummy else None)
   | Block b -> block st env b
+
+(* 按参数约定传实参：sink 移动或复制；let 传位置的地址，不是位置的先算进临时变量；
+   inout 一定是位置（类型检查保证）。 *)
+and arg st env m (a : expr) : operand =
+  match m with
+  | MSink -> Option.get (expr st env a)
+  | MInout -> RefMut (place st env a)
+  | MLet when is_place a -> Ref (place st env a)
+  | MLet ->
+      (* 例如 f({ x }) 会移走 x：值一律先存进本作用域的临时变量，调用后随作用域析构 *)
+      let o = expr st env a in
+      let ty = match ty_of a with Some t -> t | None -> TI64 in
+      let t = temp st ty in
+      emit st (Assign (whole t, Use (Option.value o ~default:(Const (CInt 0L)))));
+      Ref (whole t)
 
 (* 变量、字段、解引用组成的位置；其他表达式先算进临时变量。 *)
 and place st env (x : expr) : place =
@@ -208,12 +246,34 @@ and value st (x : expr) rv =
 
 and drop_all st locals = List.iter (fun l -> emit st (Drop l)) locals
 
+(* 位置的值需要析构、又不能整个移走时，let 绑定它就是投影。只看类型和路径，不产生代码。 *)
+and proj_init st env (e : expr) =
+  let rec base (x : expr) =
+    match x.e with
+    | Var v -> (List.assoc v env, true)
+    | Field (a, _) | Deref a -> (fst (base a), false)
+    | _ -> assert false
+  in
+  match ty_of e with
+  | Some ty when Typeck.needs_drop ty ->
+      let l, whole_var = base e in
+      not (whole_var && not (info st l).lref)
+  | _ -> false
+
 and block st env (b : Ast.block) : operand option =
   st.scopes <- [] :: st.scopes;
   let rec go env = function
     | [] -> ( match b.tail with Some e -> expr st env e | None -> None)
     | (s : Ast.stmt) :: rest -> (
         match s.s with
+        | Let (false, v, _, e) when is_place e && proj_init st env e ->
+            (* let 绑定不拥有值的位置（字段、解引用、参数、投影）：建一个投影，不移动 *)
+            let p = place st env e in
+            let ty = Option.get (ty_of e) in
+            let q = new_local ~lref:true st v ty in
+            st.proots <- (q, root st p.base) :: st.proots;
+            emit st (Proj (q, p));
+            go ((v, q) :: env) rest
         | Let (_, v, ann, e) ->
             let o = expr st env e in
             let ty =
@@ -226,7 +286,7 @@ and block st env (b : Ast.block) : operand option =
         | Assign (v, e) ->
             (* 旧值的析构由 own.ml 在赋值前插入 *)
             (match expr st env e with
-            | Some o -> emit st (Assign (whole (List.assoc v env), Use o))
+            | Some o -> emit st (Assign (whole ~at:s.spos (List.assoc v env), Use o))
             | None -> ());
             go env rest
         | While (c, body) ->
@@ -274,13 +334,22 @@ and block st env (b : Ast.block) : operand option =
 
 let lower_fn name params ret body =
   let st =
-    { locals = []; nlocals = 0; blocks = []; nblocks = 0; cur = 0; fret = None; scopes = [ [] ] }
+    {
+      locals = [];
+      nlocals = 0;
+      blocks = [];
+      nblocks = 0;
+      cur = 0;
+      fret = None;
+      scopes = [ [] ];
+      proots = [];
+    }
   in
   let ps =
     List.map
-      (fun (x, t) ->
-        let l = new_local st x t in
-        own st l t;
+      (fun (m, x, t) ->
+        let l = new_local ~lref:(m <> MSink) st x t in
+        if m = MSink then own st l t;
         (x, l))
       params
   in
@@ -301,6 +370,7 @@ let lower_fn name params ret body =
     ret_local = st.fret;
     locals = Array.of_list (List.rev st.locals);
     blocks;
+    roots = Array.init st.nlocals (root st);
   }
 
 let lower (p : program) : func list =

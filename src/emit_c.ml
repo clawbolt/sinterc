@@ -58,19 +58,26 @@ let struct_order (p : program) =
 
 (* ---------- 从 MIR 生成 ---------- *)
 
-let place (p : Mir.place) =
+(* let / inout 参数和投影在 C 里是指针，用到时先解引用。 *)
+let local (f : Mir.func) l =
+  if f.locals.(l).lref then Printf.sprintf "(*l%d)" l else Printf.sprintf "l%d" l
+
+let place f (p : Mir.place) =
   List.fold_left
     (fun s -> function
       | Mir.PField f -> Printf.sprintf "%s.f_%s" s f
       | Mir.PDeref -> Printf.sprintf "(*%s)" s)
-    (Printf.sprintf "l%d" p.base) p.proj
+    (local f p.base) p.proj
 
-let operand = function
+let operand f = function
   | Mir.Const (Mir.CInt n) -> Printf.sprintf "INT64_C(%Ld)" n
   | Mir.Const (Mir.CBool b) -> if b then "true" else "false"
-  | Mir.Copy p | Mir.Move p -> place p
+  | Mir.Copy p | Mir.Move p -> place f p
+  | Mir.Ref p | Mir.RefMut p -> Printf.sprintf "&%s" (place f p)
 
-let rvalue = function
+let rvalue fn rv =
+  let operand = operand fn in
+  match rv with
   | Mir.Use o -> operand o
   | Mir.Bin (op, a, b) -> (
       let a = operand a and b = operand b in
@@ -105,12 +112,15 @@ let reachable (f : Mir.func) =
   go 0;
   seen
 
+(* 局部变量的 C 类型：指针局部多一层 *。 *)
+let lty (l : Mir.local_info) = if l.lref then cty l.lty ^ "*" else cty l.lty
+
 let signature (f : Mir.func) =
   let ps =
     if f.params = [] then "void"
     else
       String.concat ", "
-        (List.map (fun l -> Printf.sprintf "%s l%d" (cty f.locals.(l).lty) l) f.params)
+        (List.map (fun l -> Printf.sprintf "%s l%d" (lty f.locals.(l)) l) f.params)
   in
   Printf.sprintf "static %s u_%s(%s)" (cty f.ret) f.name ps
 
@@ -120,10 +130,11 @@ let func b (f : Mir.func) =
   Array.iteri
     (fun i (l : Mir.local_info) ->
       if not (List.mem i f.params) then
-        add (Printf.sprintf "  %s l%d;%s\n" (cty l.lty) i
+        add (Printf.sprintf "  %s l%d;%s\n" (lty l) i
                (if l.lname = "" then "" else Printf.sprintf "  /* %s */" l.lname)))
     f.locals;
   let seen = reachable f in
+  let place = place f and operand = operand f and rvalue = rvalue f in
   Array.iteri
     (fun i (blk : Mir.block) ->
       if seen.(i) then begin
@@ -132,11 +143,11 @@ let func b (f : Mir.func) =
           (function
             | Mir.Assign (p, rv) -> add (Printf.sprintf "  %s = %s;\n" (place p) (rvalue rv))
             | Mir.Eval rv -> add (Printf.sprintf "  %s;\n" (rvalue rv))
+            | Mir.Proj (q, p) -> add (Printf.sprintf "  l%d = &%s;\n" q (place p))
             | Mir.DropNow l ->
-                add (Printf.sprintf "  %s\n" (drop_code f.locals.(l).lty (Printf.sprintf "l%d" l)))
+                add (Printf.sprintf "  %s\n" (drop_code f.locals.(l).lty (local f l)))
             | Mir.DropIf (l, fl) ->
-                add (Printf.sprintf "  if (l%d) { %s}\n" fl
-                       (drop_code f.locals.(l).lty (Printf.sprintf "l%d" l)))
+                add (Printf.sprintf "  if (l%d) { %s}\n" fl (drop_code f.locals.(l).lty (local f l)))
             | Mir.Drop _ -> failwith "Drop 应当已由 Own.elaborate 展开")
           blk.stmts;
         match blk.term with

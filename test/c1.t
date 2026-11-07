@@ -6,7 +6,7 @@ C1b：Box、移动、析构。程序结束时如果还有 Box 没释放，打印
   $ cat > ok.sn <<'EOF'
   > struct Pair { a: Box<I64>, n: I64 }
   > 
-  > fn take(b: Box<I64>) -> I64 {
+  > fn take(sink b: Box<I64>) -> I64 {
   >     *b + 1
   > }
   > 
@@ -50,7 +50,7 @@ C1b：Box、移动、析构。程序结束时如果还有 Box 没释放，打印
 移动之后再使用：
 
   $ cat > move.sn <<'EOF'
-  > fn take(b: Box<I64>) -> I64 { *b }
+  > fn take(sink b: Box<I64>) -> I64 { *b }
   > 
   > fn main() {
   >     let b = box(1)
@@ -65,7 +65,7 @@ C1b：Box、移动、析构。程序结束时如果还有 Box 没释放，打印
 只在一个分支里移动，汇合之后再使用：
 
   $ cat > branch.sn <<'EOF'
-  > fn take(b: Box<I64>) -> I64 { *b }
+  > fn take(sink b: Box<I64>) -> I64 { *b }
   > 
   > fn main() {
   >     let b = box(1)
@@ -80,7 +80,7 @@ C1b：Box、移动、析构。程序结束时如果还有 Box 没释放，打印
 在循环里移动循环外的值：
 
   $ cat > loop.sn <<'EOF'
-  > fn take(b: Box<I64>) -> I64 { *b }
+  > fn take(sink b: Box<I64>) -> I64 { *b }
   > 
   > fn main() {
   >     let b = box(1)
@@ -104,19 +104,19 @@ let 声明的变量不能重新赋值：
   > }
   > EOF
   $ sinterc letmut.sn
-  letmut.sn:3:5: 错误：x 是用 let 声明的，不能重新赋值（需要的话改用 var）
+  letmut.sn:3:5: 错误：x 是用 let 声明的变量或参数，不能重新赋值（需要的话改用 var / inout）
   [1]
 
-不能从字段里移出 Box：
+不能把字段里的 Box 移进 var 变量（let 绑定是投影，见 c2.t）：
 
   $ cat > partial.sn <<'EOF'
   > struct P { a: Box<I64> }
   > 
   > fn main() {
   >     let p = P { a: box(1) }
-  >     let q = p.a
+  >     var q = p.a
   > }
   > EOF
   $ sinterc partial.sn
-  partial.sn:5:13: 错误：不能从字段或 Box 里移出值（C1b 还不支持部分移动）
+  partial.sn:5:13: 错误：不能从字段或 Box 里移出值（还不支持部分移动）
   [1]

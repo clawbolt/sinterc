@@ -23,14 +23,15 @@ let operands = function
 
 let moved rv = List.filter_map (function Move p -> Some p.base | _ -> None) (operands rv)
 
-let owned (f : func) l = Typeck.needs_drop f.locals.(l).lty
+(* 这个局部自己拥有一个需要析构的值（不是 let / inout 参数或投影这样的指针）。 *)
+let owned (f : func) l = Typeck.needs_drop f.locals.(l).lty && not f.locals.(l).lref
 
 let name (f : func) l = if f.locals.(l).lname = "" then "临时值" else f.locals.(l).lname
 
 (* 读一个操作数。check 为真时检查它已初始化；移动之后变成未初始化。 *)
 let read check f st = function
   | Const _ -> ()
-  | (Copy p | Move p) as o ->
+  | (Copy p | Move p | Ref p | RefMut p) as o ->
       (if check then
          match st.(p.base) with
          | Init -> ()
@@ -65,6 +66,9 @@ let step check f flag need st s =
         st.(p.base) <- Init;
         clear @ pre @ [ s ] @ set p.base true
       end
+      else if p.proj = [] && Typeck.needs_drop f.locals.(p.base).lty then
+        (* inout 参数：一直拥有值（不能移走），赋值前直接析构旧值 *)
+        clear @ [ DropNow p.base; s ]
       else begin
         if p.proj = [] then st.(p.base) <- Init;
         clear @ [ s ]
@@ -76,6 +80,10 @@ let step check f flag need st s =
       let r = release l in
       st.(l) <- Uninit;
       r @ set l false
+  | Proj (q, p) ->
+      read check f st (Copy p);
+      st.(q) <- Init;
+      [ s ]
   | DropNow l | DropIf (l, _) ->
       st.(l) <- Uninit;
       [ s ]
@@ -128,7 +136,7 @@ let elaborate (f : func) : func =
   let flag =
     Array.init n (fun l ->
         if need.(l) then begin
-          extra := { lname = f.locals.(l).lname ^ "_flag"; lty = Ast.TBool } :: !extra;
+          extra := { lname = f.locals.(l).lname ^ "_flag"; lty = Ast.TBool; lref = false } :: !extra;
           Some (n + List.length !extra - 1)
         end
         else None)
@@ -148,4 +156,10 @@ let elaborate (f : func) : func =
       (fun i (b : block) -> { b with stmts = (if i = 0 then init @ stmts.(i) else stmts.(i)) })
       f.blocks
   in
-  { f with locals = Array.append f.locals (Array.of_list (List.rev !extra)); blocks }
+  let extra = Array.of_list (List.rev !extra) in
+  {
+    f with
+    locals = Array.append f.locals extra;
+    blocks;
+    roots = Array.append f.roots (Array.init (Array.length extra) (fun i -> n + i));
+  }

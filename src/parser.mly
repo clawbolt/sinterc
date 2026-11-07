@@ -20,7 +20,7 @@ let ty_of_name = function
 
 %token <int64> INT
 %token <string> IDENT UIDENT
-%token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX
+%token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
 %token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ
 %token PLUS MINUS STAR SLASH PERCENT BANG
 %token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
@@ -62,7 +62,10 @@ field:
   | n = IDENT COLON t = ty { { fname = n; fty = t } }
 
 param:
-  | n = IDENT COLON t = ty { (n, t) }
+  | n = IDENT COLON t = ty { (MLet, n, t) }
+  | LET n = IDENT COLON t = ty { (MLet, n, t) }
+  | INOUT n = IDENT COLON t = ty { (MInout, n, t) }
+  | SINK n = IDENT COLON t = ty { (MSink, n, t) }
 
 ty:
   | n = UIDENT { ty_of_name n }

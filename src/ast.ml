@@ -46,9 +46,12 @@ and block = { stmts : stmt list; tail : expr option }
 
 type field = { fname : string; fty : ty }
 
+(* 参数约定：let 只读借用（默认），inout 可变借用，sink 转移所有权。 *)
+type mode = MLet | MInout | MSink
+
 type item =
   | Struct of { name : string; fields : field list; ipos : pos }
-  | Fn of { name : string; params : (string * ty) list; ret : ty; body : block; ipos : pos }
+  | Fn of { name : string; params : (mode * string * ty) list; ret : ty; body : block; ipos : pos }
 
 type program = item list
 

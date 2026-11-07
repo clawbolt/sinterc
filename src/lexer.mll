@@ -13,6 +13,7 @@ let pos lexbuf =
 let keywords = [
   "fn", FN; "struct", STRUCT; "let", LET; "var", VAR; "if", IF; "else", ELSE;
   "while", WHILE; "return", RETURN; "true", TRUE; "false", FALSE;
+  "inout", INOUT; "sink", SINK;
 ]
 }
 

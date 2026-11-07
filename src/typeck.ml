@@ -9,10 +9,14 @@ type t = Ty of ty | Never
 
 type env = {
   structs : (string, field list) Hashtbl.t;
-  fns : (string, ty list * ty) Hashtbl.t;
+  fns : (string, (mode * ty) list * ty) Hashtbl.t;
   ret : ty;                          (* 当前函数的返回类型 *)
-  vars : (string * (ty * bool)) list;   (* 局部变量和它是否可重新赋值（var），内层在前 *)
+  vars : (string * (ty * bool)) list;
+      (* 局部变量和它是否可修改（var、inout / sink 参数），内层在前 *)
 }
+
+(* 函数签名，给降级用：每个参数的约定和类型、返回类型。 *)
+let sigs : (string, (mode * ty) list * ty) Hashtbl.t = Hashtbl.create 16
 
 (* 每个表达式的类型，按表达式 id 记录。 *)
 let types : (int, t) Hashtbl.t = Hashtbl.create 256
@@ -29,7 +33,16 @@ let rec needs_drop = function
       | None -> false)
   | TI64 | TBool | TUnit -> false
 
-let builtins = [ "print_i64", ([ TI64 ], TUnit); "print_bool", ([ TBool ], TUnit) ]
+(* 内建函数按值接收可复制的参数，记作 sink。 *)
+let builtins =
+  [ "print_i64", ([ (MSink, TI64) ], TUnit); "print_bool", ([ (MSink, TBool) ], TUnit) ]
+
+(* 位置表达式（变量、字段、解引用）所在的变量；其他表达式没有。 *)
+let rec root (x : expr) =
+  match x.e with
+  | Var v -> Some v
+  | Field (a, _) | Deref a -> root a
+  | _ -> None
 
 let show = function Ty t -> string_of_ty t | Never -> "!"
 
@@ -106,7 +119,17 @@ and expr1 env (x : expr) : t =
       in
       if List.length ps <> List.length args then
         err pos "%s 需要 %d 个参数，实际给了 %d 个" f (List.length ps) (List.length args);
-      List.iter2 (fun p (a : expr) -> expect a.pos p (expr env a)) ps args;
+      List.iter2
+        (fun (m, p) (a : expr) ->
+          expect a.pos p (expr env a);
+          if m = MInout then
+            match root a with
+            | None -> err a.pos "inout 实参必须是变量、字段或解引用这样的位置"
+            | Some v -> (
+                match List.assoc_opt v env.vars with
+                | Some (_, true) -> ()
+                | _ -> err a.pos "%s 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）" v))
+        ps args;
       Ty r
   | StructLit (n, inits) ->
       let fs =
@@ -167,7 +190,7 @@ and block env (b : block) : t =
         | Assign (v, e) ->
             (match List.assoc_opt v env.vars with
             | Some (t, true) -> expect e.pos t (expr env e)
-            | Some (_, false) -> err pos "%s 是用 let 声明的，不能重新赋值（需要的话改用 var）" v
+            | Some (_, false) -> err pos "%s 是用 let 声明的变量或参数，不能重新赋值（需要的话改用 var / inout）" v
             | None -> err pos "未定义的变量 %s" v);
             go env rest
         | While (c, body) ->
@@ -199,8 +222,11 @@ let program (p : program) =
       | Fn { name; params; ret; ipos; _ } ->
           if Hashtbl.mem fns name || List.mem_assoc name builtins || name = "box" then
             err ipos "函数 %s 重复定义" name;
-          Hashtbl.add fns name (List.map snd params, ret))
+          Hashtbl.add fns name (List.map (fun (m, _, t) -> (m, t)) params, ret))
     p;
+  Hashtbl.reset sigs;
+  Hashtbl.iter (Hashtbl.replace sigs) fns;
+  List.iter (fun (f, s) -> Hashtbl.replace sigs f s) builtins;
   (* 结构体不能包含自己，经过 Box 也不行（还没有 Option，这样的值造不出来）。 *)
   let rec visit path n =
     if List.mem n path then
@@ -229,12 +255,13 @@ let program (p : program) =
             fields
       | Fn { params; ret; body; ipos; _ } ->
           List.iter
-            (fun (x, t) ->
+            (fun (_, x, t) ->
               check_ty env0 ipos t;
               if t = TUnit then err ipos "C0 不支持 () 类型的参数 %s" x)
             params;
           check_ty env0 ipos ret;
-          let env = { env0 with ret; vars = List.rev_map (fun (x, t) -> (x, (t, false))) params } in
+          let vars = List.rev_map (fun (m, x, t) -> (x, (t, m <> MLet))) params in
+          let env = { env0 with ret; vars } in
           expect ipos ret (block env body))
     p;
   match Hashtbl.find_opt fns "main" with
