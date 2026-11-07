@@ -15,10 +15,11 @@ let succs (b : block) =
   match b.term with Goto j -> [ j ] | Branch (_, a, c) -> [ a; c ] | Return | Unterminated -> []
 
 let operands = function
-  | Use o | Un (_, o) | BoxNew (_, o) -> [ o ]
+  | Use o | Un (_, o) | BoxNew (_, o) | Unwrap (o, _) | Consume (_, o) -> [ o ]
   | Bin (_, a, b) -> [ a; b ]
   | Call (_, os) -> os
   | Agg (_, fs) -> List.map snd fs
+  | MkRes (_, _, o) -> Option.to_list o
 
 let op_place = function Copy p | Move p | Ref p | RefMut p -> Some p | Const _ -> None
 
@@ -29,7 +30,7 @@ let uses (f : func) s =
     | Assign (p, rv) -> p :: List.filter_map op_place (operands rv)
     | Eval rv -> List.filter_map op_place (operands rv)
     | Proj (_, p) -> [ p ]
-    | Drop _ | DropNow _ | DropIf _ -> []
+    | Drop _ | DropNow _ | DropIf _ | Live _ -> []
   in
   List.sort_uniq compare (List.filter (is_proj f) (List.map (fun (p : place) -> p.base) ps))
 
@@ -82,7 +83,7 @@ let writes s =
   | Assign (p, rv) -> (p.base, "修改", p.at) :: of_ops rv
   | Eval rv -> of_ops rv
   | DropNow l | DropIf (l, _) -> [ (l, "析构", Mir.nopos) ]
-  | Drop _ | Proj _ -> []
+  | Drop _ | Proj _ | Live _ -> []
 
 (* 同一次调用里的实参两两检查。 *)
 let exclusive (f : func) = function

@@ -22,14 +22,24 @@ static void *sn_alloc(size_t n) { void *p = malloc(n); if (!p) sn_panic("内存�
 static void sn_free(void *p) { free(p); sn_live--; }
 |}
 
+(* Result<T, E> 的 C 名字由两个类型拼出来。 *)
+let rec mangle = function
+  | TI64 -> "I64"
+  | TBool -> "Bool"
+  | TUnit -> "U"
+  | TStruct n -> n
+  | TBox t -> "B" ^ mangle t
+  | TResult (a, b) -> "R" ^ mangle a ^ "_" ^ mangle b ^ "_"
+
 let rec cty = function
   | TI64 -> "int64_t"
   | TBool -> "bool"
   | TUnit -> "void"
   | TStruct n -> "S_" ^ n
   | TBox t -> cty t ^ "*"
+  | TResult _ as t -> "S_" ^ mangle t
 
-(* 析构一个值：先析构 Box 里面的值，再释放 Box；结构体逐个析构字段。 *)
+(* 析构一个值：先析构 Box 里面的值，再释放 Box；结构体逐个析构字段；Result 按标志析构其中一边。 *)
 let rec drop_code ty lv =
   match ty with
   | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
@@ -38,23 +48,45 @@ let rec drop_code ty lv =
         (List.map
            (fun (f : field) -> drop_code f.fty (lv ^ ".f_" ^ f.fname))
            (Hashtbl.find Typeck.struct_tbl n))
+  | TResult (a, b) ->
+      let da = drop_code a (lv ^ ".v") and db = drop_code b (lv ^ ".e") in
+      if da = "" && db = "" then "" else Printf.sprintf "if (%s.ok) { %s} else { %s} " lv da db
   | TI64 | TBool | TUnit -> ""
 
-(* 结构体按依赖顺序输出：按值包含的结构体先定义（类型检查已经排除了成环）。 *)
-let struct_order (p : program) =
-  let defs = List.filter_map (function Struct s -> Some (s.name, s.fields) | _ -> None) p in
-  let out = ref [] in
-  let rec visit n =
-    if not (List.mem_assoc n !out) then
-      match List.assoc_opt n defs with
-      | Some fs ->
-          let rec dep = function TStruct m -> visit m | TBox t -> dep t | _ -> () in
-          List.iter (fun (f : field) -> dep f.fty) fs;
-          if not (List.mem_assoc n !out) then out := (n, fs) :: !out
-      | None -> ()
+(* 类型定义按依赖顺序输出：按值包含的类型先定义，Box 指向的类型也先定义（类型检查已经排除了成环）。 *)
+let type_defs (p : program) (fs : Mir.func list) =
+  let b = Buffer.create 1024 in
+  let seen = Hashtbl.create 16 in
+  let rec visit t =
+    match t with
+    | TBox t -> visit t
+    | (TStruct _ | TResult _) when Hashtbl.mem seen t -> ()
+    | TStruct n ->
+        Hashtbl.replace seen t ();
+        let fields = Hashtbl.find Typeck.struct_tbl n in
+        List.iter (fun (f : field) -> visit f.fty) fields;
+        Buffer.add_string b (Printf.sprintf "typedef struct S_%s {" n);
+        List.iter
+          (fun (f : field) -> Buffer.add_string b (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname))
+          fields;
+        Buffer.add_string b (Printf.sprintf " } S_%s;\n" n)
+    | TResult (x, y) ->
+        Hashtbl.replace seen t ();
+        visit x;
+        visit y;
+        let field ty n = if ty = TUnit then "" else Printf.sprintf " %s %s;" (cty ty) n in
+        Buffer.add_string b
+          (Printf.sprintf "typedef struct %s { bool ok;%s%s } %s;\n" (cty t) (field x "v")
+             (field y "e") (cty t))
+    | TI64 | TBool | TUnit -> ()
   in
-  List.iter (fun (n, _) -> visit n) defs;
-  List.rev !out
+  List.iter (function Struct s -> visit (TStruct s.name) | Fn _ -> ()) p;
+  List.iter
+    (fun (f : Mir.func) ->
+      visit f.ret;
+      Array.iter (fun (l : Mir.local_info) -> visit l.lty) f.locals)
+    fs;
+  Buffer.contents b
 
 (* ---------- 从 MIR 生成 ---------- *)
 
@@ -66,7 +98,8 @@ let place f (p : Mir.place) =
   List.fold_left
     (fun s -> function
       | Mir.PField f -> Printf.sprintf "%s.f_%s" s f
-      | Mir.PDeref -> Printf.sprintf "(*%s)" s)
+      | Mir.PDeref -> Printf.sprintf "(*%s)" s
+      | Mir.PTag -> Printf.sprintf "%s.ok" s)
     (local f p.base) p.proj
 
 let operand f = function
@@ -96,6 +129,15 @@ let rvalue fn rv =
   | Mir.BoxNew (t, o) ->
       let t = cty t in
       Printf.sprintf "({ %s *p_ = sn_alloc(sizeof(%s)); *p_ = %s; p_; })" t t (operand o)
+  | Mir.MkRes (t, ok, o) ->
+      let payload =
+        match o with
+        | Some o -> Printf.sprintf ", .%s = %s" (if ok then "v" else "e") (operand o)
+        | None -> ""
+      in
+      Printf.sprintf "((%s){ .ok = %b%s })" (cty t) ok payload
+  | Mir.Unwrap (o, ok) -> Printf.sprintf "%s.%s" (operand o) (if ok then "v" else "e")
+  | Mir.Consume _ -> failwith "Consume 只出现在 Eval 里"
 
 (* 从入口能走到的块；走不到的块（return 之后的死代码）不输出。 *)
 let reachable (f : Mir.func) =
@@ -142,12 +184,15 @@ let func b (f : Mir.func) =
         List.iter
           (function
             | Mir.Assign (p, rv) -> add (Printf.sprintf "  %s = %s;\n" (place p) (rvalue rv))
+            | Mir.Eval (Mir.Consume (t, o)) -> add (Printf.sprintf "  %s\n" (drop_code t (operand o)))
+            | Mir.Eval (Mir.Unwrap _) -> ()      (* 只把 Result 标记为已移走，没有代码 *)
             | Mir.Eval rv -> add (Printf.sprintf "  %s;\n" (rvalue rv))
             | Mir.Proj (q, p) -> add (Printf.sprintf "  l%d = &%s;\n" q (place p))
             | Mir.DropNow l ->
                 add (Printf.sprintf "  %s\n" (drop_code f.locals.(l).lty (local f l)))
             | Mir.DropIf (l, fl) ->
                 add (Printf.sprintf "  if (l%d) { %s}\n" fl (drop_code f.locals.(l).lty (local f l)))
+            | Mir.Live _ -> ()
             | Mir.Drop _ -> failwith "Drop 应当已由 Own.elaborate 展开")
           blk.stmts;
         match blk.term with
@@ -167,12 +212,7 @@ let program (p : program) (fs : Mir.func list) : string =
   let add s = Buffer.add_string b s in
   add prelude;
   add "\n";
-  List.iter
-    (fun (n, fs) ->
-      add (Printf.sprintf "typedef struct S_%s {" n);
-      List.iter (fun (f : field) -> add (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname)) fs;
-      add (Printf.sprintf " } S_%s;\n" n))
-    (struct_order p);
+  add (type_defs p fs);
   List.iter (fun f -> add (signature f ^ ";\n")) fs;
   List.iter (func b) fs;
   add

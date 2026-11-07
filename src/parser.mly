@@ -21,6 +21,7 @@ let ty_of_name = function
 %token <int64> INT
 %token <string> IDENT UIDENT
 %token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
+%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION
 %token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ
 %token PLUS MINUS STAR SLASH PERCENT BANG
 %token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
@@ -31,7 +32,7 @@ let ty_of_name = function
 %left PLUS MINUS
 %left STAR SLASH PERCENT
 %nonassoc UNARY
-%left DOT
+%left DOT QUESTION
 
 %start <Ast.program> program
 %%
@@ -49,7 +50,9 @@ nls:
 
 item:
   | STRUCT n = UIDENT LBRACE nls fs = fields RBRACE
-    { Struct { name = n; fields = fs; ipos = p $startpos } }
+    { Struct { name = n; fields = fs; linear = false; ipos = p $startpos } }
+  | LINEAR STRUCT n = UIDENT LBRACE nls fs = fields RBRACE
+    { Struct { name = n; fields = fs; linear = true; ipos = p $startpos } }
   | FN n = IDENT LPAREN ps = separated_list(COMMA, param) RPAREN r = ret b = block
     { Fn { name = n; params = ps; ret = r; body = b; ipos = p $startpos } }
 
@@ -71,6 +74,7 @@ ty:
   | n = UIDENT { ty_of_name n }
   | LPAREN RPAREN { TUnit }
   | BOX LT t = ty GT { TBox t }
+  | RESULT LT t = ty COMMA e = ty GT { TResult (t, e) }
 
 ret:
   | { TUnit }
@@ -90,6 +94,7 @@ stmt:
   | x = IDENT EQ e = expr { mks (Assign (x, e)) $startpos }
   | WHILE c = expr b = block { mks (While (c, b)) $startpos }
   | RETURN e = option(expr) { mks (Return e) $startpos }
+  | ERRDEFER e = expr { mks (Errdefer e) $startpos }
   | e = expr { mks (Expr e) $startpos }
 
 expr:
@@ -102,6 +107,13 @@ expr:
   | f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN { mk (Call (f, args)) $startpos }
   | n = UIDENT LBRACE nls fs = inits RBRACE { mk (StructLit (n, fs)) $startpos }
   | e = expr DOT f = IDENT { mk (Field (e, f)) $startpos }
+  | e = expr QUESTION { mk (Try e) $startpos($2) }
+  | n = UIDENT LPAREN a = expr RPAREN
+    { match n with
+      | "Ok" -> mk (ResLit (true, a)) $startpos
+      | "Err" -> mk (ResLit (false, a)) $startpos
+      | _ -> mk (Call (n, [ a ])) $startpos }
+  | MATCH s = expr LBRACE nls a = arm sep b = arm nls RBRACE { mk (Match (s, [ a; b ])) $startpos }
   | a = expr o = binop b = expr { mk (Binop (o, a, b)) $startpos }
   | MINUS e = expr %prec UNARY { mk (Unop (Neg, e)) $startpos }
   | BANG e = expr %prec UNARY { mk (Unop (Not, e)) $startpos }
@@ -114,6 +126,13 @@ if_expr:
   | IF c = expr b = block ELSE e = block { mk (If (c, b, Some e)) $startpos }
   | IF c = expr b = block ELSE i = if_expr
     { mk (If (c, b, Some { stmts = []; tail = Some i })) $startpos }
+
+arm:
+  | n = UIDENT LPAREN x = IDENT RPAREN FATARROW e = expr { (n, x, e) }
+
+sep:
+  | NL nls { () }
+  | COMMA nls { () }
 
 inits:
   | { [] }

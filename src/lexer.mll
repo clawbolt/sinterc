@@ -13,7 +13,7 @@ let pos lexbuf =
 let keywords = [
   "fn", FN; "struct", STRUCT; "let", LET; "var", VAR; "if", IF; "else", ELSE;
   "while", WHILE; "return", RETURN; "true", TRUE; "false", FALSE;
-  "inout", INOUT; "sink", SINK;
+  "inout", INOUT; "sink", SINK; "linear", LINEAR; "errdefer", ERRDEFER; "match", MATCH;
 ]
 }
 
@@ -33,8 +33,9 @@ rule token = parse
   | lower alnum* as s     { match List.assoc_opt s keywords with
                             | Some k -> k
                             | None -> IDENT s }
-  | upper alnum* as s     { if s = "Box" then BOX else UIDENT s }
-  | "->"  { ARROW }
+  | upper alnum* as s     { match s with "Box" -> BOX | "Result" -> RESULT | _ -> UIDENT s }
+  | "->"  { ARROW }   | "=>"  { FATARROW }
+  | '?'   { QUESTION }
   | "=="  { EQEQ }  | "!="  { NE }
   | "<="  { LE }    | ">="  { GE }
   | "&&"  { ANDAND } | "||" { OROR }

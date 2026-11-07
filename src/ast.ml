@@ -8,6 +8,7 @@ type ty =
   | TUnit
   | TStruct of string
   | TBox of ty          (* 拥有一块堆内存 *)
+  | TResult of ty * ty  (* 内建的 Result<T, E> *)
 
 type binop =
   | Add | Sub | Mul | Div | Rem
@@ -29,6 +30,9 @@ and expr_desc =
   | StructLit of string * (string * expr) list
   | Field of expr * string
   | Deref of expr       (* *b：读出 Box 里的值，不移动 *)
+  | ResLit of bool * expr   (* Ok(e) 为 true，Err(e) 为 false *)
+  | Try of expr             (* e? *)
+  | Match of expr * (string * string * expr) list   (* match r { Ok(x) => a, Err(y) => b } *)
   | If of expr * block * block option
   | Block of block
 
@@ -40,6 +44,7 @@ and stmt_desc =
   | While of expr * block
   | Return of expr option
   | Expr of expr
+  | Errdefer of expr        (* 出错返回时执行的调用 *)
 
 (* 块：若干语句，最后可以有一个作为值的表达式。 *)
 and block = { stmts : stmt list; tail : expr option }
@@ -50,7 +55,7 @@ type field = { fname : string; fty : ty }
 type mode = MLet | MInout | MSink
 
 type item =
-  | Struct of { name : string; fields : field list; ipos : pos }
+  | Struct of { name : string; fields : field list; linear : bool; ipos : pos }
   | Fn of { name : string; params : (mode * string * ty) list; ret : ty; body : block; ipos : pos }
 
 type program = item list
@@ -61,3 +66,4 @@ let rec string_of_ty = function
   | TUnit -> "()"
   | TStruct n -> n
   | TBox t -> "Box<" ^ string_of_ty t ^ ">"
+  | TResult (a, b) -> "Result<" ^ string_of_ty a ^ ", " ^ string_of_ty b ^ ">"

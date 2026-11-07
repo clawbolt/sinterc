@@ -3,7 +3,9 @@
    前向数据流，分支汇合取并，循环迭代到不动点。之后：
    - 读取未初始化或可能已初始化的变量报错（移动后使用）；
    - 降级插入的 Drop：已初始化 → 直接析构；未初始化 → 去掉；可能已初始化 → 按 drop flag 析构；
-   - 给需要析构的变量重新赋值前，同样先析构旧值。 *)
+   - 给需要析构的变量重新赋值前，同样先析构旧值。
+   linear 值（M6、M7（三））不能被隐式析构：Drop 处如果还拥有它就报错，
+   这包括作用域结束、return 和出错返回三种出口；也不能在还拥有时被重新赋值。 *)
 open Mir
 
 type state = Uninit | Init | Maybe
@@ -12,21 +14,31 @@ let join a b = if a = b then a else Maybe
 
 let err (p : place) fmt = Printf.ksprintf (fun m -> raise (Typeck.Error (p.at, m))) fmt
 
+let err_at at fmt = Printf.ksprintf (fun m -> raise (Typeck.Error (at, m))) fmt
+
 let succs (b : block) =
   match b.term with Goto j -> [ j ] | Branch (_, a, c) -> [ a; c ] | Return | Unterminated -> []
 
 let operands = function
-  | Use o | Un (_, o) | BoxNew (_, o) -> [ o ]
+  | Use o | Un (_, o) | BoxNew (_, o) | Unwrap (o, _) | Consume (_, o) -> [ o ]
   | Bin (_, a, b) -> [ a; b ]
   | Call (_, os) -> os
   | Agg (_, fs) -> List.map snd fs
+  | MkRes (_, _, o) -> Option.to_list o
 
 let moved rv = List.filter_map (function Move p -> Some p.base | _ -> None) (operands rv)
 
 (* 这个局部自己拥有一个需要析构的值（不是 let / inout 参数或投影这样的指针）。 *)
 let owned (f : func) l = Typeck.needs_drop f.locals.(l).lty && not f.locals.(l).lref
 
+let linear (f : func) l = Typeck.is_linear f.locals.(l).lty
+
 let name (f : func) l = if f.locals.(l).lname = "" then "临时值" else f.locals.(l).lname
+
+let why_text = function
+  | End -> "作用域结束时"
+  | Ret -> "从这里返回时"
+  | Err -> "出错从这里返回时"
 
 (* 读一个操作数。check 为真时检查它已初始化；移动之后变成未初始化。 *)
 let read check f st = function
@@ -53,6 +65,16 @@ let step check f flag need st s =
         need.(l) <- true;
         match flag.(l) with Some fl -> [ DropIf (l, fl) ] | None -> [])
   in
+  (* linear 值不能被隐式析构 *)
+  let no_linear l at why =
+    if check then
+      match st.(l) with
+      | Uninit -> ()
+      | Init ->
+          err_at at "%s 是 linear 值，%s还没有被消费%s" (name f l) (why_text why)
+            (if why = Err then "（可以加 errdefer）" else "")
+      | Maybe -> err_at at "%s 是 linear 值，%s在某些路径上还没有被消费" (name f l) (why_text why)
+  in
   let reads rv =
     List.iter (read check f st) (operands rv);
     List.concat_map (fun l -> set l false) (moved rv)
@@ -60,15 +82,24 @@ let step check f flag need st s =
   match s with
   | Assign (p, rv) ->
       let clear = reads rv in
-      if p.proj = [] && owned f p.base then begin
+      if p.proj = [] && owned f p.base && linear f p.base then begin
+        if check && st.(p.base) <> Uninit then
+          err p "%s 是 linear 值，重新赋值前必须先消费旧值" (name f p.base);
+        st.(p.base) <- Init;
+        clear @ [ s ]
+      end
+      else if p.proj = [] && owned f p.base then begin
         (* 右值只读临时变量或别的局部，先析构旧值再赋值是安全的 *)
         let pre = release p.base in
         st.(p.base) <- Init;
         clear @ pre @ [ s ] @ set p.base true
       end
-      else if p.proj = [] && Typeck.needs_drop f.locals.(p.base).lty then
+      else if p.proj = [] && Typeck.needs_drop f.locals.(p.base).lty then begin
         (* inout 参数：一直拥有值（不能移走），赋值前直接析构旧值 *)
+        if check && linear f p.base then
+          err p "不能给 linear 的 inout 参数 %s 整体赋值（旧值没有被消费）" (name f p.base);
         clear @ [ DropNow p.base; s ]
+      end
       else begin
         if p.proj = [] then st.(p.base) <- Init;
         clear @ [ s ]
@@ -76,10 +107,17 @@ let step check f flag need st s =
   | Eval rv ->
       let clear = reads rv in
       clear @ [ s ]
-  | Drop l ->
+  | Drop (l, at, why) when linear f l ->
+      no_linear l at why;
+      st.(l) <- Uninit;
+      []
+  | Drop (l, _, _) ->
       let r = release l in
       st.(l) <- Uninit;
       r @ set l false
+  | Live (l, at, msg) ->
+      if check && st.(l) <> Init then raise (Typeck.Error (at, msg));
+      []
   | Proj (q, p) ->
       read check f st (Copy p);
       st.(q) <- Init;
@@ -136,7 +174,9 @@ let elaborate (f : func) : func =
   let flag =
     Array.init n (fun l ->
         if need.(l) then begin
-          extra := { lname = f.locals.(l).lname ^ "_flag"; lty = Ast.TBool; lref = false } :: !extra;
+          extra :=
+            { lname = f.locals.(l).lname ^ "_flag"; lty = Ast.TBool; lref = false; lpos = nopos }
+            :: !extra;
           Some (n + List.length !extra - 1)
         end
         else None)
