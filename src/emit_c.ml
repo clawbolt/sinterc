@@ -40,26 +40,45 @@ static void *sn_arena_alloc(sn_arena *a, size_t n) {
 static void sn_arena_free(sn_arena *a) { sn_chunk *c = a->head; while (c) { sn_chunk *n = c->next; sn_free(c); c = n; } a->head = 0; }
 |}
 
+(* 泛型实例（名字里有 <）的 C 名字：编号加上去掉符号的写法，和用户写的名字（S_、u_ 开头）不会重名。 *)
+let gen_names : (string, string) Hashtbl.t = Hashtbl.create 16
+
+let cname prefix n =
+  if not (String.contains n '<') then prefix ^ n
+  else
+    match Hashtbl.find_opt gen_names n with
+    | Some c -> c
+    | None ->
+        let clean = String.map (function ('a' .. 'z' | 'A' .. 'Z' | '0' .. '9') as c -> c | _ -> '_') n in
+        let c = Printf.sprintf "g%d_%s" (Hashtbl.length gen_names) clean in
+        Hashtbl.add gen_names n c;
+        c
+
+let sname n = cname "S_" n   (* 结构体、枚举 *)
+let fname n = cname "u_" n   (* 函数 *)
+
 (* Result<T, E> 的 C 名字由两个类型拼出来（每个用到的 Result 是一个具体的枚举）。 *)
 let rec mangle = function
   | TI64 -> "I64"
   | TBool -> "Bool"
   | TUnit -> "U"
-  | TStruct n -> n
+  | TStruct n -> if String.contains n '<' then sname n else n
   | TBox t -> "B" ^ mangle t
   | TResult (a, b) -> "R" ^ mangle a ^ "_" ^ mangle b ^ "_"
   | TRef (t, _) -> "P" ^ mangle t
   | TArena _ -> "A"
+  | TApp _ | TParam _ -> failwith "泛型的类型参数不会出现在生成的 C 里"
 
 let rec cty = function
   | TI64 -> "int64_t"
   | TBool -> "bool"
   | TUnit -> "void"
-  | TStruct n -> "S_" ^ n
+  | TStruct n -> sname n
   | TBox t -> cty t ^ "*"
   | TResult _ as t -> "S_" ^ mangle t
   | TRef (t, _) -> cty t ^ "*"
   | TArena _ -> "sn_arena"
+  | TApp _ | TParam _ -> failwith "泛型的类型参数不会出现在生成的 C 里"
 
 (* 析构一个值：先析构 Box 里面的值，再释放 Box；结构体逐个析构字段；
    枚举（含 Result）按运行时标签析构对应变体的载荷（Lean M8 的 dropOne）。 *)
@@ -84,7 +103,7 @@ let rec drop_code ty lv =
         (List.map
            (fun (f : field) -> drop_code f.fty (lv ^ ".f_" ^ f.fname))
            (Hashtbl.find Typeck.struct_tbl n))
-  | (TI64 | TBool | TUnit | TRef _ | TArena _ | TResult _), _ -> ""
+  | (TI64 | TBool | TUnit | TRef _ | TArena _ | TResult _ | TApp _ | TParam _), _ -> ""
 
 (* 类型定义按依赖顺序输出：按值包含的类型先定义，Box 指向的类型也先定义（类型检查已经排除了成环）。 *)
 let type_defs (p : program) (fs : Mir.func list) =
@@ -113,15 +132,17 @@ let type_defs (p : program) (fs : Mir.func list) =
         Hashtbl.replace seen (cty t) ();
         let fields = Hashtbl.find Typeck.struct_tbl n in
         List.iter (fun (f : field) -> visit f.fty) fields;
-        Buffer.add_string b (Printf.sprintf "typedef struct S_%s {" n);
+        Buffer.add_string b (Printf.sprintf "typedef struct %s {" (sname n));
         List.iter
           (fun (f : field) -> Buffer.add_string b (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname))
           fields;
-        Buffer.add_string b (Printf.sprintf " } S_%s;\n" n)
-    | (TI64 | TBool | TUnit | TArena _ | TResult _), _ -> ()
+        Buffer.add_string b (Printf.sprintf " } %s;\n" (sname n))
+    | (TI64 | TBool | TUnit | TArena _ | TResult _ | TApp _ | TParam _), _ -> ()
   in
   List.iter
-    (function Struct s -> visit (TStruct s.name) | Enum e -> visit (TStruct e.name) | Fn _ -> ())
+    (function
+      | Struct { name; tparams = []; _ } | Enum { name; tparams = []; _ } -> visit (TStruct name)
+      | Struct _ | Enum _ | Fn _ -> ())   (* 泛型定义本身没有 C 类型，用到的实例从函数的局部变量找到 *)
     p;
   List.iter
     (fun (f : Mir.func) ->
@@ -164,10 +185,10 @@ let rvalue fn rv =
       | And -> c "&&" | Or -> c "||")
   | Mir.Un (Neg, a) -> Printf.sprintf "sn_neg(%s)" (operand a)
   | Mir.Un (Not, a) -> Printf.sprintf "(!%s)" (operand a)
-  | Mir.Call (f, args) -> Printf.sprintf "u_%s(%s)" f (String.concat ", " (List.map operand args))
+  | Mir.Call (f, args) -> Printf.sprintf "%s(%s)" (fname f) (String.concat ", " (List.map operand args))
   | Mir.Agg (n, fs) ->
       let fs = List.map (fun (f, o) -> Printf.sprintf ".f_%s = %s" f (operand o)) fs in
-      Printf.sprintf "((S_%s){ %s })" n (String.concat ", " fs)
+      Printf.sprintf "((%s){ %s })" (sname n) (String.concat ", " fs)
   | Mir.BoxNew (t, o) ->
       let t = cty t in
       Printf.sprintf "({ %s *p_ = sn_alloc(sizeof(%s)); *p_ = %s; p_; })" t t (operand o)
@@ -207,7 +228,7 @@ let signature (f : Mir.func) =
       String.concat ", "
         (List.map (fun l -> Printf.sprintf "%s l%d" (lty f.locals.(l)) l) f.params)
   in
-  Printf.sprintf "static %s u_%s(%s)" (cty f.ret) f.name ps
+  Printf.sprintf "static %s %s(%s)" (cty f.ret) (fname f.name) ps
 
 let func b (f : Mir.func) =
   let add s = Buffer.add_string b s in

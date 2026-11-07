@@ -50,6 +50,7 @@ let () =
       if n > 3 && name.[0] = 'p' && name.[n - 2] = '_' then Some (name.[n - 1] = 'y') else None
     in
     let compile it =
+      let it = Typeck.resolve_item it in
       Typeck.check_fn env0 it;
       List.map (fun f -> Borrow.check (Own.elaborate f)) (Mir.lower [ it ])
     in
@@ -103,16 +104,20 @@ let () =
         close_out oc);
     exit (if !only_lean = [] && !internal = [] then 0 else 1)
   end;
-  (* 类型检查、降级、所有权检查、投影与排他性检查都可能报错 *)
-  let fs =
+  (* 类型检查、降级、所有权检查、投影与排他性检查都可能报错。
+     泛型函数本身也降级并检查（定义处检查，Lean M9），但只输出它的实例。 *)
+  let prog, fs =
     try
-      Typeck.program prog;
+      let prog = Typeck.program prog in
       let check = not !unchecked in
-      List.map
-        (fun f ->
-          let f = Own.elaborate ~check f in
-          if check then Borrow.check f else f)
-        (Mir.lower prog)
+      let fs =
+        List.map
+          (fun f ->
+            let f = Own.elaborate ~check f in
+            if check then Borrow.check f else f)
+          (Mir.lower prog)
+      in
+      (prog, List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) fs)
     with Typeck.Error (pos, msg) -> fail file pos msg
   in
   let text = if !core then Emit_core.program ~expect_ok:(not !unchecked) fs else Emit_c.program prog fs in

@@ -11,6 +11,8 @@ type ty =
   | TResult of ty * ty  (* Result<T, E>：变体为 Ok(T)、Err(E) 的枚举（还没有泛型，单独记） *)
   | TRef of ty * string (* &T in a：区域 a 里的只读引用 *)
   | TArena of string    (* 区域本身，只能作为函数参数类型或 arena 块引入的名字 *)
+  | TApp of string * ty list   (* Option<I64>：泛型结构体或枚举加类型实参；类型检查时换成具体的 TStruct *)
+  | TParam of string * bool    (* 泛型函数里的类型参数 T；true：T: linear（Lean M9） *)
 
 type binop =
   | Add | Sub | Mul | Div | Rem
@@ -60,12 +62,25 @@ type field = { fname : string; fty : ty }
 (* 参数约定：let 只读借用（默认），inout 可变借用，sink 转移所有权。 *)
 type mode = MLet | MInout | MSink
 
+(* tparams：类型参数，true 表示标了 linear（只有函数可以标）。 *)
 type item =
-  | Struct of { name : string; fields : field list; linear : bool; ipos : pos }
-  | Enum of { name : string; variants : (string * ty option) list; ipos : pos }   (* 每个变体至多一个载荷 *)
-  | Fn of { name : string; params : (mode * string * ty) list; ret : ty; body : block; ipos : pos }
+  | Struct of { name : string; tparams : (string * bool) list; fields : field list; linear : bool; ipos : pos }
+  | Enum of { name : string; tparams : (string * bool) list; variants : (string * ty option) list; ipos : pos }
+      (* 每个变体至多一个载荷 *)
+  | Fn of {
+      name : string;
+      tparams : (string * bool) list;
+      params : (mode * string * ty) list;
+      ret : ty;
+      body : block;
+      ipos : pos;
+    }
 
 type program = item list
+
+(* 表达式的 id：解析时依次分配，实例化泛型函数时复制出的表达式也从这里取新的。 *)
+let next_id = ref 0
+let fresh_id () = incr next_id; !next_id
 
 let rec string_of_ty = function
   | TI64 -> "I64"
@@ -76,3 +91,5 @@ let rec string_of_ty = function
   | TResult (a, b) -> "Result<" ^ string_of_ty a ^ ", " ^ string_of_ty b ^ ">"
   | TRef (t, r) -> "&" ^ string_of_ty t ^ " in " ^ r
   | TArena _ -> "Arena"
+  | TApp (n, ts) -> n ^ "<" ^ String.concat ", " (List.map string_of_ty ts) ^ ">"
+  | TParam (n, _) -> n

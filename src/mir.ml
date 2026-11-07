@@ -220,9 +220,13 @@ let rec expr st env (x : expr) : operand option =
   | Call (f, args) ->
       let modes = List.map fst (fst (Hashtbl.find Typeck.sigs f)) in
       let os = List.map2 (arg st env) modes args in
+      (* 泛型函数调用的是推出的类型实参对应的实例 *)
+      let f = match Hashtbl.find_opt Typeck.call_inst x.id with Some ts -> Typeck.inst_name f ts | None -> f in
       value st x (Call (f, os))
   | StructLit (n, inits) ->
       let fs = List.map (fun (f, e) -> (f, Option.get (expr st env e))) inits in
+      (* 泛型结构体：用实例的名字 *)
+      let n = match ty_of x with Some (TStruct m) -> m | _ -> n in
       value st x (Agg (n, fs))
   | Variant (v, a) -> (
       let oa = Option.bind a (expr st env) in
@@ -588,6 +592,6 @@ let lower_fn name params ret body ipos =
 let lower (p : program) : func list =
   List.filter_map
     (function
-      | Fn { name; params; ret; body; ipos } -> Some (lower_fn name params ret body ipos)
+      | Fn { name; params; ret; body; ipos; _ } -> Some (lower_fn name params ret body ipos)
       | Struct _ | Enum _ -> None)
     p

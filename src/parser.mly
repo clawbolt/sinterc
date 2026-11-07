@@ -2,8 +2,8 @@
 open Ast
 
 let p (pos : Lexing.position) = { line = pos.pos_lnum; col = pos.pos_cnum - pos.pos_bol + 1 }
-let next_id = ref 0
-let mk e pos = incr next_id; { e; pos = p pos; id = !next_id }
+
+let mk e pos = { e; pos = p pos; id = fresh_id () }
 let mks s pos = { s; spos = p pos }
 
 (* 没有分号：块的最后一条若是表达式语句，就是块的值。 *)
@@ -53,14 +53,23 @@ nls:
   | NL nls { () }
 
 item:
-  | STRUCT n = UIDENT LBRACE nls fs = fields RBRACE
-    { Struct { name = n; fields = fs; linear = false; ipos = p $startpos } }
-  | LINEAR STRUCT n = UIDENT LBRACE nls fs = fields RBRACE
-    { Struct { name = n; fields = fs; linear = true; ipos = p $startpos } }
-  | ENUM n = UIDENT LBRACE nls vs = variants RBRACE
-    { Enum { name = n; variants = vs; ipos = p $startpos } }
-  | FN n = IDENT LPAREN ps = separated_list(COMMA, param) RPAREN r = ret b = block
-    { Fn { name = n; params = ps; ret = r; body = b; ipos = p $startpos } }
+  | STRUCT n = UIDENT tp = tparams LBRACE nls fs = fields RBRACE
+    { Struct { name = n; tparams = tp; fields = fs; linear = false; ipos = p $startpos } }
+  | LINEAR STRUCT n = UIDENT tp = tparams LBRACE nls fs = fields RBRACE
+    { Struct { name = n; tparams = tp; fields = fs; linear = true; ipos = p $startpos } }
+  | ENUM n = UIDENT tp = tparams LBRACE nls vs = variants RBRACE
+    { Enum { name = n; tparams = tp; variants = vs; ipos = p $startpos } }
+  | FN n = IDENT tp = tparams LPAREN ps = separated_list(COMMA, param) RPAREN r = ret b = block
+    { Fn { name = n; tparams = tp; params = ps; ret = r; body = b; ipos = p $startpos } }
+
+(* 类型参数：<T, U: linear> *)
+tparams:
+  | { [] }
+  | LT ts = separated_nonempty_list(COMMA, tparam) GT { ts }
+
+tparam:
+  | n = UIDENT { (n, false) }
+  | n = UIDENT COLON LINEAR { (n, true) }
 
 fields:
   | { [] }
@@ -89,6 +98,7 @@ param:
 
 ty:
   | n = UIDENT { ty_of_name n }
+  | n = UIDENT LT ts = separated_nonempty_list(COMMA, ty) GT { TApp (n, ts) }
   | LPAREN RPAREN { TUnit }
   | BOX LT t = ty GT { TBox t }
   | AMP t = ty IN r = IDENT { TRef (t, r) }
