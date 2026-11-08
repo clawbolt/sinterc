@@ -52,5 +52,21 @@ rule token = parse
   | ','   { COMMA }  | ':'  { COLON }
   | ';'   { NL }
   | '.'   { DOT }
+  | '"'   { (* 读完整个字符串后把起点改回左引号，报错位置才指向字面量的开头 *)
+            let start = lexbuf.Lexing.lex_start_p and p = pos lexbuf in
+            let s = str p (Buffer.create 16) lexbuf in
+            lexbuf.Lexing.lex_start_p <- start;
+            STRING s }
   | eof   { EOF }
   | _ as c { raise (Error (pos lexbuf, Printf.sprintf "无法识别的字符 '%c'" c)) }
+
+(* 字符串字面量（C26）：转义只有换行、制表符、反斜杠和双引号四种；不能跨行。 *)
+and str p buf = parse
+  | '"'         { Buffer.contents buf }
+  | "\\n"       { Buffer.add_char buf '\n'; str p buf lexbuf }
+  | "\\t"       { Buffer.add_char buf '\t'; str p buf lexbuf }
+  | "\\\\"      { Buffer.add_char buf '\\'; str p buf lexbuf }
+  | "\\\""      { Buffer.add_char buf '"'; str p buf lexbuf }
+  | '\\' _      { raise (Error (pos lexbuf, "字符串里只能用 \\n、\\t、\\\\、\\\" 这几种转义")) }
+  | '\n' | eof  { raise (Error (p, "字符串没有结束（缺少右边的 \"，字符串不能跨行）")) }
+  | _ as c      { Buffer.add_char buf c; str p buf lexbuf }

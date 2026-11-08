@@ -1,4 +1,4 @@
-// Sinter 快速一览：结构体、参数约定、Box、Vec、match、arena。
+// Sinter 快速一览：结构体、参数约定、Box、Vec、match、arena。运行：sinterc run tour.sn
 
 struct Point { x: I64, y: I64 }
 
@@ -22,6 +22,7 @@ fn sum(v: Vec<Box<I64>>) -> I64 {
 fn make(a: Arena, n: I64) -> &I64 in a { alloc(a, n) }
 
 fn main() {
+    print("== Sinter 一览 ==")
     var p = Point { x: 3, y: 4 }
     print_i64(dist2(p))
     inc(p.x)

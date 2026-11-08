@@ -34,6 +34,7 @@ let ty_of_name = function
 %}
 
 %token <int64> INT
+%token <string> STRING
 %token <string> IDENT UIDENT
 %token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
 %token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM TRAIT IMPL FOR
@@ -164,6 +165,7 @@ stmt:
 
 expr:
   | n = INT { mk (Int n) $startpos }
+  | s = STRING { mk (Str s) $startpos }
   | TRUE { mk (Bool true) $startpos }
   | FALSE { mk (Bool false) $startpos }
   | LPAREN RPAREN { mk Unit $startpos }

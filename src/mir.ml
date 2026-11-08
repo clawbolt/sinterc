@@ -18,7 +18,7 @@ type proj =
 
 type place = { base : local; proj : proj list; at : pos }
 
-type const = CInt of int64 | CBool of bool
+type const = CInt of int64 | CBool of bool | CStr of string   (* CStr：print 的字符串字面量 *)
 
 type operand =
   | Const of const
@@ -211,6 +211,7 @@ let rec expr st env (x : expr) : operand option =
   match x.e with
   | Int n -> Some (Const (CInt n))
   | Bool b -> Some (Const (CBool b))
+  | Str s -> Some (Const (CStr s))
   | Unit -> None
   | Var _ | Field _ | Deref _ | Call ("vec_get", _) -> (
       match ty_of x with

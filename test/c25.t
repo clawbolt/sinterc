@@ -2,7 +2,7 @@ C25：试用版的命令行。sinterc run 编译并运行，sinterc build 生成
 原来的 sinterc 源文件.sn -o 输出.c 不变。build 和 run 调用环境变量 CC 指定的 C 编译器（默认 cc）。
 
   $ cat > tour.sn <<'EOF'
-  > // Sinter 快速一览：结构体、参数约定、Box、Vec、match、arena。
+  > // Sinter 快速一览：结构体、参数约定、Box、Vec、match、arena。运行：sinterc run tour.sn
   > 
   > struct Point { x: I64, y: I64 }
   > 
@@ -26,6 +26,7 @@ C25：试用版的命令行。sinterc run 编译并运行，sinterc build 生成
   > fn make(a: Arena, n: I64) -> &I64 in a { alloc(a, n) }
   > 
   > fn main() {
+  >     print("== Sinter 一览 ==")
   >     var p = Point { x: 3, y: 4 }
   >     print_i64(dist2(p))
   >     inc(p.x)
@@ -48,6 +49,7 @@ C25：试用版的命令行。sinterc run 编译并运行，sinterc build 生成
   > }
   > EOF
   $ sinterc run tour.sn
+  == Sinter 一览 ==
   25
   4
   6
@@ -57,6 +59,7 @@ C25：试用版的命令行。sinterc run 编译并运行，sinterc build 生成
 build 默认输出到去掉 .sn 的同名文件：
 
   $ sinterc build tour.sn && ./tour
+  == Sinter 一览 ==
   25
   4
   6

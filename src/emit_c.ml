@@ -16,6 +16,7 @@ static int64_t sn_rem(int64_t a, int64_t b) { if (b == 0) sn_panic("除以零");
 static int64_t sn_neg(int64_t a) { if (a == INT64_MIN) sn_panic("整数溢出"); return -a; }
 static void u_print_i64(int64_t x) { printf("%lld\n", (long long)x); }
 static void u_print_bool(bool b) { puts(b ? "true" : "false"); }
+static void u_print(const char *s) { puts(s); }
 /* 对照测试用：按 sn_seq 里的 0 / 1 依次返回假 / 真，用完之后一直返回假（循环因此一定结束）。 */
 static const char *sn_seq = "";
 static bool u_choose(void) { if (*sn_seq) return *sn_seq++ == '1'; return false; }
@@ -240,6 +241,19 @@ let place f (p : Mir.place) =
 let operand f = function
   | Mir.Const (Mir.CInt n) -> Printf.sprintf "INT64_C(%Ld)" n
   | Mir.Const (Mir.CBool b) -> if b then "true" else "false"
+  | Mir.Const (Mir.CStr s) ->
+      (* C 的字符串字面量：可打印的 ASCII 原样写，其余字节（包括 UTF-8 的中文）写成八进制转义 *)
+      let b = Buffer.create (String.length s + 2) in
+      Buffer.add_char b '"';
+      String.iter
+        (fun c ->
+          match c with
+          | '"' | '\\' -> Buffer.add_char b '\\'; Buffer.add_char b c
+          | ' ' .. '~' -> Buffer.add_char b c
+          | c -> Buffer.add_string b (Printf.sprintf "\\%03o" (Char.code c)))
+        s;
+      Buffer.add_char b '"';
+      Buffer.contents b
   | Mir.Copy p | Mir.Move p -> place f p
   | Mir.Ref p | Mir.RefMut p -> Printf.sprintf "&%s" (place f p)
 

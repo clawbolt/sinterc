@@ -28,6 +28,7 @@ and expr_desc =
   | Int of int64
   | Bool of bool
   | Unit
+  | Str of string       (* 字符串字面量：暂时只能直接作为 print 的实参（C26），不是一个类型 *)
   | Var of string
   | Binop of binop * expr * expr
   | Unop of unop * expr

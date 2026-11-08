@@ -84,6 +84,7 @@ let builtins =
   [
     "print_i64", ([ (MSink, TI64) ], TUnit);
     "print_bool", ([ (MSink, TBool) ], TUnit);
+    "print", ([ (MSink, TUnit) ], TUnit);   (* 实参是字符串字面量，在 call 里单独检查 *)
     "choose", ([], TBool);       (* 对照测试用：按运行时给定的选择序列返回真假 *)
   ]
 
@@ -428,7 +429,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
   let rec ex (x : expr) =
     let e =
       match x.e with
-      | (Int _ | Bool _ | Unit | Var _) as d -> d
+      | (Int _ | Bool _ | Unit | Str _ | Var _) as d -> d
       | Binop (o, a, b) -> Binop (o, ex a, ex b)
       | Unop (o, a) -> Unop (o, ex a)
       | Call (f, args) -> Call (callee x f, List.map ex args)
@@ -531,6 +532,7 @@ and expr1 env (x : expr) : t =
   | Int _ -> Ty TI64
   | Bool _ -> Ty TBool
   | Unit -> Ty TUnit
+  | Str _ -> err pos "字符串字面量暂时只能直接作为 print 的实参，例如 print(\"hello\")"
   | Var v -> (
       match List.assoc_opt v env.vars with
       | Some (t, _) -> Ty t
@@ -662,6 +664,11 @@ and method_name env (x : expr) f (r : expr) =
   g
 
 and call env want (x : expr) f args : t =
+  if f = "print" then (
+    match args with
+    | [ { e = Str _; _ } ] -> Ty TUnit
+    | _ -> err x.pos "print 的实参必须是一个字符串字面量，例如 print(\"hello\")（整数和布尔值用 print_i64、print_bool）")
+  else
   let pos = x.pos in
   let ps, r =
     match Hashtbl.find_opt env.fns f with
