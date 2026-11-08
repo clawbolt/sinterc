@@ -81,11 +81,14 @@ let func (f : func) =
     List.sort_uniq compare (List.concat_map (fun l -> Typeck.region_names f.locals.(l).lty) f.params)
   in
   let np = List.length pregions in
-  (* 局部 l 的类型里的区域名 r 的深度：arena 块排在区域参数之后 *)
+  (* 局部 l 的类型里的区域名 r 的深度：arena 块排在区域参数之后。
+     既不是区域参数、局部创建时也不在 r 的块里：r 已经结束，值是从块里带出来的（违反 R3，C22）。
+     这时给一个比任何时候的深度都大的值，Lean 的 decl 规则（区域必须比变量先存在）一定拒绝 *)
+  let ended = np + List.length f.arenas in
   let depth l r =
     match List.assoc_opt l f.regarena with
     | Some m when List.mem_assoc r m -> np + List.assoc (List.assoc r m) f.arenas
-    | _ -> ( match List.find_index (fun x -> x = r) pregions with Some i -> i | None -> 0)
+    | _ -> ( match List.find_index (fun x -> x = r) pregions with Some i -> i | None -> ended)
   in
   let kinds =
     Array.init n (fun l ->
