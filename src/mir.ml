@@ -57,6 +57,7 @@ type stmt =
   | DropIf of local * local               (* 展开后：第二个局部（drop flag）为真时析构 *)
   | DropField of local * string           (* 展开后：部分移动过的结构体，只析构这个字段 *)
   | DropFieldIf of local * string * local (* 展开后：这个字段的 drop flag 为真时析构它 *)
+  | DropAt of place                       (* 展开后：析构这个位置上的值（给字段赋值前析构旧值） *)
 
 type term =
   | Goto of int
@@ -85,6 +86,25 @@ type func = {
 let nopos = { line = 0; col = 0 }
 
 let whole ?(at = nopos) l = { base = l; proj = []; at }
+
+(* 位置的类型：从局部的类型出发，沿着路径走。 *)
+let rec proj_ty ty = function
+  | [] -> ty
+  | PField g :: rest -> (
+      match ty with
+      | TStruct n -> (
+          match Hashtbl.find_opt Typeck.struct_tbl n with
+          | Some fs -> proj_ty (List.find (fun (h : field) -> h.fname = g) fs).fty rest
+          | None -> TUnit)
+      | _ -> TUnit)
+  | PDeref :: rest -> ( match ty with TBox t | TRef (t, _) -> proj_ty t rest | _ -> TUnit)
+  | PIndex _ :: rest -> ( match ty with TVec t -> proj_ty t rest | _ -> TUnit)
+  | PVar i :: rest -> (
+      match Typeck.variants ty with
+      | Some vs -> ( match snd (List.nth vs i) with Some t -> proj_ty t rest | None -> TUnit)
+      | None -> TUnit)
+
+let place_ty (f : func) (p : place) = proj_ty f.locals.(p.base).lty p.proj
 
 
 (* ---------- 降级 ---------- *)
@@ -538,6 +558,14 @@ and block st env (b : Ast.block) : operand option =
             (* 旧值的析构由 own.ml 在赋值前插入 *)
             (match expr st env e with
             | Some o -> emit st (Assign (whole ~at:s.spos (List.assoc v env), Use o))
+            | None -> ());
+            go env rest
+        | SetField (a, f, e) ->
+            (* 先算右边，再算位置；旧值的析构由 own.ml 在赋值前插入 *)
+            (match expr st env e with
+            | Some o ->
+                let p = place st env a in
+                emit st (Assign ({ p with proj = p.proj @ [ PField f ]; at = s.spos }, Use o))
             | None -> ());
             go env rest
         | While (c, body) ->

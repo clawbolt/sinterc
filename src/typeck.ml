@@ -357,6 +357,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | Let (m, v, t, e) -> Let (m, v, Option.map (ft s.spos) t, ex e)
       | Decl (v, t) -> Decl (v, ft s.spos t)
       | Assign (v, e) -> Assign (v, ex e)
+      | SetField (a, f, e) -> SetField (ex a, f, ex e)
       | While (c, b) -> While (ex c, blk b)
       | Return e -> Return (Option.map ex e)
       | Expr e -> Expr (ex e)
@@ -812,6 +813,39 @@ and block ?want env (b : block) : t =
             | Some (t, true) -> ignore (check env t e)
             | Some (_, false) -> err pos "%s 是用 let 声明的变量或参数，不能重新赋值（需要的话改用 var / inout）" v
             | None -> err pos "未定义的变量 %s" v);
+            go env rest
+        | SetField (a, f, e) ->
+            (* 给字段赋值：a 是以可修改的变量为根的位置，路径上不经过引用；旧值由 own.ml 先析构 *)
+            let rec path (x : expr) =
+              match x.e with
+              | Var _ -> ()
+              | Field (b, _) -> path b
+              | Deref b -> (
+                  match Hashtbl.find_opt types b.id with
+                  | Some (Ty (TBox _)) -> path b
+                  | _ -> err x.pos "不能通过引用修改它指向的值")
+              | Call (g, [ b; _ ]) when callee x g = "vec_get" -> path b
+              | _ -> err x.pos "只能给变量（或它里面的位置）的字段赋值"
+            in
+            let fty =
+              match expr env a with
+              | Ty (TStruct n) when Hashtbl.mem enum_tbl n -> err a.pos "%s 是枚举，不能给字段 %s 赋值" n f
+              | Ty (TStruct n) -> (
+                  match List.find_opt (fun (g : field) -> g.fname = f) (Hashtbl.find env.structs n) with
+                  | Some g -> g.fty
+                  | None -> err pos "%s 没有字段 %s" n f)
+              | Ty t -> err a.pos "%s 不是结构体，不能给字段 %s 赋值" (string_of_ty t) f
+              | Never -> err a.pos "不能给一个不会返回的值的字段赋值"
+            in
+            path a;
+            (match root a with
+            | Some v -> (
+                match List.assoc_opt v env.vars with
+                | Some (_, true) -> ()
+                | _ -> err a.pos "%s 不可修改，不能给它的字段赋值（需要 var 变量或 inout / sink 参数）" v)
+            | None -> err a.pos "只能给变量（或它里面的位置）的字段赋值");
+            if is_linear fty then err pos "字段 %s 是 linear 值，不能直接赋值（旧值没有被消费）" f;
+            ignore (check env fty e);
             go env rest
         | While (c, body) ->
             expect c.pos TBool (expr env c);

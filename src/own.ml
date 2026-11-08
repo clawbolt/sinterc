@@ -172,6 +172,36 @@ let step check f sp flag need st s =
     List.concat_map (fun i -> set i false) (moved sp rv)
   in
   match s with
+  | Assign (p, rv) when p.proj <> [] -> (
+      (* 给字段赋值：结构体本身要还在。部分移动过的字段按它的槽析构旧值（M13 的 freeField + 移进这个字段）；
+         其他位置的旧值一定还在，需要析构的直接析构 *)
+      let clear = reads rv in
+      if check then begin
+        match st.(p.base) with
+        | Init -> ()
+        | Uninit -> err p "%s 已被移动，不能给它的字段赋值" (name f p.base)
+        | Maybe -> err p "%s 可能已被移动（某条路径上或上一轮循环里），不能给它的字段赋值" (name f p.base)
+      end;
+      match p.proj, slots_of sp p with
+      | [ PField g ], [ (_, k) ] ->
+          let pre =
+            match st.(k) with
+            | Init -> [ DropField (p.base, g) ]
+            | Uninit -> []
+            | Maybe -> (
+                need.(k) <- true;
+                match flag.(k) with Some fl -> [ DropFieldIf (p.base, g, fl) ] | None -> [])
+          in
+          st.(k) <- Init;
+          clear @ pre @ [ s ] @ set k true
+      | _, slots ->
+          if check then
+            List.iter
+              (fun (g, k) ->
+                if st.(k) <> Init then err p "%s.%s 已被移走或可能已被移走，不能给它里面的位置赋值" (name f p.base) g)
+              slots;
+          let pre = if Typeck.needs_drop (place_ty f p) then [ DropAt p ] else [] in
+          clear @ pre @ [ s ])
   | Assign (p, rv) ->
       let clear = reads rv in
       if p.proj = [] && owned f p.base && linear f p.base then begin
@@ -223,7 +253,7 @@ let step check f sp flag need st s =
   | DropNow l | DropIf (l, _) ->
       st.(l) <- Uninit;
       [ s ]
-  | DropField _ | DropFieldIf _ -> [ s ]
+  | DropField _ | DropFieldIf _ | DropAt _ -> [ s ]
 
 (* 不动点：每个块入口的状态。走不到的块是 None。 *)
 let analyze (f : func) sp total =

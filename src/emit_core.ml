@@ -166,6 +166,7 @@ let func (f : func) =
              f.refarena
     | Leave _ -> [ ".leave" ]
     | DropField _ | DropFieldIf _ -> unsupported ()
+    | DropAt _ -> []   (* 给字段赋值前析构旧值：模型里结构体整体仍然拥有值 *)
     | DropIf _ | Live _ | Raise | Drop _ -> []
   in
   (* 入口：区域参数依次 enter；参数里的引用 decl 并视为已赋值；

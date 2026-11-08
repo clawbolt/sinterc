@@ -334,6 +334,7 @@ let func b (f : Mir.func) =
                 add (Printf.sprintf "  %s\n" (drop_code f.locals.(l).lty (local f l)))
             | Mir.DropIf (l, fl) ->
                 add (Printf.sprintf "  if (l%d) { %s}\n" fl (drop_code f.locals.(l).lty (local f l)))
+            | Mir.DropAt p -> add (Printf.sprintf "  %s\n" (drop_code (Mir.place_ty f p) (place p)))
             | Mir.DropField (l, g) ->
                 add (Printf.sprintf "  %s\n" (drop_code (field_ty f l g) (Printf.sprintf "%s.f_%s" (local f l) g)))
             | Mir.DropFieldIf (l, g, fl) ->
