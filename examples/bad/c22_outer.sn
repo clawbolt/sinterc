@@ -1,0 +1,12 @@
+fn main() {
+    arena |a| {
+        var o: Option<&I64 in a> = .None
+        arena |b| {
+            o = .Some(alloc(b, 2))
+        }
+        match o {
+            .Some(r) => print_i64(*r),
+            .None => print_i64(0)
+        }
+    }
+}

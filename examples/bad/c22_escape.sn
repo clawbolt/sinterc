@@ -1,0 +1,11 @@
+fn some<T>(sink x: T) -> Option<T> { .Some(x) }
+
+fn main() {
+    let o = arena |b| {
+        some(alloc(b, 1))
+    }
+    match o {
+        .Some(r) => print_i64(*r),
+        .None => print_i64(0)
+    }
+}

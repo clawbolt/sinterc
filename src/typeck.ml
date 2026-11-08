@@ -137,7 +137,11 @@ let show = function Ty t -> string_of_ty t | Never -> "!"
    arena 块引入的区域比所有外层区域和区域参数都活得短。 *)
 let regions : (string * string list) list ref = ref []
 
-let outlives x y = x = y || match List.assoc_opt y !regions with Some a -> List.mem x a | None -> false
+(* --unchecked（C22）：不检查区域的先后和 R3，照样导出，看 Lean 是否独立地拒绝。 *)
+let lax_regions = ref false
+
+let outlives x y =
+  !lax_regions || x = y || match List.assoc_opt y !regions with Some a -> List.mem x a | None -> false
 
 (* got 能不能当作 want 用：外层区域的引用可以当作内层区域的引用（D2 协变），其余要求相同。 *)
 let rec sub got want =
@@ -784,7 +788,7 @@ and arena env want pos r (b : block) : t =
   let t = match want with Some w -> block env' ~want:w b | None -> block env' b in
   regions := saved;
   (match t with
-  | Ty ty when mentions r ty ->
+  | Ty ty when mentions r ty && not !lax_regions ->
       let at = match b.tail with Some e -> e.pos | None -> pos in
       err at "块的值的类型 %s 含有区域 %s，不能带出这个区域（R3）" (string_of_ty ty) r
   | _ -> ());

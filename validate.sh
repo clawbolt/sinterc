@@ -1,7 +1,7 @@
 #!/bin/sh
 # 附录 F 的 C5：翻译验证。
 # examples/ok 里的程序正常编译，导出的 CFG 必须被 Lean 全部接受；
-# examples/bad 里的程序（编译器本来会报错）用 --unchecked 跳过编译器的所有权检查后导出，
+# examples/bad 里的程序（编译器本来会报错）用 --unchecked 跳过编译器的所有权检查和区域检查后导出，
 # Lean 必须独立地拒绝其中至少一个函数。
 # 判断只用 Lean M7（五·下）已证明健全的 cfgOk，见 lean/Core/C5.lean。
 set -e

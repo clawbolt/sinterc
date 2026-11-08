@@ -1,6 +1,6 @@
 (* 用法：main.exe 源文件 [-o 输出] [--emit=core] [--unchecked] [--batch]
    默认生成 C；--emit=core 生成给 Lean 复核的 CFG（附录 F 的 C5）。
-   --unchecked 只和 --emit=core 一起用：跳过所有权与投影检查，照样导出，看 Lean 是否独立地拒绝。
+   --unchecked 只和 --emit=core 一起用：跳过所有权与投影检查、区域的先后和 R3 检查，照样导出，看 Lean 是否独立地拒绝。
    --batch：对照测试，见下面。
    不给 -o 时写到标准输出。出错时打印“文件:行:列: 错误：…”，退出码 1。 *)
 open Sinter
@@ -108,6 +108,7 @@ let () =
      泛型函数本身也降级并检查（定义处检查，Lean M9），但只输出它的实例。 *)
   let prog, fs =
     try
+      Typeck.lax_regions := !unchecked;
       let prog = Typeck.program prog in
       let check = not !unchecked in
       let fs =
