@@ -50,13 +50,14 @@ The comments and printed text in the examples and tests are in Chinese; the code
 - Generics and traits: `fn same<T: Eq>(a: T, b: T) -> Bool`, monomorphized and statically dispatched. Method-call syntax `v.push(x)` is the same as `push(v, x)`.
 - References come only from arenas: `arena |a| { let r = alloc(a, 1) … }`; a reference cannot outlive its arena.
   Functions can take region parameters: `fn get(o: Option<&I64 in x>) -> I64`.
-- Output: `print("text")` (a string literal; escapes are `\n`, `\t`, `\\`, `\"`), `print_i64`, `print_bool`.
+- Strings `Str`: like `Box`, they own heap memory and can only be moved. `s.len()`, `a.eq(b)`, `a.concat(b)`, `s.push(t)` (`s` must be a `var`), `s.clone()`, `str_from_i64(n)`.
+- Output: `print(s)` (literal escapes are `\n`, `\t`, `\\`, `\"`), `print_i64`, `print_bool`.
 
 More complete examples of each feature are in `test/c*.t`. Each file starts by saying what that step added, followed by programs that run and programs that must be rejected.
 
 ## Known limitations
 
-- Only integers and booleans. Strings can only be arguments to `print`; they are not a type yet. No floats, closures or modules; a program is a single file.
+- Only integers, booleans and strings. Strings cannot be indexed, sliced or formatted yet. No floats, closures or modules; a program is a single file.
 - Error messages are Chinese by default; `--lang=en` (or `SINTER_LANG=en`) switches to English. A few messages are not translated yet and still appear in Chinese. Only the first error is reported.
 - Type parameters of `Box` and `Vec` are invariant across instances, which is stricter than Rust: some programs Rust accepts are rejected here.
 - Runtime errors (for example an index out of bounds) print `panic: …` and exit with code 101.

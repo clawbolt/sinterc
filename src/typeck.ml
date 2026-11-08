@@ -60,11 +60,11 @@ let rec is_linear = function
   | TResult (a, b) -> is_linear a || is_linear b
   | TBox t | TVec t -> is_linear t
   | TParam (_, l) -> l
-  | TI64 | TBool | TUnit | TRef _ | TArena _ | TApp _ -> false
+  | TI64 | TBool | TStr | TUnit | TRef _ | TArena _ | TApp _ -> false
 
 (* 需要析构（或者是 linear）的类型：这些类型的值只能移动，不能复制。 *)
 let rec needs_drop = function
-  | TBox _ | TVec _ -> true
+  | TBox _ | TVec _ | TStr -> true
   | TStruct n -> (
       Hashtbl.mem linear_tbl n
       ||
@@ -79,14 +79,23 @@ let rec needs_drop = function
   | TParam _ -> true            (* 类型参数按抽象类型检查：可能需要析构，只能移动（Lean M9） *)
   | TI64 | TBool | TUnit | TRef _ | TArena _ | TApp _ -> false
 
-(* 内建函数按值接收可复制的参数，记作 sink。 *)
+(* 内建函数按值接收可复制的参数，记作 sink；字符串按 let（只读借用）或 inout 传入（C29）。 *)
 let builtins =
   [
     "print_i64", ([ (MSink, TI64) ], TUnit);
     "print_bool", ([ (MSink, TBool) ], TUnit);
-    "print", ([ (MSink, TUnit) ], TUnit);   (* 实参是字符串字面量，在 call 里单独检查 *)
+    "print", ([ (MLet, TStr) ], TUnit);
+    "str_len", ([ (MLet, TStr) ], TI64);
+    "str_eq", ([ (MLet, TStr); (MLet, TStr) ], TBool);
+    "str_concat", ([ (MLet, TStr); (MLet, TStr) ], TStr);
+    "str_push", ([ (MInout, TStr); (MLet, TStr) ], TUnit);
+    "str_clone", ([ (MLet, TStr) ], TStr);
+    "str_from_i64", ([ (MSink, TI64) ], TStr);
     "choose", ([], TBool);       (* 对照测试用：按运行时给定的选择序列返回真假 *)
   ]
+
+(* 字符串的方法调用：s.len() 就是 str_len(s)。 *)
+let str_methods = [ "len"; "eq"; "concat"; "push"; "clone" ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
 let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get" ]
@@ -176,7 +185,7 @@ let rec mentions r = function
   | TBox t | TVec t -> mentions r t
   | TResult (a, b) -> mentions r a || mentions r b
   | TStruct n -> List.exists (mentions r) (inst_args n)
-  | TI64 | TBool | TUnit | TApp _ | TParam _ -> false
+  | TI64 | TBool | TStr | TUnit | TApp _ | TParam _ -> false
 
 let rec region_names = function
   | TRef (t, x) -> x :: region_names t
@@ -184,7 +193,7 @@ let rec region_names = function
   | TBox t | TVec t -> region_names t
   | TResult (a, b) -> region_names a @ region_names b
   | TStruct n -> List.concat_map region_names (inst_args n)
-  | TI64 | TBool | TUnit | TApp _ | TParam _ -> []
+  | TI64 | TBool | TStr | TUnit | TApp _ | TParam _ -> []
 
 let rec rename s = function
   | TRef (t, x) -> TRef (rename s t, Option.value (List.assoc_opt x s) ~default:x)
@@ -368,7 +377,7 @@ let rec params_of = function
       match Hashtbl.find_opt inst_tbl n with Some (_, ts) -> List.concat_map params_of ts | None -> [])
   | TBox t | TVec t | TRef (t, _) -> params_of t
   | TResult (a, b) -> params_of a @ params_of b
-  | TI64 | TBool | TUnit | TArena _ | TApp _ -> []
+  | TI64 | TBool | TStr | TUnit | TArena _ | TApp _ -> []
 
 (* 协变（C24，Lean M16）：泛型结构体、枚举 g 的第 i 个类型参数只出现在只读的位置时，
    g<…外层…> 可以当作 g<…内层…> 用。只读的位置：字段、载荷直接是这个参数，
@@ -407,7 +416,7 @@ and only_cov p t =
             (List.mapi (fun i t -> (not (List.mem p (params_of t))) || (covariant g i && only_cov p t)) ts)
       | None -> true)
   | TBox _ | TVec _ | TRef _ -> not (List.mem p (params_of t))
-  | TI64 | TBool | TUnit | TArena _ | TApp _ -> true
+  | TI64 | TBool | TStr | TUnit | TArena _ | TApp _ -> true
 
 let () = covariant_fwd := covariant
 
@@ -532,7 +541,7 @@ and expr1 env (x : expr) : t =
   | Int _ -> Ty TI64
   | Bool _ -> Ty TBool
   | Unit -> Ty TUnit
-  | Str _ -> err pos "字符串字面量暂时只能直接作为 print 的实参，例如 print(\"hello\")"
+  | Str _ -> Ty TStr
   | Var v -> (
       match List.assoc_opt v env.vars with
       | Some (t, _) -> Ty t
@@ -547,6 +556,7 @@ and expr1 env (x : expr) : t =
           expect a.pos TI64 ta; expect b.pos TI64 tb; Ty TBool
       | Eq | Ne -> (
           match ta, tb with
+          | Ty TStr, _ | _, Ty TStr -> err pos "字符串用 str_eq(a, b) 或 a.eq(b) 比较"
           | Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _), _
           | _, Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _) ->
               err pos "只能比较 I64 和 Bool"
@@ -652,23 +662,20 @@ and expr1 env (x : expr) : t =
   | Arena (r, b) -> arena env None pos r b
 
 (* 函数调用。want：期望的返回类型（知道时用来推断泛型函数的类型实参）。 *)
-(* 方法调用 r.f(…) 的函数名：接收者是 Vec 时 push / pop / len / get 是内建的 vec_…，否则是函数 f。 *)
+(* 方法调用 r.f(…) 的函数名：接收者是 Vec 时 push / pop / len / get 是内建的 vec_…，
+   是 Str 时 len / eq / concat / push / clone 是内建的 str_…，否则是函数 f。 *)
 and method_name env (x : expr) f (r : expr) =
   let m = String.sub f 1 (String.length f - 1) in
   let g =
     match expr env r, m with
     | Ty (TVec _), ("push" | "pop" | "len" | "get") -> "vec_" ^ m
+    | Ty TStr, m when List.mem m str_methods -> "str_" ^ m
     | _ -> m
   in
   Hashtbl.replace method_res x.id g;
   g
 
 and call env want (x : expr) f args : t =
-  if f = "print" then (
-    match args with
-    | [ { e = Str _; _ } ] -> Ty TUnit
-    | _ -> err x.pos "print 的实参必须是一个字符串字面量，例如 print(\"hello\")（整数和布尔值用 print_i64、print_bool）")
-  else
   let pos = x.pos in
   let ps, r =
     match Hashtbl.find_opt env.fns f with

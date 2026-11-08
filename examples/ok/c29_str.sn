@@ -1,0 +1,25 @@
+// C29：字符串是拥有所有权的值：移动、借用、放进结构体和 Vec、按 drop flag 析构。
+struct Named { name: Str, n: I64 }
+
+fn tag(s: Str, n: I64) -> Str {
+    var r = s.clone()
+    r.push(":")
+    r.push(str_from_i64(n))
+    r
+}
+
+fn main() {
+    let a = "x"
+    let b = tag(a, 1)
+    var v: Vec<Str> = vec_new()
+    v.push(b)
+    let m = Named { name: "y", n: 2 }
+    if m.n > 1 {
+        v.push(m.name)
+    }
+    match v.pop() {
+        .Some(s) => print(s),
+        .None => print("")
+    }
+    print_i64(v.len())
+}

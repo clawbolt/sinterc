@@ -29,6 +29,7 @@ let plain_tparams pos tp =
 let ty_of_name = function
   | "I64" -> TI64
   | "Bool" -> TBool
+  | "Str" -> TStr
   | "Arena" -> TArena ""        (* 名字由参数名补上 *)
   | n -> TStruct n
 %}

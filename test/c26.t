@@ -1,5 +1,5 @@
 C26：输出文字。print("…") 打印一个字符串字面量并换行；转义有 \n、\t、\\、\"，可以写中文。
-字符串还不是一种类型：字面量只能直接作为 print 的实参，不能存进变量或传给别的函数。
+C29 起字符串是一种类型（见 c29.t），print 的实参是 Str。
 
   $ cat > ok.sn <<'EOF'
   > fn main() {
@@ -16,18 +16,7 @@ C26：输出文字。print("…") 打印一个字符串字面量并换行；转�
   第二行
   1
 
-字面量存进变量：
-
-  $ cat > var.sn <<'EOF'
-  > fn main() {
-  >     let s = "x"
-  > }
-  > EOF
-  $ sinterc var.sn
-  var.sn:2:13: 错误：字符串字面量暂时只能直接作为 print 的实参，例如 print("hello")
-  [1]
-
-print 的实参不是字符串字面量：
+print 的实参不是字符串：
 
   $ cat > num.sn <<'EOF'
   > fn main() {
@@ -35,7 +24,7 @@ print 的实参不是字符串字面量：
   > }
   > EOF
   $ sinterc num.sn
-  num.sn:2:5: 错误：print 的实参必须是一个字符串字面量，例如 print("hello")（整数和布尔值用 print_i64、print_bool）
+  num.sn:2:11: 错误：类型不匹配：需要 Str，实际是 I64
   [1]
 
 字符串没有结束：

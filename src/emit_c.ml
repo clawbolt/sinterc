@@ -6,6 +6,7 @@ let prelude = {|#include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static void sn_panic(const char *m) { fflush(stdout); fprintf(stderr, "panic: %s\n", m); exit(101); }
 static int64_t sn_add(int64_t a, int64_t b) { int64_t r; if (__builtin_add_overflow(a, b, &r)) sn_panic("整数溢出"); return r; }
@@ -16,7 +17,6 @@ static int64_t sn_rem(int64_t a, int64_t b) { if (b == 0) sn_panic("除以零");
 static int64_t sn_neg(int64_t a) { if (a == INT64_MIN) sn_panic("整数溢出"); return -a; }
 static void u_print_i64(int64_t x) { printf("%lld\n", (long long)x); }
 static void u_print_bool(bool b) { puts(b ? "true" : "false"); }
-static void u_print(const char *s) { puts(s); }
 /* 对照测试用：按 sn_seq 里的 0 / 1 依次返回假 / 真，用完之后一直返回假（循环因此一定结束）。 */
 static const char *sn_seq = "";
 static bool u_choose(void) { if (*sn_seq) return *sn_seq++ == '1'; return false; }
@@ -25,6 +25,23 @@ static long long sn_live = 0;
 static void *sn_alloc(size_t n) { void *p = malloc(n); if (!p) sn_panic("内存不足"); sn_live++; return p; }
 static void sn_free(void *p) { free(p); sn_live--; }
 static void *sn_realloc(void *p, size_t n) { if (!p) return sn_alloc(n); void *q = realloc(p, n); if (!q) sn_panic("内存不足"); return q; }
+/* 字符串（C29）：拥有一块堆内存，末尾多一个 0；let 参数传指针，inout 参数传指针并可以改。 */
+typedef struct { char *p; int64_t len; } sn_str;
+static sn_str sn_str_make(const char *s, int64_t n) { sn_str r; r.p = sn_alloc((size_t)n + 1); memcpy(r.p, s, (size_t)n); r.p[n] = 0; r.len = n; return r; }
+static sn_str u_str_lit(const char *s) { return sn_str_make(s, (int64_t)strlen(s)); }
+static void u_print(const sn_str *s) { fwrite(s->p, 1, (size_t)s->len, stdout); putchar('\n'); }
+static int64_t u_str_len(const sn_str *s) { return s->len; }
+static bool u_str_eq(const sn_str *a, const sn_str *b) { return a->len == b->len && memcmp(a->p, b->p, (size_t)a->len) == 0; }
+static sn_str u_str_clone(const sn_str *s) { return sn_str_make(s->p, s->len); }
+static sn_str u_str_concat(const sn_str *a, const sn_str *b) {
+  sn_str r; r.len = a->len + b->len; r.p = sn_alloc((size_t)r.len + 1);
+  memcpy(r.p, a->p, (size_t)a->len); memcpy(r.p + a->len, b->p, (size_t)b->len); r.p[r.len] = 0; return r;
+}
+static void u_str_push(sn_str *s, const sn_str *t) {
+  s->p = sn_realloc(s->p, (size_t)(s->len + t->len) + 1);
+  memcpy(s->p + s->len, t->p, (size_t)t->len); s->len += t->len; s->p[s->len] = 0;
+}
+static sn_str u_str_from_i64(int64_t x) { char b[24]; int n = snprintf(b, sizeof b, "%lld", (long long)x); return sn_str_make(b, n); }
 /* Vec 的下标检查：越界时 panic，不读内存。 */
 static int64_t sn_idx(int64_t n, int64_t i) { if (i < 0 || i >= n) sn_panic("下标越界"); return i; }
 /* 区域：一串内存块，分配时往当前块后面追加，离开 arena 块时整块释放。内存块也计入泄漏检查。 */
@@ -66,6 +83,7 @@ let fname n = cname "u_" n   (* 函数 *)
 let rec mangle = function
   | TI64 -> "I64"
   | TBool -> "Bool"
+  | TStr -> "Str"
   | TUnit -> "U"
   | TStruct n -> if String.contains n '<' then sname n else n
   | TBox t -> "B" ^ mangle t
@@ -78,6 +96,7 @@ let rec mangle = function
 let rec cty = function
   | TI64 -> "int64_t"
   | TBool -> "bool"
+  | TStr -> "sn_str"
   | TUnit -> "void"
   | TStruct n -> sname n
   | TBox t -> cty t ^ "*"
@@ -87,13 +106,14 @@ let rec cty = function
   | TArena _ -> "sn_arena"
   | TApp _ | TParam _ -> failwith "泛型的类型参数不会出现在生成的 C 里"
 
-(* 析构一个值：先析构 Box 里面的值，再释放 Box；结构体、枚举（含 Result）调用这个类型的析构函数。
+(* 析构一个值：先析构 Box 里面的值，再释放 Box；字符串释放它的字节；结构体、枚举（含 Result）调用这个类型的析构函数。
    析构函数每个类型一个（type_defs 生成），所以经过 Box 的递归类型（链表、树）的析构是递归调用（Lean M11）。 *)
 let drop_fn t = "sn_drop_" ^ cty t
 
 let rec drop_code ty lv =
   match ty with
   | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
+  | TStr -> Printf.sprintf "sn_free(%s.p); " lv
   | (TStruct _ | TResult _ | TVec _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
   | TI64 | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ -> ""
 
@@ -175,7 +195,7 @@ let type_defs (p : program) (fs : Mir.func list) =
           (fun (f : field) -> Buffer.add_string defs (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname))
           fields;
         Buffer.add_string defs " };\n"
-    | (TI64 | TBool | TUnit | TArena _ | TResult _ | TApp _ | TParam _), _ -> ()
+    | (TI64 | TBool | TStr | TUnit | TArena _ | TResult _ | TApp _ | TParam _), _ -> ()
   in
   List.iter
     (function

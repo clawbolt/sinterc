@@ -5,6 +5,7 @@ type pos = { line : int; col : int }
 type ty =
   | TI64
   | TBool
+  | TStr                (* 字符串：拥有一块堆内存（字节），需要析构，只能移动（C29，Lean M17） *)
   | TUnit
   | TStruct of string   (* 用户定义的结构体或枚举，按名字区分 *)
   | TBox of ty          (* 拥有一块堆内存 *)
@@ -28,7 +29,7 @@ and expr_desc =
   | Int of int64
   | Bool of bool
   | Unit
-  | Str of string       (* 字符串字面量：暂时只能直接作为 print 的实参（C26），不是一个类型 *)
+  | Str of string       (* 字符串字面量：每次求值分配一个新的 Str（C29） *)
   | Var of string
   | Binop of binop * expr * expr
   | Unop of unop * expr
@@ -99,6 +100,7 @@ let fresh_id () = incr next_id; !next_id
 let rec string_of_ty = function
   | TI64 -> "I64"
   | TBool -> "Bool"
+  | TStr -> "Str"
   | TUnit -> "()"
   | TStruct n -> n
   | TBox t -> "Box<" ^ string_of_ty t ^ ">"

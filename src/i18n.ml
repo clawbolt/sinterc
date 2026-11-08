@@ -40,9 +40,8 @@ let table =
     ("%s 带一个 %s 类型的载荷，要写 %s(…)", "{1} carries a payload of type {2}; write {3}(…)");
     ("%s 没有载荷，不能写 %s(…)", "{1} has no payload; cannot write {2}(…)");
     ("这里需要 %s，vec_new() 是 Vec", "expected {1} here, but vec_new() is a Vec");
-    ("字符串字面量暂时只能直接作为 print 的实参，例如 print(\"hello\")",
-     "a string literal can currently only be passed directly to print, e.g. print(\"hello\")");
     ("未定义的变量 %s", "undefined variable {1}");
+    ("字符串用 str_eq(a, b) 或 a.eq(b) 比较", "compare strings with str_eq(a, b) or a.eq(b)");
     ("只能比较 I64 和 Bool", "only I64 and Bool values can be compared");
     ("consume 只能用于 linear 结构体，%s 不是", "consume only works on linear structs; {1} is not one");
     ("unbox 的参数必须是 Box，%s 不是", "unbox needs a Box; {1} is not one");
@@ -70,8 +69,6 @@ let table =
     ("? 只能用在返回 Result 的函数里（这个函数返回 %s）",
      "? can only be used in a function that returns Result (this one returns {1})");
     ("%s 不是 Result，不能用 ?", "{1} is not a Result; cannot use ?");
-    ("print 的实参必须是一个字符串字面量，例如 print(\"hello\")（整数和布尔值用 print_i64、print_bool）",
-     "the argument of print must be a string literal, e.g. print(\"hello\") (use print_i64 / print_bool for integers and booleans)");
     ("未定义的函数 %s", "undefined function {1}");
     ("无法推断 %s 的类型参数 %s（可以给返回值或实参写类型标注）",
      "cannot infer type parameter {2} of {1} (add a type annotation on the result or an argument)");
