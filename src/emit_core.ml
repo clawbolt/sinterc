@@ -7,6 +7,8 @@
      析构 → free，得到新值 → alloc，整个移进另一个局部 → move。调用整体导出成带约定的 call（M3）。
      按 drop flag 析构（DropIf）导出成 nop：状态保持“可能拥有”，由模型在出口按 drop flag 释放；
      之后如果要重新赋值，Lean 会保守地拒绝。
+     部分移动过的结构体（C14、C15）每个需要析构的字段各是一个所有权变量（Lean M13 的位置编码）：
+     整体的读、移走、析构、得到新值对每个字段各做一次，移走、放回一个字段只动这个字段。
    - 线性值（M6）：自己拥有的 linear 局部。得到新值 → lnew，移走 → consume，整个移进另一个局部 → lmove。
    - 区域引用（M5（二））：引用类型的局部。在它的区域进入后 decl，分配 → ralloc，复制 → copy，读 → read。
      区域参数在函数入口按顺序 enter（Lean 里有了顺序，比编译器的 D3 宽），每个出口前 leave。
@@ -74,25 +76,54 @@ let func (f : func) =
           | t when Typeck.needs_drop t -> Some Own
           | _ -> None)
   in
-  let idx = Array.make n (-1) and next = ref 0 in
-  Array.iteri (fun l k -> if k <> None then begin idx.(l) <- !next; incr next end) kinds;
+  (* 部分移动（C14、C15）：移走过字段的结构体局部不占一个 Lean 变量，而是它需要析构的每个字段各占一个
+     （Lean M13 的位置编码：整体操作对每个字段各做一次）。槽和 own.ml 的相同 *)
+  let sp, _ = Own.field_slots f in
+  let idx = Array.make n (-1) and fidx = Hashtbl.create 8 and next = ref 0 in
+  Array.iteri
+    (fun l k ->
+      match k, sp.(l) with
+      | Some Own, (_ :: _ as fs) ->
+          List.iter
+            (fun (g, _) ->
+              Hashtbl.replace fidx (l, g) !next;
+              incr next)
+            fs
+      | Some _, _ ->
+          idx.(l) <- !next;
+          incr next
+      | None, _ -> ())
+    kinds;
   (* 通过投影访问时，算作访问它的源对象 *)
   let base l = f.roots.(l) in
   let kind l = kinds.(base l) and ix l = idx.(base l) in
+  let src = Hashtbl.create 8 in
+  Array.iter
+    (fun (b : block) -> List.iter (function Proj (q, p) -> Hashtbl.replace src q p | _ -> ()) b.stmts)
+    f.blocks;
+  (* 一个位置涉及的所有权变量：投影换成它指向的位置；部分移动过的结构体整体是所有字段，
+     一个字段（及里面的位置）是这个字段，不需要析构的字段没有 *)
+  let rec owners (p : place) =
+    match Hashtbl.find_opt src p.base with
+    | Some (s : place) -> owners { s with proj = s.proj @ p.proj }
+    | None -> (
+        match kinds.(p.base), sp.(p.base) with
+        | Some Own, [] -> [ idx.(p.base) ]
+        | Some Own, _ -> List.map (fun (g, _) -> Hashtbl.find fidx (p.base, g)) (Own.slots_of sp p)
+        | _ -> [])
+  in
+  let own_ops cmd p = List.map (fun i -> op_base (Printf.sprintf ".%s %d" cmd i)) (owners p) in
   (* 读一个位置 *)
   let touch (p : place) =
     match kind p.base with
-    | Some Own -> [ op_base (Printf.sprintf ".use %d" (ix p.base)) ]
+    | Some Own -> own_ops "use" p
     | Some (Rf _) -> [ op_reg (Printf.sprintf ".read %d" (ix p.base)) ]
     | Some Lin | None -> []
   in
-  (* 部分移动（C14）还没有对应的 Lean 模型可以导出（M13 证明了它，但不在 M7h 的 CFG 里） *)
-  let unsupported () = raise (Typeck.Error (nopos, "导出给 Lean（--emit=core）还不支持部分移动"))
-  in
-  (* 移走一个局部（交给调用、结构体、Box、Result 等） *)
+  (* 移走一个局部或字段（交给调用、结构体、Box、Result 等） *)
   let give (p : place) =
     match kind p.base with
-    | Some Own -> [ op_base (Printf.sprintf ".free %d" (ix p.base)) ]
+    | Some Own -> own_ops "free" p
     | Some Lin -> [ op_lin (Printf.sprintf ".consume %d" (ix p.base)) ]
     | Some (Rf _) | None -> []
   in
@@ -103,13 +134,14 @@ let func (f : func) =
   in
   let call os =
     let args =
-      List.filter_map
+      List.concat_map
         (fun o ->
+          let as_ m p = List.map (fun i -> (m, i)) (owners p) in
           match o with
-          | Move p when kind p.base = Some Own -> Some ("sink", ix p.base)
-          | (Copy p | Ref p) when kind p.base = Some Own -> Some ("read", ix p.base)
-          | RefMut p when kind p.base = Some Own -> Some ("inout", ix p.base)
-          | _ -> None)
+          | Move p when kind p.base = Some Own -> as_ "sink" p
+          | (Copy p | Ref p) when kind p.base = Some Own -> as_ "read" p
+          | RefMut p when kind p.base = Some Own -> as_ "inout" p
+          | _ -> [])
         os
     in
     let others =
@@ -124,14 +156,11 @@ let func (f : func) =
   in
   let rvalue = function Call (_, os) -> call os | rv -> List.concat_map operand (operands rv) in
   let whole_target (p : place) = p.proj = [] && not f.locals.(p.base).lref in
-  let partial = function
-    | Assign (_, rv) | Eval rv -> List.exists (function Move p -> p.proj <> [] | _ -> false) (operands rv)
-    | _ -> false
-  in
-  let stmt s =
-    if partial s then unsupported ();
-    match s with
-    | Assign (p, Use (Move q)) when whole_target p && kind p.base = Some Own && kind q.base = Some Own ->
+  let split l = sp.(l) <> [] in
+  let stmt = function
+    | Assign (p, Use (Move q))
+      when whole_target p && kind p.base = Some Own && kind q.base = Some Own && q.proj = []
+           && (not (split p.base)) && not (split (base q.base)) ->
         [ op_base (Printf.sprintf ".move %d %d" (ix q.base) (ix p.base)) ]
     | Assign (p, Use (Move q)) when whole_target p && kind p.base = Some Lin && kind q.base = Some Lin ->
         [ op_lin (Printf.sprintf ".lmove %d %d" (ix q.base) (ix p.base)) ]
@@ -142,19 +171,21 @@ let func (f : func) =
     | Assign (p, rv) ->
         let pre = rvalue rv in
         let target =
-          if not (whole_target p) then []
-          else
-            match kinds.(p.base) with
-            | Some Own -> [ op_base (Printf.sprintf ".alloc %d" idx.(p.base)) ]
-            | Some Lin -> [ op_lin (Printf.sprintf ".lnew %d" idx.(p.base)) ]
-            | Some (Rf k) -> [ op_reg (Printf.sprintf ".ralloc %d %d" idx.(p.base) k) ]
-            | None -> []
+          match p.proj with
+          | [] when whole_target p -> (
+              match kinds.(p.base) with
+              | Some Own -> own_ops "alloc" p
+              | Some Lin -> [ op_lin (Printf.sprintf ".lnew %d" idx.(p.base)) ]
+              | Some (Rf k) -> [ op_reg (Printf.sprintf ".ralloc %d %d" idx.(p.base) k) ]
+              | None -> [])
+          | [ PField _ ] when split p.base -> own_ops "alloc" p   (* 给部分移动过的字段放回新值 *)
+          | _ -> []
         in
         pre @ target
     | Eval rv -> rvalue rv
     | Proj (_, p) -> touch p
-    | DropNow l -> (
-        match kinds.(l) with Some Own -> [ op_base (Printf.sprintf ".free %d" idx.(l)) ] | _ -> [])
+    | DropNow l -> ( match kinds.(l) with Some Own -> own_ops "free" (whole l) | _ -> [])
+    | DropField (l, g) -> own_ops "free" { (whole l) with proj = [ PField g ] }
     | Enter a ->
         let k = np + List.assoc a f.arenas in
         ".enter"
@@ -165,9 +196,8 @@ let func (f : func) =
                else None)
              f.refarena
     | Leave _ -> [ ".leave" ]
-    | DropField _ | DropFieldIf _ -> unsupported ()
-    | DropAt _ -> []   (* 给字段赋值前析构旧值：模型里结构体整体仍然拥有值 *)
-    | DropIf _ | Live _ | Raise | Drop _ -> []
+    | DropAt _ -> []   (* 给没有部分移动过的字段赋值前析构旧值：模型里结构体整体仍然拥有值 *)
+    | DropIf _ | DropFieldIf _ | Live _ | Raise | Drop _ -> []
   in
   (* 入口：区域参数依次 enter；参数里的引用 decl 并视为已赋值；
      拥有值的参数一开始就拥有；以区域参数为区域的其他引用局部也在这里 decl *)
@@ -180,7 +210,7 @@ let func (f : func) =
                  op_reg (Printf.sprintf ".decl %d %d" idx.(l) k)
                  :: (if List.mem l f.params then [ op_reg (Printf.sprintf ".ralloc %d %d" idx.(l) k) ]
                      else [])
-             | Some Own when List.mem l f.params -> [ op_base (Printf.sprintf ".alloc %d" idx.(l)) ]
+             | Some Own when List.mem l f.params -> own_ops "alloc" (whole l)
              | Some Lin when List.mem l f.params -> [ op_lin (Printf.sprintf ".lnew %d" idx.(l)) ]
              | _ -> []))
   in

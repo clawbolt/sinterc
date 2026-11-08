@@ -1,0 +1,28 @@
+struct P { a: Box<I64>, b: Box<I64>, n: I64 }
+
+fn take(sink b: Box<I64>) -> I64 { *b }
+
+fn mk(k: I64) -> P { P { a: box(k), b: box(k + 1), n: k } }
+
+fn split(sink p: P) -> I64 {
+    var x = p.a
+    *x + *p.b
+}
+
+fn main() {
+    var p = mk(1)
+    var a = p.a
+    print_i64(*a + *p.b + p.n)
+    p.a = box(7)
+    print_i64(split(p))
+    var q = mk(10)
+    if q.n > 5 {
+        print_i64(take(q.a))
+    } else {
+        print_i64(take(q.b))
+    }
+    q.n = 3
+    let r = mk(20)
+    let t = P { a: r.b, b: r.a, n: 0 }
+    print_i64(*t.a)
+}
