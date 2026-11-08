@@ -80,7 +80,9 @@ type func = {
   blocks : block array;          (* 0 号块是入口 *)
   roots : local array;           (* 投影最终指向哪个局部的内部；其他局部是自己 *)
   arenas : (local * int) list;   (* arena 块的局部 → 嵌套层数（从 0 开始，不算区域参数） *)
-  refarena : (local * local) list;   (* 引用类型的局部 → 它的区域所在的 arena 块的局部；区域参数的引用不在这里 *)
+  refarena : (local * local) list;
+    (* 类型含 arena 区域的局部 → 其中最内层的 arena 块的局部（局部活不过这个块）；只含区域参数的不在这里 *)
+  regarena : (local * (string * local) list) list;   (* 同上，类型里的每个区域名 → 它的 arena 块的局部 *)
 }
 
 let nopos = { line = 0; col = 0 }
@@ -122,18 +124,29 @@ type st = {
   mutable regions : local list;        (* 当前所在的 arena 块，内层在前 *)
   mutable arenas : (local * int) list;
   mutable refarena : (local * local) list;
+  mutable regarena : (local * (string * local) list) list;
   mutable guards : (local * string * (string * local) list * expr) list;
       (* 生效的 errdefer：要消费的局部、它的名字、登记时的环境、调用表达式；内层在前 *)
 }
 
 let new_local ?(lref = false) ?(pos = nopos) st lname lty =
   st.locals <- { lname; lty; lref; lpos = pos } :: st.locals;
+  (* 类型里的每个区域名找到它的 arena 块；最内层的那个块就是这个局部活着的范围（R3） *)
   (match lty with
-  | TRef (_, r) -> (
-      match List.find_opt (fun a -> (List.nth st.locals (st.nlocals - a)).lname = r) st.regions with
-      | Some a -> st.refarena <- (st.nlocals, a) :: st.refarena
-      | None -> ())
-  | _ -> ());
+  | TArena _ -> ()
+  | _ ->
+      let name a = (List.nth st.locals (st.nlocals - a)).lname in
+      let m =
+        List.filter_map
+          (fun r -> Option.map (fun a -> (r, a)) (List.find_opt (fun a -> name a = r) st.regions))
+          (List.sort_uniq compare (Typeck.region_names lty))
+      in
+      if m <> [] then begin
+        st.regarena <- (st.nlocals, m) :: st.regarena;
+        match List.find_opt (fun a -> List.exists (fun (_, b) -> b = a) m) st.regions with
+        | Some a -> st.refarena <- (st.nlocals, a) :: st.refarena
+        | None -> ()
+      end);
   st.nlocals <- st.nlocals + 1;
   st.nlocals - 1
 
@@ -641,6 +654,7 @@ let lower_fn name params ret body ipos =
       regions = [];
       arenas = [];
       refarena = [];
+      regarena = [];
       guards = [];
     }
   in
@@ -672,6 +686,7 @@ let lower_fn name params ret body ipos =
     roots = Array.init st.nlocals (root st);
     arenas = st.arenas;
     refarena = st.refarena;
+    regarena = st.regarena;
   }
 
 let lower (p : program) : func list =

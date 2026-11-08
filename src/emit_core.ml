@@ -12,11 +12,15 @@
    - 线性值（M6）：自己拥有的 linear 局部。得到新值 → lnew，移走 → consume，整个移进另一个局部 → lmove。
    - 区域引用（M5（二））：引用类型的局部。在它的区域进入后 decl，分配 → ralloc，复制 → copy，读 → read。
      区域参数在函数入口按顺序 enter（Lean 里有了顺序，比编译器的 D3 宽），每个出口前 leave。
-   投影不导出锁表：通过投影读取导出成对源对象的 use。Result 里的引用不跟踪。返回值局部不跟踪（值交给了调用者）。 *)
+     含引用的结构体、枚举（C20 的 Option<&I64 in a>、Pair<…>，C21）：每个引用的位置各是一个引用变量
+     （Lean M15 的“值的类型里的区域都算上”）。整体复制、取载荷、造结构体和变体时按位置 copy；
+     来源不知道的位置（调用的结果、没有载荷的变体等）当作在这个位置的类型的区域里 ralloc，只会更严。
+   投影不导出锁表：通过投影读取导出成对源对象的 use。Box、Vec、Result 里的引用不跟踪。返回值局部不跟踪（值交给了调用者）。 *)
 open Ast
 open Mir
 
-type kind = Own | Lin | Rf of int   (* Rf k：引用，区域深度 k *)
+type kind = Own | Lin | Rf of int | Data of (proj list * int) list
+(* Rf k：引用，区域深度 k；Data：含引用的结构体、枚举，每个引用的位置和它的区域深度 *)
 
 let op_base s = Printf.sprintf ".cmd (.base (.own (.c (.base (%s)))))" s
 let op_drop x = Printf.sprintf ".cmd (.base (.own (.dropIf %d)))" x
@@ -48,6 +52,27 @@ let operands = function
   | MkEnum (_, _, o) -> Option.to_list o
   | Payload (o, _) | TagIs (o, _) -> [ o ]
 
+(* 类型里的引用的位置（字段、变体载荷组成的路径）和它的区域名。经过 Box、Vec、Result 的不算（不跟踪）。 *)
+let rec ref_leaves ty =
+  let under pre ls = List.map (fun (p, r) -> (pre :: p, r)) ls in
+  match ty with
+  | TRef (_, r) -> [ ([], r) ]
+  | TStruct n -> (
+      match Hashtbl.find_opt Typeck.struct_tbl n, Typeck.variants ty with
+      | Some fs, _ -> List.concat_map (fun (fd : field) -> under (PField fd.fname) (ref_leaves fd.fty)) fs
+      | None, Some vs ->
+          List.concat
+            (List.mapi (fun i (_, t) -> match t with Some t -> under (PVar i) (ref_leaves t) | None -> []) vs)
+      | None, None -> [])
+  | _ -> []
+
+(* pre 是 path 的前缀时，返回剩下的部分。 *)
+let rec strip pre path =
+  match pre, path with
+  | [], rest -> Some rest
+  | a :: pre, b :: path when a = b -> strip pre path
+  | _ -> None
+
 (* 一个函数导出成 (变量个数, 节点列表)；节点是 (操作, 后继, 是否出错出口)。 *)
 let func (f : func) =
   let n = Array.length f.locals in
@@ -56,14 +81,11 @@ let func (f : func) =
     List.sort_uniq compare (List.concat_map (fun l -> Typeck.region_names f.locals.(l).lty) f.params)
   in
   let np = List.length pregions in
-  let depth_of_ref l =
-    match List.assoc_opt l f.refarena with
-    | Some a -> np + List.assoc a f.arenas
-    | None -> (
-        match f.locals.(l).lty with
-        | TRef (_, r) -> (
-            match List.find_index (fun x -> x = r) pregions with Some i -> i | None -> 0)
-        | _ -> 0)
+  (* 局部 l 的类型里的区域名 r 的深度：arena 块排在区域参数之后 *)
+  let depth l r =
+    match List.assoc_opt l f.regarena with
+    | Some m when List.mem_assoc r m -> np + List.assoc (List.assoc r m) f.arenas
+    | _ -> ( match List.find_index (fun x -> x = r) pregions with Some i -> i | None -> 0)
   in
   let kinds =
     Array.init n (fun l ->
@@ -71,16 +93,23 @@ let func (f : func) =
         if Some l = f.ret_local then None
         else
           match li.lty with
-          | TRef _ -> Some (Rf (depth_of_ref l))
+          | TRef (_, r) -> Some (Rf (depth l r))
+          | t
+            when ((not li.lref) || List.mem l f.params)
+                 && (not (Typeck.needs_drop t))
+                 && (not (Typeck.is_linear t))
+                 && ref_leaves t <> [] ->
+              Some (Data (List.map (fun (p, r) -> (p, depth l r)) (ref_leaves t)))
           | _ when li.lref -> None
           | t when Typeck.is_linear t -> Some Lin
           | t when Typeck.needs_drop t -> Some Own
           | _ -> None)
   in
   (* 部分移动（C14、C15）：移走过字段的结构体局部不占一个 Lean 变量，而是它需要析构的每个字段各占一个
-     （Lean M13 的位置编码：整体操作对每个字段各做一次）。槽和 own.ml 的相同 *)
+     （Lean M13 的位置编码：整体操作对每个字段各做一次）。槽和 own.ml 的相同。
+     含引用的结构体、枚举（C21）：每个引用的位置各占一个引用变量，区域是这个位置的类型里的区域 *)
   let sp, _ = Own.field_slots f in
-  let idx = Array.make n (-1) and fidx = Hashtbl.create 8 and next = ref 0 in
+  let idx = Array.make n (-1) and fidx = Hashtbl.create 8 and didx = Hashtbl.create 8 and next = ref 0 in
   Array.iteri
     (fun l k ->
       match k, sp.(l) with
@@ -90,6 +119,12 @@ let func (f : func) =
               Hashtbl.replace fidx (l, g) !next;
               incr next)
             fs
+      | Some (Data ls), _ ->
+          List.iter
+            (fun (p, _) ->
+              Hashtbl.replace didx (l, p) !next;
+              incr next)
+            ls
       | Some _, _ ->
           idx.(l) <- !next;
           incr next
@@ -115,11 +150,40 @@ let func (f : func) =
   in
   let own_ops cmd p = List.map (fun i -> op_base (Printf.sprintf ".%s %d" cmd i)) (owners p) in
   let drop_ops p = List.map op_drop (owners p) in
+  (* 引用变量：引用局部本身，或含引用的结构体、枚举里路径 path 上的引用 *)
+  let leaf_var b path =
+    match kinds.(b) with
+    | Some (Rf _) when path = [] -> Some idx.(b)
+    | Some (Data _) -> Hashtbl.find_opt didx (b, path)
+    | _ -> None
+  in
+  (* 一个位置涉及的引用变量（读它时都要读）：这个位置下面的，或者它所在的那个 *)
+  let reg_vars (p : place) =
+    match kinds.(p.base) with
+    | Some (Rf _) -> [ idx.(p.base) ]
+    | Some (Data ls) when base p.base = p.base ->
+        List.filter_map
+          (fun (path, _) ->
+            if strip p.proj path <> None || strip path p.proj <> None then
+              Some (Hashtbl.find didx (p.base, path))
+            else None)
+          ls
+    | _ -> []
+  in
+  let reg_decl x k = op_reg (Printf.sprintf ".decl %d %d" x k) in
+  let reg_alloc x k = op_reg (Printf.sprintf ".ralloc %d %d" x k) in
+  (* 局部 l 的引用变量和它们的区域深度 *)
+  let reg_slots l =
+    match kinds.(l) with
+    | Some (Rf k) -> [ (idx.(l), k) ]
+    | Some (Data ls) -> List.map (fun (p, k) -> (Hashtbl.find didx (l, p), k)) ls
+    | _ -> []
+  in
   (* 读一个位置 *)
   let touch (p : place) =
     match kind p.base with
     | Some Own -> own_ops "use" p
-    | Some (Rf _) -> [ op_reg (Printf.sprintf ".read %d" (ix p.base)) ]
+    | Some (Rf _ | Data _) -> List.map (fun x -> op_reg (Printf.sprintf ".read %d" x)) (reg_vars p)
     | Some Lin | None -> []
   in
   (* 移走一个局部或字段（交给调用、结构体、Box、Result 等） *)
@@ -127,7 +191,7 @@ let func (f : func) =
     match kind p.base with
     | Some Own -> own_ops "free" p
     | Some Lin -> [ op_lin (Printf.sprintf ".consume %d" (ix p.base)) ]
-    | Some (Rf _) | None -> []
+    | Some (Rf _ | Data _) | None -> []
   in
   let operand = function
     | Const _ -> []
@@ -167,10 +231,43 @@ let func (f : func) =
         [ op_base (Printf.sprintf ".move %d %d" (ix q.base) (ix p.base)) ]
     | Assign (p, Use (Move q)) when whole_target p && kind p.base = Some Lin && kind q.base = Some Lin ->
         [ op_lin (Printf.sprintf ".lmove %d %d" (ix q.base) (ix p.base)) ]
-    | Assign (p, Use (Copy q))
-      when whole_target p && q.proj = []
-           && (match kind p.base, kind q.base with Some (Rf _), Some (Rf _) -> true | _ -> false) ->
-        [ op_reg (Printf.sprintf ".copy %d %d" (ix q.base) (ix p.base)) ]
+    | Assign (p, rv) when (not f.locals.(p.base).lref) && reg_slots p.base <> [] ->
+        (* 引用的目标（C21）：路径 sfx 上的引用从右边对应位置的引用变量复制（copy），
+           找不到时（调用的结果、取自 Box / Vec、没有载荷的变体）当作在它的类型的区域里新分配（ralloc） *)
+        let from_op o sfx =
+          match o with Copy q | Move q -> leaf_var q.base (q.proj @ sfx) | _ -> None
+        in
+        let src sfx =
+          match rv, sfx with
+          | Use o, _ -> from_op o sfx
+          | Payload (o, i), _ -> from_op o (PVar i :: sfx)
+          | Agg (_, fs), PField g :: rest -> Option.bind (List.assoc_opt g fs) (fun o -> from_op o rest)
+          | MkEnum (_, i, Some o), PVar j :: rest when i = j -> from_op o rest
+          | _ -> None
+        in
+        let targets =
+          match kinds.(p.base) with
+          | Some (Rf k) when p.proj = [] -> [ ([], idx.(p.base), k) ]
+          | Some (Data ls) ->
+              List.filter_map
+                (fun (path, k) ->
+                  Option.map (fun sfx -> (sfx, Hashtbl.find didx (p.base, path), k)) (strip p.proj path))
+                ls
+          | _ -> []
+        in
+        let pre =
+          match rv with
+          | Use (Copy q | Move q) when reg_slots q.base <> [] -> []
+          | rv -> rvalue rv
+        in
+        pre
+        @ List.concat_map
+            (fun (sfx, x, k) ->
+              match src sfx with
+              | Some y when y = x -> []
+              | Some y -> [ op_reg (Printf.sprintf ".copy %d %d" y x) ]
+              | None -> [ reg_alloc x k ])
+            targets
     | Assign (p, rv) ->
         let pre = rvalue rv in
         let target =
@@ -179,8 +276,7 @@ let func (f : func) =
               match kinds.(p.base) with
               | Some Own -> own_ops "alloc" p
               | Some Lin -> [ op_lin (Printf.sprintf ".lnew %d" idx.(p.base)) ]
-              | Some (Rf k) -> [ op_reg (Printf.sprintf ".ralloc %d %d" idx.(p.base) k) ]
-              | None -> [])
+              | Some (Rf _ | Data _) | None -> [])
           | proj when split p.base && List.for_all (function PField _ -> true | _ -> false) proj ->
               own_ops "alloc" p   (* 给部分移动过的字段（或它上层的结构体）放回新值 *)
           | _ -> []
@@ -191,13 +287,9 @@ let func (f : func) =
     | DropNow l -> ( match kinds.(l) with Some Own -> own_ops "free" (whole l) | _ -> [])
     | DropField (l, path) -> own_ops "free" (field_place l path)
     | Enter a ->
-        let k = np + List.assoc a f.arenas in
         ".enter"
-        :: List.filter_map
-             (fun (l, a') ->
-               if a' = a && kinds.(l) <> None then
-                 Some (op_reg (Printf.sprintf ".decl %d %d" idx.(l) k))
-               else None)
+        :: List.concat_map
+             (fun (l, a') -> if a' = a then List.map (fun (x, k) -> reg_decl x k) (reg_slots l) else [])
              f.refarena
     | Leave _ -> [ ".leave" ]
     | DropAt _ -> []   (* 给没有部分移动过的字段赋值前析构旧值：模型里结构体整体仍然拥有值 *)
@@ -212,10 +304,10 @@ let func (f : func) =
     @ List.concat
         (List.init n (fun l ->
              match kinds.(l) with
-             | Some (Rf k) when not (List.mem_assoc l f.refarena) ->
-                 op_reg (Printf.sprintf ".decl %d %d" idx.(l) k)
-                 :: (if List.mem l f.params then [ op_reg (Printf.sprintf ".ralloc %d %d" idx.(l) k) ]
-                     else [])
+             | Some (Rf _ | Data _) when not (List.mem_assoc l f.refarena) ->
+                 List.concat_map
+                   (fun (x, k) -> reg_decl x k :: (if List.mem l f.params then [ reg_alloc x k ] else []))
+                   (reg_slots l)
              | Some Own when List.mem l f.params -> own_ops "alloc" (whole l)
              | Some Lin when List.mem l f.params -> [ op_lin (Printf.sprintf ".lnew %d" idx.(l)) ]
              | _ -> []))
