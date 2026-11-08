@@ -86,6 +86,9 @@ let func (f : func) =
     | Some (Rf _) -> [ op_reg (Printf.sprintf ".read %d" (ix p.base)) ]
     | Some Lin | None -> []
   in
+  (* 部分移动（C14）还没有对应的 Lean 模型可以导出（M13 证明了它，但不在 M7h 的 CFG 里） *)
+  let unsupported () = raise (Typeck.Error (nopos, "导出给 Lean（--emit=core）还不支持部分移动"))
+  in
   (* 移走一个局部（交给调用、结构体、Box、Result 等） *)
   let give (p : place) =
     match kind p.base with
@@ -121,7 +124,13 @@ let func (f : func) =
   in
   let rvalue = function Call (_, os) -> call os | rv -> List.concat_map operand (operands rv) in
   let whole_target (p : place) = p.proj = [] && not f.locals.(p.base).lref in
-  let stmt = function
+  let partial = function
+    | Assign (_, rv) | Eval rv -> List.exists (function Move p -> p.proj <> [] | _ -> false) (operands rv)
+    | _ -> false
+  in
+  let stmt s =
+    if partial s then unsupported ();
+    match s with
     | Assign (p, Use (Move q)) when whole_target p && kind p.base = Some Own && kind q.base = Some Own ->
         [ op_base (Printf.sprintf ".move %d %d" (ix q.base) (ix p.base)) ]
     | Assign (p, Use (Move q)) when whole_target p && kind p.base = Some Lin && kind q.base = Some Lin ->
@@ -156,6 +165,7 @@ let func (f : func) =
                else None)
              f.refarena
     | Leave _ -> [ ".leave" ]
+    | DropField _ | DropFieldIf _ -> unsupported ()
     | DropIf _ | Live _ | Raise | Drop _ -> []
   in
   (* 入口：区域参数依次 enter；参数里的引用 decl 并视为已赋值；

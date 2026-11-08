@@ -55,6 +55,8 @@ type stmt =
   | Drop of local * pos * why             (* 降级产生：如果还拥有这个值就析构 *)
   | DropNow of local                      (* 展开后：一定拥有，直接析构 *)
   | DropIf of local * local               (* 展开后：第二个局部（drop flag）为真时析构 *)
+  | DropField of local * string           (* 展开后：部分移动过的结构体，只析构这个字段 *)
+  | DropFieldIf of local * string * local (* 展开后：这个字段的 drop flag 为真时析构它 *)
 
 type term =
   | Goto of int
@@ -182,13 +184,28 @@ let rec expr st env (x : expr) : operand option =
       | None -> dummy
       | Some ty ->
           let p = place st env x in
+          let lname = (info st p.base).lname in
           if not (Typeck.needs_drop ty) then Some (Copy p)
           else if owned_whole st p then Some (Move p)
           else if p.proj = [] then
             raise
               (Typeck.Error
-                 (x.pos, Printf.sprintf "%s 不拥有值（是 let / inout 参数或投影），不能移动" (info st p.base).lname))
-          else raise (Typeck.Error (x.pos, "不能从字段、Box 或 Vec 里移出值（还不支持部分移动；Box 用 unbox，Vec 的元素用 vec_pop）")))
+                 (x.pos, Printf.sprintf "%s 不拥有值（是 let / inout 参数或投影），不能移动" lname))
+          else
+            match p.proj, (info st p.base).lty with
+            | [ PField _ ], TStruct n when Hashtbl.mem Typeck.struct_tbl n ->
+                (* 部分移动（Lean M13）：移走变量的一个字段，own.ml 按字段跟踪 *)
+                if (info st p.base).lref then
+                  raise
+                    (Typeck.Error
+                       (x.pos, Printf.sprintf "%s 不拥有值（是 let / inout 参数或投影），不能移走它的字段" lname))
+                else if Typeck.is_linear (TStruct n) then
+                  raise (Typeck.Error (x.pos, Printf.sprintf "linear 结构体 %s 不能部分移动（要用 consume）" n))
+                else Some (Move p)
+            | _ ->
+                raise
+                  (Typeck.Error
+                     (x.pos, "只能移走变量的直接字段，不能从 Box、Vec 或多层字段里移出值（Box 用 unbox，Vec 的元素用 vec_pop）")))
   | Binop (((And | Or) as op), a, b) ->
       let t = temp st TBool x.pos in
       let oa = Option.get (expr st env a) in

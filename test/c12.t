@@ -86,5 +86,5 @@ get 的投影还活着时 push：
   > }
   > EOF
   $ sinterc mv.sn
-  mv.sn:4:19: 错误：不能从字段、Box 或 Vec 里移出值（还不支持部分移动；Box 用 unbox，Vec 的元素用 vec_pop）
+  mv.sn:4:19: 错误：只能移走变量的直接字段，不能从 Box、Vec 或多层字段里移出值（Box 用 unbox，Vec 的元素用 vec_pop）
   [1]

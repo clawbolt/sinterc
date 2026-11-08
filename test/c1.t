@@ -107,16 +107,16 @@ let 声明的变量不能重新赋值：
   letmut.sn:3:5: 错误：x 是用 let 声明的变量或参数，不能重新赋值（需要的话改用 var / inout）
   [1]
 
-不能把字段里的 Box 移进 var 变量（let 绑定是投影，见 c2.t）：
+不能从 Box 里直接移出值（要用 unbox；移走变量的字段见 c14.t）：
 
   $ cat > partial.sn <<'EOF'
-  > struct P { a: Box<I64> }
+  > struct P { a: Box<Box<I64>> }
   > 
   > fn main() {
-  >     let p = P { a: box(1) }
-  >     var q = p.a
+  >     let p = P { a: box(box(1)) }
+  >     var q = *p.a
   > }
   > EOF
   $ sinterc partial.sn
-  partial.sn:5:13: 错误：不能从字段、Box 或 Vec 里移出值（还不支持部分移动；Box 用 unbox，Vec 的元素用 vec_pop）
+  partial.sn:5:13: 错误：只能移走变量的直接字段，不能从 Box、Vec 或多层字段里移出值（Box 用 unbox，Vec 的元素用 vec_pop）
   [1]
