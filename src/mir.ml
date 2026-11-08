@@ -55,8 +55,8 @@ type stmt =
   | Drop of local * pos * why             (* 降级产生：如果还拥有这个值就析构 *)
   | DropNow of local                      (* 展开后：一定拥有，直接析构 *)
   | DropIf of local * local               (* 展开后：第二个局部（drop flag）为真时析构 *)
-  | DropField of local * string           (* 展开后：部分移动过的结构体，只析构这个字段 *)
-  | DropFieldIf of local * string * local (* 展开后：这个字段的 drop flag 为真时析构它 *)
+  | DropField of local * string list      (* 展开后：部分移动过的结构体，只析构这条字段路径上的值 *)
+  | DropFieldIf of local * string list * local (* 展开后：这条字段路径的 drop flag 为真时析构它 *)
   | DropAt of place                       (* 展开后：析构这个位置上的值（给字段赋值前析构旧值） *)
 
 type term =
@@ -213,8 +213,9 @@ let rec expr st env (x : expr) : operand option =
                  (x.pos, Printf.sprintf "%s 不拥有值（是 let / inout 参数或投影），不能移动" lname))
           else
             match p.proj, (info st p.base).lty with
-            | [ PField _ ], TStruct n when Hashtbl.mem Typeck.struct_tbl n ->
-                (* 部分移动（Lean M13）：移走变量的一个字段，own.ml 按字段跟踪 *)
+            | proj, TStruct n
+              when Hashtbl.mem Typeck.struct_tbl n && List.for_all (function PField _ -> true | _ -> false) proj ->
+                (* 部分移动（Lean M13）：移走变量里一条字段路径上的值（p.a、p.a.b），own.ml 按叶子跟踪 *)
                 if (info st p.base).lref then
                   raise
                     (Typeck.Error
@@ -225,7 +226,7 @@ let rec expr st env (x : expr) : operand option =
             | _ ->
                 raise
                   (Typeck.Error
-                     (x.pos, "只能移走变量的直接字段，不能从 Box、Vec 或多层字段里移出值（Box 用 unbox，Vec 的元素用 vec_pop）")))
+                     (x.pos, "不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 vec_pop）")))
   | Binop (((And | Or) as op), a, b) ->
       let t = temp st TBool x.pos in
       let oa = Option.get (expr st env a) in

@@ -118,5 +118,5 @@ let 声明的变量不能重新赋值：
   > }
   > EOF
   $ sinterc partial.sn
-  partial.sn:5:13: 错误：只能移走变量的直接字段，不能从 Box、Vec 或多层字段里移出值（Box 用 unbox，Vec 的元素用 vec_pop）
+  partial.sn:5:13: 错误：不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 vec_pop）
   [1]

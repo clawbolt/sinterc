@@ -293,12 +293,6 @@ let reachable (f : Mir.func) =
 (* 局部变量的 C 类型：指针局部多一层 *。 *)
 let lty (l : Mir.local_info) = if l.lref then cty l.lty ^ "*" else cty l.lty
 
-(* 结构体局部 l 的字段 g 的类型（部分移动后单独析构字段时用）。 *)
-let field_ty (f : Mir.func) l g =
-  match f.locals.(l).lty with
-  | TStruct n -> (List.find (fun (h : field) -> h.fname = g) (Hashtbl.find Typeck.struct_tbl n)).fty
-  | _ -> TUnit
-
 let signature (f : Mir.func) =
   let ps =
     if f.params = [] then "void"
@@ -335,12 +329,12 @@ let func b (f : Mir.func) =
             | Mir.DropIf (l, fl) ->
                 add (Printf.sprintf "  if (l%d) { %s}\n" fl (drop_code f.locals.(l).lty (local f l)))
             | Mir.DropAt p -> add (Printf.sprintf "  %s\n" (drop_code (Mir.place_ty f p) (place p)))
-            | Mir.DropField (l, g) ->
-                add (Printf.sprintf "  %s\n" (drop_code (field_ty f l g) (Printf.sprintf "%s.f_%s" (local f l) g)))
-            | Mir.DropFieldIf (l, g, fl) ->
-                add
-                  (Printf.sprintf "  if (l%d) { %s}\n" fl
-                     (drop_code (field_ty f l g) (Printf.sprintf "%s.f_%s" (local f l) g)))
+            | Mir.DropField (l, path) ->
+                let p = { (Mir.whole l) with proj = List.map (fun g -> Mir.PField g) path } in
+                add (Printf.sprintf "  %s\n" (drop_code (Mir.place_ty f p) (place p)))
+            | Mir.DropFieldIf (l, path, fl) ->
+                let p = { (Mir.whole l) with proj = List.map (fun g -> Mir.PField g) path } in
+                add (Printf.sprintf "  if (l%d) { %s}\n" fl (drop_code (Mir.place_ty f p) (place p)))
             | Mir.Live _ | Mir.Raise -> ()
             | Mir.Enter l -> add (Printf.sprintf "  %s.head = 0;\n" (local f l))
             | Mir.Leave l -> add (Printf.sprintf "  sn_arena_free(&%s);\n" (local f l))

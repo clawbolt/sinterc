@@ -1,0 +1,27 @@
+struct P { a: Box<I64>, b: Box<I64> }
+struct Q { p: P, c: Box<I64>, n: I64 }
+
+fn take(sink b: Box<I64>) -> I64 { *b }
+
+fn sum_p(p: P) -> I64 { *p.a + *p.b }
+
+fn mk(k: I64) -> Q { Q { p: P { a: box(k), b: box(k + 1) }, c: box(k + 2), n: k } }
+
+fn main() {
+    let q = mk(1)
+    var a = q.p.a
+    print_i64(*a + *q.p.b + *q.c)
+    print_i64(take(q.p.b))
+    print_i64(take(q.c))
+    var r = mk(10)
+    var p = r.p
+    print_i64(sum_p(p))
+    print_i64(*r.c)
+    r.p = P { a: box(100), b: box(200) }
+    print_i64(sum_p(r.p))
+    var s = mk(20)
+    let yes = true
+    if yes { print_i64(take(s.p.a)) }
+    s.p.a = box(7)
+    print_i64(sum_p(s.p) + *s.c)
+}

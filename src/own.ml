@@ -41,25 +41,29 @@ let why_text = function
   | End -> "作用域结束时"
   | Ret -> "从这里返回时"
   | Err -> "出错从这里返回时"
+(* 字段的槽：sp.(l) 是局部 l 里需要析构的叶子路径（沿着结构体字段一直往下，停在不是结构体的类型上，
+   例如 q.p.a、q.p.b、q.c）和它们的槽号（槽号接在局部后面），只有移走过字段的局部才有；槽的总数（含局部）。 *)
+let rec leaves pre (ty : Ast.ty) =
+  match ty with
+  | Ast.TStruct s when Hashtbl.mem Typeck.struct_tbl s && not (Typeck.is_linear ty) ->
+      List.concat_map
+        (fun (g : Ast.field) -> if Typeck.needs_drop g.fty then leaves (pre @ [ g.fname ]) g.fty else [])
+        (Hashtbl.find Typeck.struct_tbl s)
+  | _ -> [ pre ]
 
-(* 字段的槽：sp.(l) 是局部 l 需要析构的字段和它们的槽号（槽号接在局部后面），只有移走过字段的局部才有；
-   槽的总数（含局部）。 *)
 let field_slots (f : func) =
   let n = Array.length f.locals in
   let sp = Array.make n [] and next = ref n in
   let add l =
     if sp.(l) = [] then
       match f.locals.(l).lty with
-      | Ast.TStruct s when Hashtbl.mem Typeck.struct_tbl s ->
+      | Ast.TStruct s as ty when Hashtbl.mem Typeck.struct_tbl s ->
           sp.(l) <-
-            List.filter_map
-              (fun (g : Ast.field) ->
-                if Typeck.needs_drop g.fty then begin
-                  incr next;
-                  Some (g.fname, !next - 1)
-                end
-                else None)
-              (Hashtbl.find Typeck.struct_tbl s)
+            List.map
+              (fun path ->
+                incr next;
+                (path, !next - 1))
+              (leaves [] ty)
       | _ -> ()
   in
   Array.iter
@@ -75,12 +79,18 @@ let field_slots (f : func) =
     f.blocks;
   (sp, !next)
 
-(* 读一个操作数用到的字段槽：整体用到所有槽，用到一个字段时只有这个字段的槽。 *)
+(* 路径开头连续的字段名。 *)
+let rec field_prefix = function PField g :: rest -> g :: field_prefix rest | _ -> []
+
+let rec is_prefix a b =
+  match a, b with [], _ -> true | x :: a, y :: b -> x = y && is_prefix a b | _ :: _, [] -> false
+
+(* 一个位置用到的字段槽：在它下面的叶子，以及它所在的叶子（经过 Box 等进入叶子里面时）。 *)
 let slots_of sp (p : place) =
-  match p.proj with
-  | [] -> sp.(p.base)
-  | PField g :: _ -> List.filter (fun (h, _) -> h = g) sp.(p.base)
-  | _ -> []
+  let pre = field_prefix p.proj in
+  List.filter (fun (path, _) -> is_prefix pre path || is_prefix path pre) sp.(p.base)
+
+let path_name f l path = String.concat "." (name f l :: path)
 
 (* 一个操作数被移走的槽（给 drop flag 用）。 *)
 let moved sp rv =
@@ -103,15 +113,18 @@ let read check f sp st = function
         | Init -> ()
         | Uninit -> err p "%s 已被移动，不能再使用" (name f p.base)
         | Maybe -> err p "%s 可能已被移动（某条路径上或上一轮循环里），不能再使用" (name f p.base));
+        let pre = field_prefix p.proj in
         List.iter
-          (fun (g, k) ->
+          (fun (path, k) ->
             let what =
-              if p.proj = [] then Printf.sprintf "，不能整体使用 %s" (name f p.base) else "，不能再使用"
+              if List.length path > List.length pre then
+                Printf.sprintf "，不能整体使用 %s" (path_name f p.base pre)
+              else "，不能再使用"
             in
             match st.(k) with
             | Init -> ()
-            | Uninit -> err p "%s.%s 已被移走%s" (name f p.base) g what
-            | Maybe -> err p "%s.%s 可能已被移走（某条路径上或上一轮循环里）%s" (name f p.base) g what)
+            | Uninit -> err p "%s 已被移走%s" (path_name f p.base path) what
+            | Maybe -> err p "%s 可能已被移走（某条路径上或上一轮循环里）%s" (path_name f p.base path) what)
           (slots_of sp p)
       end;
       match o, p.proj with
@@ -135,6 +148,15 @@ let step check f sp flag need st s =
     List.iter (fun (_, k) -> st.(k) <- s) sp.(l);
     set l v @ List.concat_map (fun (_, k) -> set k v) sp.(l)
   in
+  (* 部分移动过的结构体的一个叶子：还在 → 析构，可能已移走 → 按它的 flag 析构 *)
+  let release_slot l (path, k) =
+    match st.(k) with
+    | Init -> [ DropField (l, path) ]
+    | Uninit -> []
+    | Maybe -> (
+        need.(k) <- true;
+        match flag.(k) with Some fl -> [ DropFieldIf (l, path, fl) ] | None -> [])
+  in
   let release l =
     match sp.(l) with
     | [] -> (
@@ -146,16 +168,8 @@ let step check f sp flag need st s =
             match flag.(l) with Some fl -> [ DropIf (l, fl) ] | None -> []))
     | fs when List.for_all (fun (_, k) -> st.(k) = Init) fs -> [ DropNow l ]
     | fs ->
-        (* 部分移动过：只析构还在的字段（字段都在时结构体本身一定也在） *)
-        List.concat_map
-          (fun (g, k) ->
-            match st.(k) with
-            | Init -> [ DropField (l, g) ]
-            | Uninit -> []
-            | Maybe -> (
-                need.(k) <- true;
-                match flag.(k) with Some fl -> [ DropFieldIf (l, g, fl) ] | None -> []))
-          fs
+        (* 部分移动过：只析构还在的叶子（叶子都在时结构体本身一定也在） *)
+        List.concat_map (release_slot l) fs
   in
   (* linear 值不能被隐式析构 *)
   let no_linear l at why =
@@ -173,8 +187,8 @@ let step check f sp flag need st s =
   in
   match s with
   | Assign (p, rv) when p.proj <> [] -> (
-      (* 给字段赋值：结构体本身要还在。部分移动过的字段按它的槽析构旧值（M13 的 freeField + 移进这个字段）；
-         其他位置的旧值一定还在，需要析构的直接析构 *)
+      (* 给字段赋值：结构体本身要还在。目标（只经过字段）下面有部分移动过的叶子时，按叶子的槽析构旧值
+         （M13 的 freeField + 移进这个字段）；其他位置的旧值一定还在，需要析构的直接析构 *)
       let clear = reads rv in
       if check then begin
         match st.(p.base) with
@@ -182,23 +196,18 @@ let step check f sp flag need st s =
         | Uninit -> err p "%s 已被移动，不能给它的字段赋值" (name f p.base)
         | Maybe -> err p "%s 可能已被移动（某条路径上或上一轮循环里），不能给它的字段赋值" (name f p.base)
       end;
-      match p.proj, slots_of sp p with
-      | [ PField g ], [ (_, k) ] ->
-          let pre =
-            match st.(k) with
-            | Init -> [ DropField (p.base, g) ]
-            | Uninit -> []
-            | Maybe -> (
-                need.(k) <- true;
-                match flag.(k) with Some fl -> [ DropFieldIf (p.base, g, fl) ] | None -> [])
-          in
-          st.(k) <- Init;
-          clear @ pre @ [ s ] @ set k true
-      | _, slots ->
+      let only_fields = List.for_all (function PField _ -> true | _ -> false) p.proj in
+      match slots_of sp p with
+      | _ :: _ as slots when only_fields ->
+          let pre = List.concat_map (release_slot p.base) slots in
+          List.iter (fun (_, k) -> st.(k) <- Init) slots;
+          clear @ pre @ [ s ] @ List.concat_map (fun (_, k) -> set k true) slots
+      | slots ->
           if check then
             List.iter
-              (fun (g, k) ->
-                if st.(k) <> Init then err p "%s.%s 已被移走或可能已被移走，不能给它里面的位置赋值" (name f p.base) g)
+              (fun (path, k) ->
+                if st.(k) <> Init then
+                  err p "%s 已被移走或可能已被移走，不能给它里面的位置赋值" (path_name f p.base path))
               slots;
           let pre = if Typeck.needs_drop (place_ty f p) then [ DropAt p ] else [] in
           clear @ pre @ [ s ])
@@ -307,9 +316,9 @@ let elaborate ?(check = true) (f : func) : func =
   Array.iteri
     (fun l fs ->
       List.iter
-        (fun (g, k) ->
+        (fun (path, k) ->
           owner.(k) <- l;
-          label.(k) <- f.locals.(l).lname ^ "_" ^ g)
+          label.(k) <- String.concat "_" (f.locals.(l).lname :: path))
         fs)
     sp;
   let need = Array.make total false in

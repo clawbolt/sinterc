@@ -159,6 +159,7 @@ let func (f : func) =
   let rvalue = function Call (_, os) -> call os | rv -> List.concat_map operand (operands rv) in
   let whole_target (p : place) = p.proj = [] && not f.locals.(p.base).lref in
   let split l = sp.(l) <> [] in
+  let field_place l path = { (whole l) with proj = List.map (fun g -> PField g) path } in
   let stmt = function
     | Assign (p, Use (Move q))
       when whole_target p && kind p.base = Some Own && kind q.base = Some Own && q.proj = []
@@ -180,14 +181,15 @@ let func (f : func) =
               | Some Lin -> [ op_lin (Printf.sprintf ".lnew %d" idx.(p.base)) ]
               | Some (Rf k) -> [ op_reg (Printf.sprintf ".ralloc %d %d" idx.(p.base) k) ]
               | None -> [])
-          | [ PField _ ] when split p.base -> own_ops "alloc" p   (* 给部分移动过的字段放回新值 *)
+          | proj when split p.base && List.for_all (function PField _ -> true | _ -> false) proj ->
+              own_ops "alloc" p   (* 给部分移动过的字段（或它上层的结构体）放回新值 *)
           | _ -> []
         in
         pre @ target
     | Eval rv -> rvalue rv
     | Proj (_, p) -> touch p
     | DropNow l -> ( match kinds.(l) with Some Own -> own_ops "free" (whole l) | _ -> [])
-    | DropField (l, g) -> own_ops "free" { (whole l) with proj = [ PField g ] }
+    | DropField (l, path) -> own_ops "free" (field_place l path)
     | Enter a ->
         let k = np + List.assoc a f.arenas in
         ".enter"
@@ -200,7 +202,7 @@ let func (f : func) =
     | Leave _ -> [ ".leave" ]
     | DropAt _ -> []   (* 给没有部分移动过的字段赋值前析构旧值：模型里结构体整体仍然拥有值 *)
     | DropIf (l, _) -> ( match kinds.(l) with Some Own -> drop_ops (whole l) | _ -> [])
-    | DropFieldIf (l, g, _) -> drop_ops { (whole l) with proj = [ PField g ] }
+    | DropFieldIf (l, path, _) -> drop_ops (field_place l path)
     | Live _ | Raise | Drop _ -> []
   in
   (* 入口：区域参数依次 enter；参数里的引用 decl 并视为已赋值；
