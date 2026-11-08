@@ -8,6 +8,7 @@ type ty =
   | TUnit
   | TStruct of string   (* 用户定义的结构体或枚举，按名字区分 *)
   | TBox of ty          (* 拥有一块堆内存 *)
+  | TVec of ty          (* 内建的动态数组 Vec<T>：拥有一块连续的堆内存（Lean M12） *)
   | TResult of ty * ty  (* Result<T, E>：变体为 Ok(T)、Err(E) 的枚举（还没有泛型，单独记） *)
   | TRef of ty * string (* &T in a：区域 a 里的只读引用 *)
   | TArena of string    (* 区域本身，只能作为函数参数类型或 arena 块引入的名字 *)
@@ -99,6 +100,7 @@ let rec string_of_ty = function
   | TUnit -> "()"
   | TStruct n -> n
   | TBox t -> "Box<" ^ string_of_ty t ^ ">"
+  | TVec t -> "Vec<" ^ string_of_ty t ^ ">"
   | TResult (a, b) -> "Result<" ^ string_of_ty a ^ ", " ^ string_of_ty b ^ ">"
   | TRef (t, r) -> "&" ^ string_of_ty t ^ " in " ^ r
   | TArena _ -> "Arena"

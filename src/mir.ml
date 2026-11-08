@@ -10,7 +10,11 @@ open Ast
 type local = int
 
 (* 位置：一个局部变量加上字段 / 解引用路径。at 是源代码位置，用来报错。 *)
-type proj = PField of string | PDeref | PVar of int   (* PVar i：枚举第 i 个变体的载荷 *)
+type proj =
+  | PField of string
+  | PDeref
+  | PVar of int     (* 枚举第 i 个变体的载荷 *)
+  | PIndex of int   (* Vec 的元素，下标在这个局部变量里；越界时 panic *)
 
 type place = { base : local; proj : proj list; at : pos }
 
@@ -158,7 +162,10 @@ let use_local l ty at = if Typeck.needs_drop ty then Move (whole ~at l) else Cop
 let owned_whole st (p : place) = p.proj = [] && not (info st p.base).lref
 
 let rec is_place (x : expr) =
-  match x.e with Var _ -> true | Field (a, _) | Deref a -> is_place a | _ -> false
+  match x.e with
+  | Var _ -> true
+  | Field (a, _) | Deref a | Call ("vec_get", [ a; _ ]) -> is_place a
+  | _ -> false
 
 let place_of = function Copy p | Move p -> p | _ -> assert false
 
@@ -170,7 +177,7 @@ let rec expr st env (x : expr) : operand option =
   | Int n -> Some (Const (CInt n))
   | Bool b -> Some (Const (CBool b))
   | Unit -> None
-  | Var _ | Field _ | Deref _ -> (
+  | Var _ | Field _ | Deref _ | Call ("vec_get", _) -> (
       match ty_of x with
       | None -> dummy
       | Some ty ->
@@ -181,7 +188,7 @@ let rec expr st env (x : expr) : operand option =
             raise
               (Typeck.Error
                  (x.pos, Printf.sprintf "%s 不拥有值（是 let / inout 参数或投影），不能移动" (info st p.base).lname))
-          else raise (Typeck.Error (x.pos, "不能从字段或 Box 里移出值（还不支持部分移动）")))
+          else raise (Typeck.Error (x.pos, "不能从字段、Box 或 Vec 里移出值（还不支持部分移动；Box 用 unbox，Vec 的元素用 vec_pop）")))
   | Binop (((And | Or) as op), a, b) ->
       let t = temp st TBool x.pos in
       let oa = Option.get (expr st env a) in
@@ -430,6 +437,13 @@ and place st env (x : expr) : place =
   | Deref a ->
       let p = place st env a in
       { p with proj = p.proj @ [ PDeref ]; at = x.pos }
+  | Call ("vec_get", [ a; i ]) ->
+      (* 下标先算进临时变量，再取元素 *)
+      let p = place st env a in
+      let oi = Option.get (expr st env i) in
+      let li = temp st TI64 i.pos in
+      emit st (Assign (whole li, Use oi));
+      { p with proj = p.proj @ [ PIndex li ]; at = x.pos }
   | _ -> (
       match expr st env x with
       | Some (Copy p | Move p) -> p
@@ -450,7 +464,7 @@ and proj_init st env (e : expr) =
   let rec base (x : expr) =
     match x.e with
     | Var v -> (List.assoc v env, true)
-    | Field (a, _) | Deref a -> (fst (base a), false)
+    | Field (a, _) | Deref a | Call ("vec_get", [ a; _ ]) -> (fst (base a), false)
     | _ -> assert false
   in
   match ty_of e with

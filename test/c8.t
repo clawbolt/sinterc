@@ -2,11 +2,9 @@ C8：泛型（Lean M9（一））。泛型函数 fn f<T, U: linear>(…)、泛�
 定义处按抽象类型检查：T 的值只能移动，普通的 T 自动析构，T: linear 必须交出去，不能对 T 做运算；
 调用处检查约束（普通的 T 不能是 linear 类型）；用到的每个实例生成一份具体代码，照常检查。
 
-Option<T>、Pair<A, B>，实例有 I64、Bool、Box<I64>、linear 结构体；Box 计入泄漏检查：
+Option<T>（内建）、Pair<A, B>，实例有 I64、Bool、Box<I64>、linear 结构体；Box 计入泄漏检查：
 
   $ cat > ok.sn <<'EOF'
-  > enum Option<T> { Some(T), None }
-  > 
   > struct Pair<A, B> { a: A, b: B }
   > 
   > linear struct Token { id: I64 }

@@ -58,13 +58,13 @@ let vname v = if v = "Ok" || v = "Err" then v else "." ^ v
 let rec is_linear = function
   | TStruct n -> Hashtbl.mem linear_tbl n
   | TResult (a, b) -> is_linear a || is_linear b
-  | TBox t -> is_linear t
+  | TBox t | TVec t -> is_linear t
   | TParam (_, l) -> l
   | TI64 | TBool | TUnit | TRef _ | TArena _ | TApp _ -> false
 
 (* 需要析构（或者是 linear）的类型：这些类型的值只能移动，不能复制。 *)
 let rec needs_drop = function
-  | TBox _ -> true
+  | TBox _ | TVec _ -> true
   | TStruct n -> (
       Hashtbl.mem linear_tbl n
       ||
@@ -88,14 +88,35 @@ let builtins =
   ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
-let special = [ "box"; "unbox"; "consume"; "alloc" ]
+let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get" ]
 
-(* 位置表达式（变量、字段、解引用）所在的变量；其他表达式没有。 *)
+(* Vec 的内建函数的参数约定（给降级用；类型由类型检查单独处理）。vec_get 是位置，不是调用。 *)
+let vec_sigs =
+  [
+    "vec_new", ([], TUnit);
+    "vec_push", ([ (MInout, TUnit); (MSink, TUnit) ], TUnit);
+    "vec_pop", ([ (MInout, TUnit) ], TUnit);
+    "vec_len", ([ (MLet, TUnit) ], TI64);
+  ]
+
+(* Vec 内建函数的实例（降级后的调用名，例如 vec_push<I64>）→ 函数（push 等）和元素类型，给代码生成找辅助函数用。 *)
+let vec_calls : (string, string * ty) Hashtbl.t = Hashtbl.create 16
+
+(* 位置表达式（变量、字段、解引用、vec_get(v, i)）所在的变量；其他表达式没有。 *)
 let rec root (x : expr) =
   match x.e with
   | Var v -> Some v
-  | Field (a, _) | Deref a -> root a
+  | Field (a, _) | Deref a | Call ("vec_get", [ a; _ ]) -> root a
   | _ -> None
+
+(* inout 实参必须是可修改的位置：var 变量或 inout / sink 参数里面的位置。 *)
+let inout_place env (a : expr) =
+  match root a with
+  | None -> err a.pos "inout 实参必须是变量、字段或解引用这样的位置"
+  | Some v -> (
+      match List.assoc_opt v env.vars with
+      | Some (_, true) -> ()
+      | _ -> err a.pos "%s 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）" v)
 
 let show = function Ty t -> string_of_ty t | Never -> "!"
 
@@ -117,14 +138,14 @@ let rec sub got want =
 let rec mentions r = function
   | TRef (t, x) -> x = r || mentions r t
   | TArena x -> x = r
-  | TBox t -> mentions r t
+  | TBox t | TVec t -> mentions r t
   | TResult (a, b) -> mentions r a || mentions r b
   | TI64 | TBool | TUnit | TStruct _ | TApp _ | TParam _ -> false
 
 let rec region_names = function
   | TRef (t, x) -> x :: region_names t
   | TArena x -> [ x ]
-  | TBox t -> region_names t
+  | TBox t | TVec t -> region_names t
   | TResult (a, b) -> region_names a @ region_names b
   | TI64 | TBool | TUnit | TStruct _ | TApp _ | TParam _ -> []
 
@@ -132,6 +153,7 @@ let rec rename s = function
   | TRef (t, x) -> TRef (rename s t, Option.value (List.assoc_opt x s) ~default:x)
   | TArena x -> TArena (Option.value (List.assoc_opt x s) ~default:x)
   | TBox t -> TBox (rename s t)
+  | TVec t -> TVec (rename s t)
   | TResult (a, b) -> TResult (rename s a, rename s b)
   | t -> t
 
@@ -156,6 +178,7 @@ let rec check_ty ?(param = false) env pos = function
   | TBox t ->
       if is_linear t then err pos "Box 里不能放 linear 值（还不能从 Box 里移出）";
       check_ty env pos t
+  | TVec t -> check_ty env pos t
   | TResult (a, b) -> check_ty env pos a; check_ty env pos b
   | TArena _ when not param -> err pos "Arena 只能作为函数参数的类型"
   | TRef (t, r) ->
@@ -218,7 +241,15 @@ let data_arg pos t =
    Option<I64> 这样的写法换成实例。 *)
 let rec resolve sc pos = function
   | TStruct n when List.mem_assoc n sc -> List.assoc n sc
+  | TStruct "Vec" when not (List.mem_assoc "Vec" sc) -> err pos "Vec 要写元素类型：Vec<…>"
   | TStruct n when Hashtbl.mem gtypes n -> err pos "%s 是泛型类型，要写类型实参：%s<…>" n n
+  | TApp ("Vec", ts) -> (
+      (* 内建的动态数组：元素不能是 ()、引用或 linear 值（pop 返回 Option<T>，Option 的实参还不能是 linear 的） *)
+      match List.map (resolve sc pos) ts with
+      | [ t ] ->
+          data_arg pos t;
+          TVec t
+      | ts -> err pos "Vec 需要 1 个类型实参，实际给了 %d 个" (List.length ts))
   | TApp (n, ts) -> (
       match Hashtbl.find_opt gtypes n with
       | None -> err pos "%s 不是泛型类型，不能写类型实参" n
@@ -229,6 +260,7 @@ let rec resolve sc pos = function
           List.iter (data_arg pos) ts;
           instantiate n ts)
   | TBox t -> TBox (resolve sc pos t)
+  | TVec t -> TVec (resolve sc pos t)
   | TResult (a, b) -> TResult (resolve sc pos a, resolve sc pos b)
   | TRef (t, r) -> TRef (resolve sc pos t, r)
   | t -> t
@@ -261,6 +293,7 @@ let rec subst s = function
       | Some (g, ts) -> instantiate g (List.map (subst s) ts)
       | None -> t)
   | TBox t -> TBox (subst s t)
+  | TVec t -> TVec (subst s t)
   | TResult (a, b) -> TResult (subst s a, subst s b)
   | TRef (t, r) -> TRef (subst s t, r)
   | t -> t
@@ -270,7 +303,7 @@ let rec params_of = function
   | TParam (n, _) -> [ n ]
   | TStruct n -> (
       match Hashtbl.find_opt inst_tbl n with Some (_, ts) -> List.concat_map params_of ts | None -> [])
-  | TBox t | TRef (t, _) -> params_of t
+  | TBox t | TVec t | TRef (t, _) -> params_of t
   | TResult (a, b) -> params_of a @ params_of b
   | TI64 | TBool | TUnit | TArena _ | TApp _ -> []
 
@@ -278,7 +311,7 @@ let rec params_of = function
 let rec unify s p t =
   match p, t with
   | TParam (n, _), t -> if not (List.mem_assoc n !s) then s := (n, t) :: !s
-  | TBox p, TBox t -> unify s p t
+  | TBox p, TBox t | TVec p, TVec t -> unify s p t
   | TResult (a, b), TResult (c, d) -> unify s a c; unify s b d
   | TStruct a, TStruct b -> (
       match Hashtbl.find_opt inst_tbl a, Hashtbl.find_opt inst_tbl b with
@@ -322,6 +355,12 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
   and blk (b : block) = { stmts = List.map st b.stmts; tail = Option.map ex b.tail } in
   blk b
 
+(* Vec 的内建函数按元素类型实例化：降级时调用名换成 vec_push<T> 这样的实例名；
+   元素类型是具体类型时登记，代码生成为它写辅助函数。 *)
+let vec_inst (x : expr) b t =
+  Hashtbl.replace call_inst x.id [ t ];
+  if params_of t = [] then Hashtbl.replace vec_calls (inst_name ("vec_" ^ b) [ t ]) (b, t)
+
 (* 每个表达式的类型按 id 记下来，给降级用。 *)
 let rec expr env (x : expr) : t =
   let t = expr1 env x in
@@ -360,6 +399,12 @@ and check1 env want (x : expr) : t =
   | Block b -> block env ~want b
   | Match (b, s, arms) -> match_ env (Some want) x.pos b s arms
   | Arena (r, b) -> arena env (Some want) x.pos r b
+  | Call ("vec_new", []) -> (
+      match want with
+      | TVec t ->
+          vec_inst x "new" t;
+          Ty want
+      | _ -> err x.pos "这里需要 %s，vec_new() 是 Vec" (string_of_ty want))
   | Call (f, args) when not (List.mem f special) ->
       let t = call env (Some want) x f args in
       expect x.pos want t;
@@ -393,8 +438,8 @@ and expr1 env (x : expr) : t =
           expect a.pos TI64 ta; expect b.pos TI64 tb; Ty TBool
       | Eq | Ne -> (
           match ta, tb with
-          | Ty (TStruct _ | TUnit | TBox _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _), _
-          | _, Ty (TStruct _ | TUnit | TBox _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _) ->
+          | Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _), _
+          | _, Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _) ->
               err pos "只能比较 I64 和 Bool"
           | _ -> ignore (join pos "比较" ta tb); Ty TBool)
       | And | Or -> expect a.pos TBool ta; expect b.pos TBool tb; Ty TBool)
@@ -431,6 +476,31 @@ and expr1 env (x : expr) : t =
       | Never -> Never
       | Ty t -> err a.pos "alloc 的第一个参数必须是区域，%s 不是" (string_of_ty t))
   | Call ("alloc", _) -> err pos "alloc 需要 2 个参数：区域和值"
+  | Call ("vec_new", []) ->
+      err pos "无法确定 vec_new() 的元素类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方"
+  | Call (("vec_push" | "vec_pop" | "vec_len" | "vec_get") as f, v :: rest) -> (
+      match expr env v, f, rest with
+      | Never, _, _ -> Never
+      | Ty (TVec t), "vec_push", [ e ] ->
+          inout_place env v;
+          ignore (check env t e);
+          vec_inst x "push" t;
+          Ty TUnit
+      | Ty (TVec t), "vec_pop", [] ->
+          inout_place env v;
+          vec_inst x "pop" t;
+          Ty (instantiate "Option" [ t ])
+      | Ty (TVec t), "vec_len", [] ->
+          vec_inst x "len" t;
+          Ty TI64
+      | Ty (TVec t), "vec_get", [ i ] ->
+          (* 第 i 个元素这个位置：可复制的值复制，需要析构的值 let 绑定成投影（锁住 v），越界时 panic *)
+          expect i.pos TI64 (expr env i);
+          Ty t
+      | Ty (TVec _), _, _ ->
+          err pos "%s 需要 %d 个参数" f (match f with "vec_push" | "vec_get" -> 2 | _ -> 1)
+      | Ty t, _, _ -> err v.pos "%s 的第一个参数必须是 Vec，%s 不是" f (string_of_ty t))
+  | Call (("vec_new" | "vec_push" | "vec_pop" | "vec_len" | "vec_get") as f, _) -> err pos "%s 的参数个数不对" f
   | Deref a -> (
       match expr env a with
       | Ty (TBox t | TRef (t, _)) -> Ty t
@@ -564,13 +634,7 @@ and call env want (x : expr) f args : t =
   List.iter2
     (fun (m, p) (a : expr) ->
       ignore (check env (rename s p) a);
-      if m = MInout then
-        match root a with
-        | None -> err a.pos "inout 实参必须是变量、字段或解引用这样的位置"
-        | Some v -> (
-            match List.assoc_opt v env.vars with
-            | Some (_, true) -> ()
-            | _ -> err a.pos "%s 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）" v))
+      if m = MInout then inout_place env a)
     ps args;
   Ty (rename s r)
 
@@ -819,6 +883,17 @@ let prepare (p : program) =
   Hashtbl.reset methods;
   Hashtbl.reset impls;
   Hashtbl.reset gbounds;
+  Hashtbl.reset vec_calls;
+  (* 内建的 Option<T>：vec_pop 返回它，写法和用户的枚举一样（.Some(x) / .None） *)
+  Hashtbl.add gtypes "Option"
+    ( [ "T" ],
+      Enum
+        {
+          name = "Option";
+          tparams = [ ("T", false) ];
+          variants = [ ("Some", Some (TStruct "T")); ("None", None) ];
+          ipos = { line = 1; col = 1 };
+        } );
   Queue.clear pending;
   let defined n = Hashtbl.mem struct_tbl n || Hashtbl.mem enum_tbl n || Hashtbl.mem gtypes n in
   (* what 不为空：结构体、枚举的类型参数，不能标 linear *)
@@ -872,8 +947,9 @@ let prepare (p : program) =
       err { line = 1; col = 1 } "类型 %s 不经过 Box 包含自己，大小是无限的（递归要经过 Box，例如 next: Box<List>）" n;
     let rec inner = function
       | TStruct m -> visit (n :: path) m
+      | TApp ("Vec", _) -> ()
       | TApp (m, ts) -> visit (n :: path) m; List.iter inner ts
-      | TBox _ -> ()   (* Box 是指针，经过它的递归大小有限 *)
+      | TBox _ | TVec _ -> ()   (* Box、Vec 是指针，经过它们的递归大小有限 *)
       | TResult (a, b) -> inner a; inner b
       | _ -> ()
     in
@@ -961,7 +1037,7 @@ let prepare (p : program) =
     p;
   Hashtbl.reset sigs;
   Hashtbl.iter (Hashtbl.replace sigs) fns;
-  List.iter (fun (f, s) -> Hashtbl.replace sigs f s) builtins;
+  List.iter (fun (f, s) -> Hashtbl.replace sigs f s) (builtins @ vec_sigs);
   let env0 = { structs = struct_tbl; fns; ret = TUnit; vars = []; guards = []; tbounds = [] } in
   (* 字段和载荷的规则；泛型定义按类型参数是抽象类型的实例检查 *)
   let abstract name tparams =

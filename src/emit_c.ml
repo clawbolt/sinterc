@@ -23,6 +23,9 @@ static bool u_choose(void) { if (*sn_seq) return *sn_seq++ == '1'; return false;
 static long long sn_live = 0;
 static void *sn_alloc(size_t n) { void *p = malloc(n); if (!p) sn_panic("内存不足"); sn_live++; return p; }
 static void sn_free(void *p) { free(p); sn_live--; }
+static void *sn_realloc(void *p, size_t n) { if (!p) return sn_alloc(n); void *q = realloc(p, n); if (!q) sn_panic("内存不足"); return q; }
+/* Vec 的下标检查：越界时 panic，不读内存。 */
+static int64_t sn_idx(int64_t n, int64_t i) { if (i < 0 || i >= n) sn_panic("下标越界"); return i; }
 /* 区域：一串内存块，分配时往当前块后面追加，离开 arena 块时整块释放。内存块也计入泄漏检查。 */
 typedef struct sn_chunk { struct sn_chunk *next; size_t used, cap; _Alignas(16) char data[]; } sn_chunk;
 typedef struct { sn_chunk *head; } sn_arena;
@@ -64,6 +67,7 @@ let rec mangle = function
   | TUnit -> "U"
   | TStruct n -> if String.contains n '<' then sname n else n
   | TBox t -> "B" ^ mangle t
+  | TVec t -> "V" ^ mangle t ^ "_"
   | TResult (a, b) -> "R" ^ mangle a ^ "_" ^ mangle b ^ "_"
   | TRef (t, _) -> "P" ^ mangle t
   | TArena _ -> "A"
@@ -76,6 +80,7 @@ let rec cty = function
   | TStruct n -> sname n
   | TBox t -> cty t ^ "*"
   | TResult _ as t -> "S_" ^ mangle t
+  | TVec _ as t -> "S_" ^ mangle t
   | TRef (t, _) -> cty t ^ "*"
   | TArena _ -> "sn_arena"
   | TApp _ | TParam _ -> failwith "泛型的类型参数不会出现在生成的 C 里"
@@ -87,10 +92,11 @@ let drop_fn t = "sn_drop_" ^ cty t
 let rec drop_code ty lv =
   match ty with
   | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
-  | (TStruct _ | TResult _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
-  | TI64 | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TApp _ | TParam _ -> ""
+  | (TStruct _ | TResult _ | TVec _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
+  | TI64 | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ -> ""
 
-(* 析构函数的函数体：结构体逐个析构字段；枚举按运行时标签析构对应变体的载荷（Lean M8 的 dropOne）。 *)
+(* 析构函数的函数体：结构体逐个析构字段；枚举按运行时标签析构对应变体的载荷（Lean M8 的 dropOne）；
+   Vec 逐个析构元素，再释放缓冲区（Lean M12）。 *)
 let drop_body ty lv =
   match ty, Typeck.variants ty with
   | _, Some vs ->
@@ -106,10 +112,16 @@ let drop_body ty lv =
              vs)
       in
       if cases = [] then "" else Printf.sprintf "switch (%s.tag) { %sdefault: break; } " lv (String.concat "" cases)
+  | TVec t, _ ->
+      Printf.sprintf "for (int64_t i_ = 0; i_ < %s.len; i_++) { %s} if (%s.data) sn_free(%s.data); " lv
+        (drop_code t (lv ^ ".data[i_]")) lv lv
   | TStruct n, None ->
       String.concat ""
         (List.map (fun (f : field) -> drop_code f.fty (lv ^ ".f_" ^ f.fname)) (Hashtbl.find Typeck.struct_tbl n))
   | _ -> ""
+
+(* Vec 内建函数的辅助函数名。 *)
+let vec_fn b e = Printf.sprintf "sn_v%s_%s" b (cty (TVec e))
 
 (* 类型定义：先给所有结构体、枚举写前向声明，再按依赖顺序写定义（按值包含的类型先定义；
    Box 指向的类型只需要前向声明，放到后面再处理，所以经过 Box 的递归没有问题）；
@@ -131,7 +143,13 @@ let type_defs (p : program) (fs : Mir.func list) =
   let rec visit t =
     match t, Typeck.variants t with
     | (TBox t | TRef (t, _)), _ -> Queue.add t later
-    | (TStruct _ | TResult _), _ when Hashtbl.mem seen (cty t) -> ()
+    | (TStruct _ | TResult _ | TVec _), _ when Hashtbl.mem seen (cty t) -> ()
+    | TVec e, _ ->
+        (* 动态数组：缓冲区指针、长度、容量；元素类型只需要前向声明 *)
+        declare t;
+        Queue.add e later;
+        Buffer.add_string defs
+          (Printf.sprintf "struct %s { %s *data; int64_t len, cap; };\n" (cty t) (cty e))
     | _, Some vs ->
         (* 枚举（含 Result）：标签加上各个载荷的 union *)
         declare t;
@@ -167,10 +185,37 @@ let type_defs (p : program) (fs : Mir.func list) =
       visit f.ret;
       Array.iter (fun (l : Mir.local_info) -> visit l.lty) f.locals)
     fs;
+  (* Vec 内建函数的辅助函数用到的类型（vec_pop 返回 Option<T>） *)
+  Hashtbl.iter
+    (fun _ (b, e) ->
+      visit (TVec e);
+      if b = "pop" then visit (Typeck.instantiate "Option" [ e ]))
+    Typeck.vec_calls;
   while not (Queue.is_empty later) do
     visit (Queue.pop later)
   done;
+  (* Vec 内建函数：每个用到的（函数, 元素类型）一个辅助函数。push 满了就把容量翻倍（realloc），
+     pop 空的时候返回 .None。 *)
+  let helpers = Buffer.create 256 in
+  Hashtbl.iter
+    (fun _ (b, e) ->
+      let v = cty (TVec e) and te = cty e in
+      Buffer.add_string helpers
+        (match b with
+        | "new" -> Printf.sprintf "static %s %s(void) { return (%s){ 0, 0, 0 }; }\n" v (vec_fn b e) v
+        | "push" ->
+            Printf.sprintf
+              "static void %s(%s *v, %s x) { if (v->len == v->cap) { int64_t c = v->cap ? v->cap * 2 : 4; v->data = sn_realloc(v->data, (size_t)c * sizeof(%s)); v->cap = c; } v->data[v->len++] = x; }\n"
+              (vec_fn b e) v te te
+        | "pop" ->
+            let o = cty (Typeck.instantiate "Option" [ e ]) in
+            Printf.sprintf
+              "static %s %s(%s *v) { if (v->len == 0) return (%s){ .tag = 1 }; v->len--; return (%s){ .tag = 0, .u.v0 = v->data[v->len] }; }\n"
+              o (vec_fn b e) v o o
+        | _ -> Printf.sprintf "static int64_t %s(%s *v) { return v->len; }\n" (vec_fn b e) v))
+    Typeck.vec_calls;
   Buffer.contents fwd ^ Buffer.contents defs ^ Buffer.contents protos ^ Buffer.contents bodies
+  ^ Buffer.contents helpers
 
 (* ---------- 从 MIR 生成 ---------- *)
 
@@ -183,7 +228,8 @@ let place f (p : Mir.place) =
     (fun s -> function
       | Mir.PField f -> Printf.sprintf "%s.f_%s" s f
       | Mir.PDeref -> Printf.sprintf "(*%s)" s
-      | Mir.PVar i -> Printf.sprintf "%s.u.v%d" s i)
+      | Mir.PVar i -> Printf.sprintf "%s.u.v%d" s i
+      | Mir.PIndex i -> Printf.sprintf "%s.data[sn_idx(%s.len, %s)]" s s (local f i))
     (local f p.base) p.proj
 
 let operand f = function
@@ -206,7 +252,9 @@ let rvalue fn rv =
       | And -> c "&&" | Or -> c "||")
   | Mir.Un (Neg, a) -> Printf.sprintf "sn_neg(%s)" (operand a)
   | Mir.Un (Not, a) -> Printf.sprintf "(!%s)" (operand a)
-  | Mir.Call (f, args) -> Printf.sprintf "%s(%s)" (fname f) (String.concat ", " (List.map operand args))
+  | Mir.Call (f, args) ->
+      let name = match Hashtbl.find_opt Typeck.vec_calls f with Some (b, e) -> vec_fn b e | None -> fname f in
+      Printf.sprintf "%s(%s)" name (String.concat ", " (List.map operand args))
   | Mir.Agg (n, fs) ->
       let fs = List.map (fun (f, o) -> Printf.sprintf ".f_%s = %s" f (operand o)) fs in
       Printf.sprintf "((%s){ %s })" (sname n) (String.concat ", " fs)

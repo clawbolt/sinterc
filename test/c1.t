@@ -118,5 +118,5 @@ let 声明的变量不能重新赋值：
   > }
   > EOF
   $ sinterc partial.sn
-  partial.sn:5:13: 错误：不能从字段或 Box 里移出值（还不支持部分移动）
+  partial.sn:5:13: 错误：不能从字段、Box 或 Vec 里移出值（还不支持部分移动；Box 用 unbox，Vec 的元素用 vec_pop）
   [1]
