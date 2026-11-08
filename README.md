@@ -6,10 +6,10 @@
 参数约定 `let`（默认）/ `inout` / `sink`，`let` 绑定投影；`linear struct`、内建的 `Result<T, E>`、`Ok` / `Err`、`?`、`match`、`errdefer`、`consume(x)`。
 区域：`arena |a| { … }`、`a: Arena` 参数、`alloc(a, e)`、`&T in a`。
 枚举：`enum E { A(T), B }`、`.A(e)` / `.B`、`match e { .A(x) => …, .B => … }`、按借用的 `match let e { … }`。
-泛型：`fn f<T, U: linear>(…)`、`struct Pair<A, B> { … }`、`enum Option<T> { Some(T), None }`，类型实参从实参和期望的类型推出来。
+泛型：`fn f<T, U: linear>(…)`、`struct Pair<A, B> { … }`、`enum E<T> { … }`，类型实参从实参和期望的类型推出来；内置 `Option<T>`。
 trait：`trait Show { fn show(x: Self) -> I64 }`、`impl Show for I64 { … }`、约束 `T: Show + Eq + linear`，静态派发。
 递归类型：经过 `Box` 的链表、树，例如 `struct Node { v: I64, next: Box<List> }`、`enum List { Cons(Node), Nil }`。
-还没有 `inout` 投影、多个载荷的变体、嵌套模式、关联类型、默认方法、trait 对象、泛型 impl、`x.show()` 写法、显式的类型实参（`f::<T>()`）、泛型和区域的组合、区域类型（`Expr<in a>`）、`Mut`、区域里存放引用等（按 Lean 模型逐项加入）。
+还没有 `inout` 投影、多个载荷的变体、嵌套模式、关联类型、默认方法、trait 对象、泛型 impl、显式的类型实参（`f::<T>()`）、泛型和区域的组合、区域类型（`Expr<in a>`）、`Mut`、区域里存放引用等（按 Lean 模型逐项加入）。
 
 ## 依赖
 
@@ -38,8 +38,9 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 - 排他性：同一次调用里同一个变量出现两次，两次都必须是只读的（`let` 或复制）。
 - 投影：`let a = p.a` 这类绑定（值需要析构、又不能整个移走）不拷贝，`a` 指向 `p` 内部。
   `a` 之后还会用到时，`p` 不能被移动、修改、以 `inout` 传入或析构；锁在 `a` 最后一次使用之后结束。锁住的是整个 `p`。
-- `Box<T>` 和含 `Box` 的结构体需要析构，只能移动、不能复制；`I64`、`Bool` 和只含它们的结构体按值复制。
-  不能从字段或 `Box` 里移出值（暂不支持部分移动），但可以复制出其中可复制的部分，例如 `*b`、`p.n`，或者用 `let` 绑定成投影。
+- `Box<T>`、`Vec<T>` 和含它们的结构体需要析构，只能移动、不能复制；`I64`、`Bool` 和只含它们的结构体按值复制。
+  变量结构体可以直接移走单个字段；不能直接通过 `Box`、`Vec` 或多层字段移出，改用 `unbox`、`vec_pop` 或先拆开结构体。
+- `a.f = e` 要求 `a` 以可修改的 `var` / `inout` / `sink` 位置为根；旧字段需要析构时先析构，`linear` 字段不能直接赋值。
 - 整数运算检查溢出和除以零，出错时打印 `panic: …` 并以退出码 101 结束。
 - 原型阶段统计堆上的 `Box`：程序结束时还有没释放的，打印 `leak: …` 并以退出码 102 结束。
 - 函数参数、结构体字段一律从左到右求值（降级到 MIR 时操作数依次存进临时变量，不依赖 C 的求值顺序）。
@@ -75,7 +76,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 - trait（Lean M10（一））：`trait Eq { fn eq(a: Self, b: Self) -> Bool }` 只写方法签名，参数约定照常写；
   `impl Eq for I64 { fn eq(a: I64, b: I64) -> Bool { … } }`（方法里也可以写 `Self`），`impl` 的方法要和 trait 一一对应，
   参数约定、参数类型和返回类型相同（`Self` 换成实现的类型）；同一个类型对同一个 trait 只能有一个 `impl`。
-  方法按函数调用的写法 `eq(x, y)` 调用，`Self` 从实参类型推出来；方法名全局唯一（暂不支持重载）。
+  方法可以写成 `eq(x, y)` 或 `x.eq(y)`，接收者就是第一个实参；`Self` 从实参类型推出来，方法名全局唯一（暂不支持重载）。
   约束写 `fn f<T: Eq + Show + linear>(…)`：泛型代码里只能调用约束里写了的 trait 的方法；调用处每个约束都要有 `impl`
   （类型实参本身是类型参数时，要在当前函数里写了同样的约束）。单态化时方法调用直接换成那个 `impl` 里的函数，没有虚表。
   暂不支持：关联类型、默认方法、trait 对象、泛型 `impl`（`impl<T> Show for Option<T>`）、结构体和枚举的类型参数写约束。
