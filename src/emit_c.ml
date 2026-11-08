@@ -44,6 +44,12 @@ static void u_str_push(sn_str *s, const sn_str *t) {
 static sn_str u_str_from_i64(int64_t x) { char b[24]; int n = snprintf(b, sizeof b, "%lld", (long long)x); return sn_str_make(b, n); }
 /* Vec 的下标检查：越界时 panic，不读内存。 */
 static int64_t sn_idx(int64_t n, int64_t i) { if (i < 0 || i >= n) sn_panic("下标越界"); return i; }
+/* 字符串的第 i 个字节、[a, b) 的子串（C32）：越界时 panic，不读内存。 */
+static int64_t u_str_byte(const sn_str *s, int64_t i) { return (unsigned char)s->p[sn_idx(s->len, i)]; }
+static sn_str u_str_slice(const sn_str *s, int64_t a, int64_t b) {
+  if (a < 0 || b < a || b > s->len) sn_panic("下标越界");
+  return sn_str_make(s->p + a, b - a);
+}
 /* 区域：一串内存块，分配时往当前块后面追加，离开 arena 块时整块释放。内存块也计入泄漏检查。 */
 typedef struct sn_chunk { struct sn_chunk *next; size_t used, cap; _Alignas(16) char data[]; } sn_chunk;
 typedef struct { sn_chunk *head; } sn_arena;
@@ -213,6 +219,10 @@ let type_defs (p : program) (fs : Mir.func list) =
       visit (TVec e);
       if b = "pop" then visit (Typeck.instantiate "Option" [ e ]))
     Typeck.vec_calls;
+  (* read_line、str_to_i64 返回的 Option<Str>、Option<I64>（C32）：辅助函数总是生成，类型也总要有 *)
+  let opt_str = Typeck.instantiate "Option" [ TStr ] and opt_i64 = Typeck.instantiate "Option" [ TI64 ] in
+  visit opt_str;
+  visit opt_i64;
   while not (Queue.is_empty later) do
     visit (Queue.pop later)
   done;
@@ -240,6 +250,36 @@ let type_defs (p : program) (fs : Mir.func list) =
           | _ -> Printf.sprintf "static int64_t %s(%s *v) { return v->len; }\n" (vec_fn b e) v)
       end)
     Typeck.vec_calls;
+  (* 读一行：读到换行或文件末尾为止，去掉行尾的 \r；什么都没读到就到了末尾时返回 .None。
+     解析整数：可以有一个正负号，后面全是数字；超出 I64 范围时返回 .None。 *)
+  let os = cty opt_str and oi = cty opt_i64 in
+  Buffer.add_string helpers
+    (Printf.sprintf
+       "static %s u_read_line(void) {\n\
+       \  fflush(stdout);\n\
+       \  int64_t cap = 16; sn_str r; r.p = sn_alloc((size_t)cap); r.len = 0; int c;\n\
+       \  while ((c = getchar()) != EOF && c != '\\n') {\n\
+       \    if (r.len + 1 >= cap) { cap *= 2; r.p = sn_realloc(r.p, (size_t)cap); }\n\
+       \    r.p[r.len++] = (char)c;\n\
+       \  }\n\
+       \  if (c == EOF && r.len == 0) { sn_free(r.p); return (%s){ .tag = 1 }; }\n\
+       \  if (r.len > 0 && r.p[r.len - 1] == '\\r') r.len--;\n\
+       \  r.p[r.len] = 0;\n\
+       \  return (%s){ .tag = 0, .u.v0 = r };\n\
+        }\n\
+        static %s u_str_to_i64(const sn_str *s) {\n\
+       \  int64_t i = 0, n = 0; bool neg = false;\n\
+       \  if (s->len > 0 && (s->p[0] == '-' || s->p[0] == '+')) { neg = s->p[0] == '-'; i = 1; }\n\
+       \  if (i == s->len) return (%s){ .tag = 1 };\n\
+       \  for (; i < s->len; i++) {\n\
+       \    int d = s->p[i] - '0';\n\
+       \    if (d < 0 || d > 9) return (%s){ .tag = 1 };\n\
+       \    if (__builtin_mul_overflow(n, 10, &n) || (neg ? __builtin_sub_overflow(n, d, &n) : __builtin_add_overflow(n, d, &n)))\n\
+       \      return (%s){ .tag = 1 };\n\
+       \  }\n\
+       \  return (%s){ .tag = 0, .u.v0 = n };\n\
+        }\n"
+       os os os oi oi oi oi oi);
   Buffer.contents fwd ^ Buffer.contents defs ^ Buffer.contents protos ^ Buffer.contents bodies
   ^ Buffer.contents helpers
 

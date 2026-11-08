@@ -91,11 +91,17 @@ let builtins =
     "str_push", ([ (MInout, TStr); (MLet, TStr) ], TUnit);
     "str_clone", ([ (MLet, TStr) ], TStr);
     "str_from_i64", ([ (MSink, TI64) ], TStr);
+    (* C32：读一行（读到末尾时 .None，去掉行尾的换行）、解析整数（格式不对或超出范围时 .None）、
+       第 i 个字节、[a, b) 的子串（新的 Str）；下标越界时 panic *)
+    "read_line", ([], TApp ("Option", [ TStr ]));
+    "str_to_i64", ([ (MLet, TStr) ], TApp ("Option", [ TI64 ]));
+    "str_byte", ([ (MLet, TStr); (MSink, TI64) ], TI64);
+    "str_slice", ([ (MLet, TStr); (MSink, TI64); (MSink, TI64) ], TStr);
     "choose", ([], TBool);       (* 对照测试用：按运行时给定的选择序列返回真假 *)
   ]
 
 (* 字符串的方法调用：s.len() 就是 str_len(s)。 *)
-let str_methods = [ "len"; "eq"; "concat"; "push"; "clone" ]
+let str_methods = [ "len"; "eq"; "concat"; "push"; "clone"; "to_i64"; "byte"; "slice" ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
 let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get" ]
@@ -667,7 +673,7 @@ and expr1 env (x : expr) : t =
 
 (* 函数调用。want：期望的返回类型（知道时用来推断泛型函数的类型实参）。 *)
 (* 方法调用 r.f(…) 的函数名：接收者是 Vec 时 push / pop / len / get 是内建的 vec_…，
-   是 Str 时 len / eq / concat / push / clone 是内建的 str_…，否则是函数 f。 *)
+   是 Str 时 len / eq / concat / push / clone / to_i64 / byte / slice 是内建的 str_…，否则是函数 f。 *)
 and method_name env (x : expr) f (r : expr) =
   let m = String.sub f 1 (String.length f - 1) in
   let g =
@@ -686,7 +692,9 @@ and call env want (x : expr) f args : t =
     | Some s -> s
     | None -> (
         match List.assoc_opt f builtins with
-        | Some s -> s
+        | Some (ps, r) ->
+            (* 内建函数签名里的 Option<…> 在这里换成实例（C32） *)
+            (List.map (fun (m, t) -> (m, resolve [] pos t)) ps, resolve [] pos r)
         | None -> err pos "未定义的函数 %s" f)
   in
   if List.length ps <> List.length args then
