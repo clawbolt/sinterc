@@ -1,21 +1,57 @@
-(* 用法：main.exe 源文件 [-o 输出] [--emit=core] [--unchecked] [--batch]
-   默认生成 C；--emit=core 生成给 Lean 复核的 CFG（附录 F 的 C5）。
-   --unchecked 只和 --emit=core 一起用：跳过所有权与投影检查、区域的先后和 R3 检查，照样导出，看 Lean 是否独立地拒绝。
+(* 用法：
+     sinterc run 源文件.sn            编译并运行，退出码就是程序的退出码
+     sinterc build 源文件.sn [-o 程序]  编译成可执行文件（默认和源文件同名，去掉 .sn）
+     sinterc 源文件.sn [-o 输出.c]     只生成 C（不给 -o 时写到标准输出）
+     sinterc --version / --help
+   build 和 run 调用系统的 C 编译器：环境变量 CC，默认 cc。
+   开发用的选项：--emit=core 生成给 Lean 复核的 CFG（附录 F 的 C5）；
+   --unchecked 只和 --emit=core 一起用：跳过所有权与投影检查、区域的先后和 R3 检查，照样导出，看 Lean 是否独立地拒绝；
    --batch：对照测试，见下面。
-   不给 -o 时写到标准输出。出错时打印“文件:行:列: 错误：…”，退出码 1。 *)
+   出错时打印“文件:行:列: 错误：…”，退出码 1。 *)
 open Sinter
+
+let version = "0.1.0"
 
 let fail file (pos : Ast.pos) msg =
   Printf.eprintf "%s:%d:%d: 错误：%s\n" file pos.line pos.col msg;
   exit 1
 
+let help =
+  "Sinter 编译器 sinterc " ^ version ^ "\n\n\
+   用法：\n\
+  \  sinterc run 源文件.sn             编译并运行\n\
+  \  sinterc build 源文件.sn [-o 程序]  编译成可执行文件\n\
+  \  sinterc 源文件.sn [-o 输出.c]      只生成 C\n\
+  \  sinterc --version | --help\n\n\
+   build 和 run 用环境变量 CC 指定的 C 编译器（默认 cc）。\n"
+
 let usage () =
-  prerr_endline "用法：main.exe 源文件 [-o 输出] [--emit=core] [--unchecked] [--batch]";
+  prerr_string help;
   exit 2
+
+(* 把生成的 C 交给系统的 C 编译器。 *)
+let cc c_file exe =
+  let cc = Option.value (Sys.getenv_opt "CC") ~default:"cc" in
+  let cmd = Printf.sprintf "%s -std=gnu11 -O1 -w %s -o %s" cc (Filename.quote c_file) (Filename.quote exe) in
+  if Sys.command cmd <> 0 then begin
+    Printf.eprintf "错误：C 编译器（%s）没有成功，可以用环境变量 CC 换一个（需要 GCC 或 Clang）\n" cc;
+    exit 1
+  end
+
+type mode = Emit | Build | Run
 
 let () =
   let file = ref None and out = ref None and core = ref false and unchecked = ref false
   and batch = ref false in
+  let argv = List.tl (Array.to_list Sys.argv) in
+  let mode, argv =
+    match argv with
+    | "run" :: rest -> (Run, rest)
+    | "build" :: rest -> (Build, rest)
+    | ("--version" | "-v") :: _ -> print_endline ("sinterc " ^ version); exit 0
+    | ("--help" | "-h") :: _ -> print_string help; exit 0
+    | _ -> (Emit, argv)
+  in
   let rec args = function
     | [] -> ()
     | "-o" :: o :: rest -> out := Some o; args rest
@@ -26,10 +62,15 @@ let () =
     | f :: rest when !file = None && String.length f > 0 && f.[0] <> '-' -> file := Some f; args rest
     | _ -> usage ()
   in
-  args (List.tl (Array.to_list Sys.argv));
+  args argv;
   let file = match !file with Some f -> f | None -> usage () in
   if !unchecked && not !core then usage ();
-  let ic = open_in_bin file in
+  if mode <> Emit && (!core || !batch) then usage ();
+  let ic =
+    try open_in_bin file with Sys_error _ ->
+      Printf.eprintf "错误：打不开文件 %s\n" file;
+      exit 1
+  in
   let lexbuf = Lexing.from_channel ic in
   Lexing.set_filename lexbuf file;
   let prog =
@@ -122,9 +163,30 @@ let () =
     with Typeck.Error (pos, msg) -> fail file pos msg
   in
   let text = if !core then Emit_core.program ~expect_ok:(not !unchecked) fs else Emit_c.program prog fs in
-  match !out with
-  | None -> print_string text
-  | Some o ->
-      let oc = open_out_bin o in
-      output_string oc text;
-      close_out oc
+  let write o =
+    let oc = open_out_bin o in
+    output_string oc text;
+    close_out oc
+  in
+  match mode, !out with
+  | Emit, None -> print_string text
+  | Emit, Some o -> write o
+  | Build, o ->
+      let exe =
+        match o with
+        | Some o -> o
+        | None -> if Filename.check_suffix file ".sn" then Filename.chop_suffix file ".sn" else file ^ ".out"
+      in
+      let c = Filename.temp_file "sinter" ".c" in
+      write c;
+      cc c exe;
+      Sys.remove c
+  | Run, _ ->
+      let c = Filename.temp_file "sinter" ".c" and exe = Filename.temp_file "sinter" ".exe" in
+      write c;
+      cc c exe;
+      Sys.remove c;
+      flush_all ();
+      let code = Sys.command (Filename.quote exe) in
+      Sys.remove exe;
+      exit code

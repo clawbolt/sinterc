@@ -1,0 +1,44 @@
+// Sinter 快速一览：结构体、参数约定、Box、Vec、match、arena。
+
+struct Point { x: I64, y: I64 }
+
+fn dist2(p: Point) -> I64 { p.x * p.x + p.y * p.y }
+
+// inout：修改调用方的变量或字段
+fn inc(inout x: I64) { x = x + 1 }
+
+// let 参数（默认）只读借用；循环里用下标读 Vec 的元素
+fn sum(v: Vec<Box<I64>>) -> I64 {
+    var s = 0
+    var i = 0
+    while i < v.len() {
+        s = s + *vec_get(v, i)
+        i = i + 1
+    }
+    s
+}
+
+// 引用只能来自 arena，类型写出它属于哪个区域
+fn make(a: Arena, n: I64) -> &I64 in a { alloc(a, n) }
+
+fn main() {
+    var p = Point { x: 3, y: 4 }
+    print_i64(dist2(p))
+    inc(p.x)
+    print_i64(p.x)
+
+    var v: Vec<Box<I64>> = vec_new()
+    v.push(box(1))
+    v.push(box(2))
+    v.push(box(3))
+    print_i64(sum(v))
+    match v.pop() {
+        .Some(b) => print_i64(*b),
+        .None => print_i64(0)
+    }
+
+    arena |a| {
+        let r = make(a, 42)
+        print_i64(*r)
+    }
+}

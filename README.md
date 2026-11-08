@@ -1,6 +1,6 @@
-# sinterc：Sinter 编译器（C24）
+# sinterc：Sinter 编译器（C25）
 
-附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变。
+附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变；C25 试用版命令行（run、build）和上手文档 TRY.md。
 支持 `I64`、`Bool`、`()`、结构体、`Box<T>`、函数、`let` / `var` / 赋值、`if`（可作表达式）、`while`、`return`，
 以及内置的 `print_i64`、`print_bool`、`box(e)`、解引用 `*b`、`unbox(b)`（取出 Box 里的值并释放），拆开结构体 `let Node { v, next } = n`。
 参数约定 `let`（默认）/ `inout` / `sink`，`let` 绑定投影；`linear struct`、内建的 `Result<T, E>`、`Ok` / `Err`、`?`、`match`、`errdefer`、`consume(x)`。
@@ -9,7 +9,7 @@
 泛型：`fn f<T, U: linear>(…)`、`struct Pair<A, B> { … }`、`enum E<T> { … }`，类型实参从实参和期望的类型推出来；内置 `Option<T>`。
 trait：`trait Show { fn show(x: Self) -> I64 }`、`impl Show for I64 { … }`、约束 `T: Show + Eq + linear`，静态派发。
 递归类型：经过 `Box` 的链表、树，例如 `struct Node { v: I64, next: Box<List> }`、`enum List { Cons(Node), Nil }`。
-还没有 `inout` 投影、多个载荷的变体、嵌套模式、关联类型、默认方法、trait 对象、泛型 impl、显式的类型实参（`f::<T>()`）、泛型和区域的组合、区域类型（`Expr<in a>`）、`Mut`、区域里存放引用等（按 Lean 模型逐项加入）。
+还没有 `inout` 投影、多个载荷的变体、嵌套模式、关联类型、默认方法、trait 对象、泛型 impl、显式的类型实参（`f::<T>()`）、区域类型（`Expr<in a>`）、`Mut`、区域里存放引用等（按 Lean 模型逐项加入）。
 
 ## 依赖
 
@@ -72,7 +72,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   `T: linear` 必须交出去（`sink` 实参或返回，泛型代码里不能 `consume`）；不能对 `T` 做运算、比较、取字段或 `match`（要等 trait）。
   调用处检查约束：普通的 `T` 不能是 `linear` 类型，`T: linear` 什么都可以。
   单态化：用到的每个实例（`f<I64>`、`Option<Box<I64>>`）生成一份具体的代码，照常做所有权检查；泛型函数本身也检查，但不输出。
-  暂不支持：类型实参是 `()`、引用或区域；泛型结构体、枚举的类型实参是 `linear` 值；泛型函数带区域参数。
+  类型实参可以是引用（C19、C20），不能是 `()` 或 `Arena`；泛型结构体、枚举的类型实参暂不能是 `linear` 值；泛型函数的签名里不能直接写区域。
 - trait（Lean M10（一））：`trait Eq { fn eq(a: Self, b: Self) -> Bool }` 只写方法签名，参数约定照常写；
   `impl Eq for I64 { fn eq(a: I64, b: I64) -> Bool { … } }`（方法里也可以写 `Self`），`impl` 的方法要和 trait 一一对应，
   参数约定、参数类型和返回类型相同（`Self` 换成实现的类型）；同一个类型对同一个 trait 只能有一个 `impl`。
