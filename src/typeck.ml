@@ -1183,7 +1183,7 @@ let prepare (p : program) =
           let ret = resolve sc ipos ret in
           if tparams <> [] then begin
             if List.exists (fun (_, t) -> region_names t <> []) ps || region_names ret <> [] then
-              err ipos "泛型函数暂不支持区域参数和引用（区域和泛型的组合还没有实现）";
+              err ipos "泛型函数的签名里暂不能直接写区域或引用（类型实参可以是引用）";
             Hashtbl.replace gparams name tparams
           end;
           Hashtbl.replace fns name (ps, ret)

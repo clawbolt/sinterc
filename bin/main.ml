@@ -4,6 +4,7 @@
      sinterc 源文件.sn [-o 输出.c]     只生成 C（不给 -o 时写到标准输出）
      sinterc --version / --help
    build 和 run 调用系统的 C 编译器：环境变量 CC，默认 cc。
+   --lang=en（或环境变量 SINTER_LANG=en）：错误信息和运行时的 panic 用英文（C27），默认中文。
    开发用的选项：--emit=core 生成给 Lean 复核的 CFG（附录 F 的 C5）；
    --unchecked 只和 --emit=core 一起用：跳过所有权与投影检查、区域的先后和 R3 检查，照样导出，看 Lean 是否独立地拒绝；
    --batch：对照测试，见下面。
@@ -13,20 +14,30 @@ open Sinter
 let version = "0.1.0"
 
 let fail file (pos : Ast.pos) msg =
-  Printf.eprintf "%s:%d:%d: 错误：%s\n" file pos.line pos.col msg;
+  Printf.eprintf "%s:%d:%d: %s%s\n" file pos.line pos.col (I18n.pick "错误：" "error: ") (I18n.msg msg);
   exit 1
 
-let help =
-  "Sinter 编译器 sinterc " ^ version ^ "\n\n\
-   用法：\n\
-  \  sinterc run 源文件.sn             编译并运行\n\
-  \  sinterc build 源文件.sn [-o 程序]  编译成可执行文件\n\
-  \  sinterc 源文件.sn [-o 输出.c]      只生成 C\n\
-  \  sinterc --version | --help\n\n\
-   build 和 run 用环境变量 CC 指定的 C 编译器（默认 cc）。\n"
+let help () =
+  I18n.pick
+    ("Sinter 编译器 sinterc " ^ version ^ "\n\n\
+      用法：\n\
+     \  sinterc run 源文件.sn             编译并运行\n\
+     \  sinterc build 源文件.sn [-o 程序]  编译成可执行文件\n\
+     \  sinterc 源文件.sn [-o 输出.c]      只生成 C\n\
+     \  sinterc --version | --help\n\n\
+      build 和 run 用环境变量 CC 指定的 C 编译器（默认 cc）。\n\
+      --lang=en 或 SINTER_LANG=en：英文的错误信息。\n")
+    ("Sinter compiler sinterc " ^ version ^ "\n\n\
+      Usage:\n\
+     \  sinterc run FILE.sn             compile and run\n\
+     \  sinterc build FILE.sn [-o EXE]  compile to an executable\n\
+     \  sinterc FILE.sn [-o OUT.c]      emit C only\n\
+     \  sinterc --version | --help\n\n\
+      build and run use the C compiler named by $CC (default: cc).\n\
+      --lang=zh or SINTER_LANG=zh: error messages in Chinese.\n")
 
 let usage () =
-  prerr_string help;
+  prerr_string (help ());
   exit 2
 
 (* 把生成的 C 交给系统的 C 编译器。 *)
@@ -34,7 +45,10 @@ let cc c_file exe =
   let cc = Option.value (Sys.getenv_opt "CC") ~default:"cc" in
   let cmd = Printf.sprintf "%s -std=gnu11 -O1 -w %s -o %s" cc (Filename.quote c_file) (Filename.quote exe) in
   if Sys.command cmd <> 0 then begin
-    Printf.eprintf "错误：C 编译器（%s）没有成功，可以用环境变量 CC 换一个（需要 GCC 或 Clang）\n" cc;
+    prerr_endline
+      (I18n.pick
+         (Printf.sprintf "错误：C 编译器（%s）没有成功，可以用环境变量 CC 换一个（需要 GCC 或 Clang）" cc)
+         (Printf.sprintf "error: the C compiler (%s) failed; set CC to another one (GCC or Clang is required)" cc));
     exit 1
   end
 
@@ -43,13 +57,24 @@ type mode = Emit | Build | Run
 let () =
   let file = ref None and out = ref None and core = ref false and unchecked = ref false
   and batch = ref false in
-  let argv = List.tl (Array.to_list Sys.argv) in
+  (match Sys.getenv_opt "SINTER_LANG" with
+  | Some ("en" | "EN") -> I18n.lang := I18n.En
+  | _ -> ());
+  let argv =
+    List.filter
+      (fun a ->
+        match a with
+        | "--lang=en" -> I18n.lang := I18n.En; false
+        | "--lang=zh" -> I18n.lang := I18n.Zh; false
+        | _ -> true)
+      (List.tl (Array.to_list Sys.argv))
+  in
   let mode, argv =
     match argv with
     | "run" :: rest -> (Run, rest)
     | "build" :: rest -> (Build, rest)
     | ("--version" | "-v") :: _ -> print_endline ("sinterc " ^ version); exit 0
-    | ("--help" | "-h") :: _ -> print_string help; exit 0
+    | ("--help" | "-h") :: _ -> print_string (help ()); exit 0
     | _ -> (Emit, argv)
   in
   let rec args = function
@@ -68,7 +93,7 @@ let () =
   if mode <> Emit && (!core || !batch) then usage ();
   let ic =
     try open_in_bin file with Sys_error _ ->
-      Printf.eprintf "错误：打不开文件 %s\n" file;
+      prerr_endline (I18n.pick ("错误：打不开文件 " ^ file) ("error: cannot open file " ^ file));
       exit 1
   in
   let lexbuf = Lexing.from_channel ic in
@@ -162,7 +187,7 @@ let () =
       (prog, List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) fs)
     with Typeck.Error (pos, msg) -> fail file pos msg
   in
-  let text = if !core then Emit_core.program ~expect_ok:(not !unchecked) fs else Emit_c.program prog fs in
+  let text = if !core then Emit_core.program ~expect_ok:(not !unchecked) fs else I18n.runtime (Emit_c.program prog fs) in
   let write o =
     let oc = open_out_bin o in
     output_string oc text;
