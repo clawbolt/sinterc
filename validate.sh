@@ -7,15 +7,19 @@
 set -e
 cd "$(dirname "$0")"
 dune build
+# _build 里的 main.exe 有时没有执行权限（-rw-------），和 diff.sh 一样复制一份再加上权限
+mkdir -p _batch
+cp _build/default/bin/main.exe _batch/sinterc
+chmod +x _batch/sinterc
 out=../lean/Validate
 mkdir -p "$out"
 for f in examples/ok/*.sn; do
   n=$(basename "$f" .sn)
-  ./_build/default/bin/main.exe "$f" --emit=core -o "$out/ok_$n.lean"
+  ./_batch/sinterc "$f" --emit=core -o "$out/ok_$n.lean"
 done
 for f in examples/bad/*.sn; do
   n=$(basename "$f" .sn)
-  ./_build/default/bin/main.exe "$f" --emit=core --unchecked -o "$out/bad_$n.lean"
+  ./_batch/sinterc "$f" --emit=core --unchecked -o "$out/bad_$n.lean"
 done
 cd ../lean
 lake build
