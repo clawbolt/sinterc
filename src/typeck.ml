@@ -232,21 +232,39 @@ let call_inst : (int, ty list) Hashtbl.t = Hashtbl.create 16
 let pending : (string * ty list) Queue.t = Queue.create ()
 let requested : (string, unit) Hashtbl.t = Hashtbl.create 16
 
+(* 实例第一次被用到的调用处，实例里出错时（例如用到了 Option<&I64 in a>）报在这里。 *)
+let inst_site : (string, pos) Hashtbl.t = Hashtbl.create 16
+
 let inst_name g ts = g ^ "<" ^ String.concat ", " (List.map string_of_ty ts) ^ ">"
 
 let inst_of n = Option.map fst (Hashtbl.find_opt inst_tbl n)
 
 let is_generic f = Hashtbl.mem gparams f
 
-(* 类型实参的共同限制：区域和泛型的组合还没有证明。 *)
+let rec has_arena = function
+  | TArena _ -> true
+  | TBox t | TVec t | TRef (t, _) -> has_arena t
+  | TResult (a, b) -> has_arena a || has_arena b
+  | _ -> false
+
+(* 类型实参的共同限制。泛型函数和 Vec 的类型实参可以含引用（C19）：实例的区域参数就是实参里的区域名（Lean M14）。 *)
 let type_arg pos t =
   if t = TUnit then err pos "类型实参不能是 ()";
-  if region_names t <> [] then err pos "类型实参暂不能含引用或区域（区域和泛型的组合还没有实现）"
+  if has_arena t then err pos "类型实参不能是 Arena"
 
-(* 泛型结构体、枚举的类型实参还不能是 linear 值（字段和载荷的 linear 规则还没有和泛型一起证明）。 *)
+let lin_arg pos t =
+  if is_linear t then err pos "泛型结构体、枚举的类型实参暂不能是 linear 值（%s）" (string_of_ty t)
+
+(* 泛型结构体、枚举的类型实参还不能含引用（区域名的收集和换名还不看实例的类型实参，C20），
+   也不能是 linear 值（字段和载荷的 linear 规则还没有和泛型一起证明）。 *)
 let data_arg pos t =
   type_arg pos t;
-  if is_linear t then err pos "泛型结构体、枚举的类型实参暂不能是 linear 值（%s）" (string_of_ty t)
+  if region_names t <> [] then
+    err pos "泛型结构体、枚举的类型实参暂不能含引用（%s，要等到 C20）" (string_of_ty t);
+  lin_arg pos t
+
+(* 泛型函数的实例里换进类型实参时可能实例化出 Option<&I64 in a> 这样的类型，报在调用处。 *)
+let ref_site = ref { line = 1; col = 1 }
 
 (* 解析类型：sc 把类型参数名映射到类型（泛型函数里是 TParam，实例化时是类型实参）；
    Option<I64> 这样的写法换成实例。 *)
@@ -258,7 +276,8 @@ let rec resolve sc pos = function
       (* 内建的动态数组：元素不能是 ()、引用或 linear 值（pop 返回 Option<T>，Option 的实参还不能是 linear 的） *)
       match List.map (resolve sc pos) ts with
       | [ t ] ->
-          data_arg pos t;
+          type_arg pos t;
+          lin_arg pos t;
           TVec t
       | ts -> err pos "Vec 需要 1 个类型实参，实际给了 %d 个" (List.length ts))
   | TApp (n, ts) -> (
@@ -278,6 +297,8 @@ let rec resolve sc pos = function
 
 and instantiate g ts =
   let name = inst_name g ts in
+  if List.exists (fun t -> region_names t <> []) ts then
+    err !ref_site "这里会用到 %s：泛型结构体、枚举的类型实参暂不能含引用（要等到 C20）" name;
   if not (Hashtbl.mem inst_tbl name) then begin
     Hashtbl.replace inst_tbl name (g, ts);
     if Hashtbl.length inst_tbl > 1000 then
@@ -502,6 +523,8 @@ and expr1 env (x : expr) : t =
           vec_inst x "push" t;
           Ty TUnit
       | Ty (TVec t), "vec_pop", [] ->
+          if region_names t <> [] then
+            err pos "元素是引用的 Vec 暂不支持 pop（返回的 Option<%s> 要等到 C20）" (string_of_ty t);
           inout_place env v;
           vec_inst x "pop" t;
           Ty (instantiate "Option" [ t ])
@@ -627,6 +650,18 @@ and call env want (x : expr) f args : t =
               | false, TParam (m, _) -> err pos "%s 要求 %s: %s，但 %s 没有写约束 %s" f n tr m tr
               | false, _ -> err pos "%s 没有实现 %s（%s 要求 %s: %s）" (string_of_ty t) tr f n tr)
           (Option.value (Hashtbl.find_opt gbounds f) ~default:[]);
+        (* 含引用的类型实参（C19）：类型参数要出现在参数类型里，实例的区域才能从实参得到；
+           区域名换成按出现顺序编号的 '0、'1…，不同调用处的同一种实例只生成一份，也不会和函数体里 arena 的名字冲突 *)
+        List.iter2
+          (fun (n, _) t ->
+            if region_names t <> [] && not (List.exists (fun (_, p) -> List.mem n (params_of p)) ps) then
+              err pos "%s 的类型参数 %s 只出现在返回类型里，不能是含引用的类型 %s（区域要从实参得到）" f n
+                (string_of_ty t))
+          tps ts;
+        let rs =
+          List.fold_left (fun acc r -> if List.mem r acc then acc else acc @ [ r ]) [] (List.concat_map region_names ts)
+        in
+        let ts = List.map (rename (List.mapi (fun i r -> (r, "'" ^ string_of_int i)) rs)) ts in
         Hashtbl.replace call_inst x.id ts;
         (* 方法调用直接用 impl 里的函数，不用生成实例 *)
         if List.for_all (fun t -> params_of t = []) ts
@@ -634,8 +669,10 @@ and call env want (x : expr) f args : t =
            && not (Hashtbl.mem requested (inst_name f ts))
         then begin
           Hashtbl.replace requested (inst_name f ts) ();
+          Hashtbl.replace inst_site (inst_name f ts) pos;
           Queue.add (f, ts) pending
         end;
+        ref_site := pos;
         let s = List.combine (List.map fst tps) ts in
         (List.map (fun (m, p) -> (m, subst s p)) ps, subst s r)
   in
@@ -648,7 +685,7 @@ and call env want (x : expr) f args : t =
         if not (List.mem_assoc x !s) then s := (x, y) :: !s;
         bind p t
     | TArena x, TArena y -> if not (List.mem_assoc x !s) then s := (x, y) :: !s
-    | TBox p, TBox t -> bind p t
+    | TBox p, TBox t | TVec p, TVec t -> bind p t
     | TResult (a, b), TResult (c, d) -> bind a c; bind b d
     | _ -> ()
   in
@@ -659,8 +696,17 @@ and call env want (x : expr) f args : t =
   let s = !s in
   List.iter2
     (fun (m, p) (a : expr) ->
-      ignore (check env (rename s p) a);
-      if m = MInout then inout_place env a)
+      let p = rename s p in
+      ignore (check env p a);
+      if m = MInout then begin
+        inout_place env a;
+        (* inout 实参里的区域不能放宽（不变）：被调用的函数可能往里面写一个活得更短的引用 *)
+        match Hashtbl.find_opt types a.id with
+        | Some (Ty t) when t <> p ->
+            err a.pos "inout 实参的类型要和参数类型完全相同：需要 %s，实际是 %s（区域不能放宽）"
+              (string_of_ty p) (string_of_ty t)
+        | _ -> ()
+      end)
     ps args;
   Ty (rename s r)
 
@@ -939,6 +985,7 @@ let prepare (p : program) =
   Hashtbl.reset gfns;
   Hashtbl.reset call_inst;
   Hashtbl.reset requested;
+  Hashtbl.reset inst_site;
   Hashtbl.reset traits;
   Hashtbl.reset methods;
   Hashtbl.reset impls;
@@ -1083,6 +1130,7 @@ let prepare (p : program) =
           if not (Hashtbl.mem traits tr) then err ipos "未知 trait %s" tr;
           let st = resolve [] ipos self in
           type_arg ipos st;
+          if region_names st <> [] then err ipos "暂不支持为含引用的类型 %s 实现 trait" (string_of_ty st);
           (match st with TArena _ -> err ipos "不能为 Arena 实现 trait" | _ -> ());
           if Hashtbl.mem impls (tr, string_of_ty st) then err ipos "%s 已经实现过 %s" (string_of_ty st) tr;
           Hashtbl.replace impls (tr, string_of_ty st) ();
@@ -1278,6 +1326,8 @@ let program (p : program) : program =
     | Some r ->
         if List.length acc >= 1000 then
           err { line = 1; col = 1 } "泛型函数的实例超过 1000 个（可能是多态递归）";
+        let f, ts = r in
+        ref_site := Option.value (Hashtbl.find_opt inst_site (inst_name f ts)) ~default:!ref_site;
         let it = instance r in
         check_fn env0 it;
         drain (it :: acc)

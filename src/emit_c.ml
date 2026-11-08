@@ -194,25 +194,29 @@ let type_defs (p : program) (fs : Mir.func list) =
   while not (Queue.is_empty later) do
     visit (Queue.pop later)
   done;
-  (* Vec 内建函数：每个用到的（函数, 元素类型）一个辅助函数。push 满了就把容量翻倍（realloc），
+  (* Vec 内建函数：每个用到的（函数, 元素的 C 类型）一个辅助函数（区域名不同的元素类型共用一个）。push 满了就把容量翻倍（realloc），
      pop 空的时候返回 .None。 *)
   let helpers = Buffer.create 256 in
+  let emitted = Hashtbl.create 16 in
   Hashtbl.iter
     (fun _ (b, e) ->
-      let v = cty (TVec e) and te = cty e in
-      Buffer.add_string helpers
-        (match b with
-        | "new" -> Printf.sprintf "static %s %s(void) { return (%s){ 0, 0, 0 }; }\n" v (vec_fn b e) v
-        | "push" ->
-            Printf.sprintf
-              "static void %s(%s *v, %s x) { if (v->len == v->cap) { int64_t c = v->cap ? v->cap * 2 : 4; v->data = sn_realloc(v->data, (size_t)c * sizeof(%s)); v->cap = c; } v->data[v->len++] = x; }\n"
-              (vec_fn b e) v te te
-        | "pop" ->
-            let o = cty (Typeck.instantiate "Option" [ e ]) in
-            Printf.sprintf
-              "static %s %s(%s *v) { if (v->len == 0) return (%s){ .tag = 1 }; v->len--; return (%s){ .tag = 0, .u.v0 = v->data[v->len] }; }\n"
-              o (vec_fn b e) v o o
-        | _ -> Printf.sprintf "static int64_t %s(%s *v) { return v->len; }\n" (vec_fn b e) v))
+      if not (Hashtbl.mem emitted (vec_fn b e)) then begin
+        Hashtbl.add emitted (vec_fn b e) ();
+        let v = cty (TVec e) and te = cty e in
+        Buffer.add_string helpers
+          (match b with
+          | "new" -> Printf.sprintf "static %s %s(void) { return (%s){ 0, 0, 0 }; }\n" v (vec_fn b e) v
+          | "push" ->
+              Printf.sprintf
+                "static void %s(%s *v, %s x) { if (v->len == v->cap) { int64_t c = v->cap ? v->cap * 2 : 4; v->data = sn_realloc(v->data, (size_t)c * sizeof(%s)); v->cap = c; } v->data[v->len++] = x; }\n"
+                (vec_fn b e) v te te
+          | "pop" ->
+              let o = cty (Typeck.instantiate "Option" [ e ]) in
+              Printf.sprintf
+                "static %s %s(%s *v) { if (v->len == 0) return (%s){ .tag = 1 }; v->len--; return (%s){ .tag = 0, .u.v0 = v->data[v->len] }; }\n"
+                o (vec_fn b e) v o o
+          | _ -> Printf.sprintf "static int64_t %s(%s *v) { return v->len; }\n" (vec_fn b e) v)
+      end)
     Typeck.vec_calls;
   Buffer.contents fwd ^ Buffer.contents defs ^ Buffer.contents protos ^ Buffer.contents bodies
   ^ Buffer.contents helpers
