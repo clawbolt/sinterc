@@ -102,11 +102,22 @@ let vec_sigs =
 (* Vec 内建函数的实例（降级后的调用名，例如 vec_push<I64>）→ 函数（push 等）和元素类型，给代码生成找辅助函数用。 *)
 let vec_calls : (string, string * ty) Hashtbl.t = Hashtbl.create 16
 
+(* 方法调用 e.f(…)（UFCS）：解析成 Call (".f", e :: …)。类型检查按接收者的类型确定函数名
+   （Vec 的 push / pop / len / get 是内建的 vec_…，其他就是函数 f），按表达式 id 记下来，检查完再把名字换掉。 *)
+let method_res : (int, string) Hashtbl.t = Hashtbl.create 16
+
+let is_method f = f <> "" && f.[0] = '.'
+
+(* 调用实际的函数名。 *)
+let callee (x : expr) f =
+  if is_method f then Option.value (Hashtbl.find_opt method_res x.id) ~default:f else f
+
 (* 位置表达式（变量、字段、解引用、vec_get(v, i)）所在的变量；其他表达式没有。 *)
 let rec root (x : expr) =
   match x.e with
   | Var v -> Some v
-  | Field (a, _) | Deref a | Call ("vec_get", [ a; _ ]) -> root a
+  | Field (a, _) | Deref a -> root a
+  | Call (f, [ a; _ ]) when callee x f = "vec_get" -> root a
   | _ -> None
 
 (* inout 实参必须是可修改的位置：var 变量或 inout / sink 参数里面的位置。 *)
@@ -319,7 +330,8 @@ let rec unify s p t =
       | _ -> ())
   | _ -> ()
 
-(* 改写函数体里写出的类型（let 标注、var 声明）。fresh：表达式换新的 id（复制出实例时用）。 *)
+(* 改写函数体里写出的类型（let 标注、var 声明），方法调用换成解析出的函数名（检查过的才有）。
+   fresh：表达式换新的 id（复制出实例时用）。 *)
 let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
   let rec ex (x : expr) =
     let e =
@@ -327,7 +339,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | (Int _ | Bool _ | Unit | Var _) as d -> d
       | Binop (o, a, b) -> Binop (o, ex a, ex b)
       | Unop (o, a) -> Unop (o, ex a)
-      | Call (f, args) -> Call (f, List.map ex args)
+      | Call (f, args) -> Call (callee x f, List.map ex args)
       | StructLit (n, fs) -> StructLit (n, List.map (fun (f, e) -> (f, ex e)) fs)
       | Field (a, f) -> Field (ex a, f)
       | Deref a -> Deref (ex a)
@@ -375,6 +387,7 @@ and check env want (x : expr) : t =
 
 and check1 env want (x : expr) : t =
   match x.e with
+  | Call (f, (r :: _ as args)) when is_method f -> check1 env want { x with e = Call (method_name env x f r, args) }
   | Variant (v, a) -> (
       let is_result = match want with TResult _ -> true | _ -> false in
       let w = vname v in
@@ -421,6 +434,7 @@ and check1 env want (x : expr) : t =
 and expr1 env (x : expr) : t =
   let pos = x.pos in
   match x.e with
+  | Call (f, (r :: _ as args)) when is_method f -> expr1 env { x with e = Call (method_name env x f r, args) }
   | Int _ -> Ty TI64
   | Bool _ -> Ty TBool
   | Unit -> Ty TUnit
@@ -543,6 +557,17 @@ and expr1 env (x : expr) : t =
   | Arena (r, b) -> arena env None pos r b
 
 (* 函数调用。want：期望的返回类型（知道时用来推断泛型函数的类型实参）。 *)
+(* 方法调用 r.f(…) 的函数名：接收者是 Vec 时 push / pop / len / get 是内建的 vec_…，否则是函数 f。 *)
+and method_name env (x : expr) f (r : expr) =
+  let m = String.sub f 1 (String.length f - 1) in
+  let g =
+    match expr env r, m with
+    | Ty (TVec _), ("push" | "pop" | "len" | "get") -> "vec_" ^ m
+    | _ -> m
+  in
+  Hashtbl.replace method_res x.id g;
+  g
+
 and call env want (x : expr) f args : t =
   let pos = x.pos in
   let ps, r =
@@ -843,6 +868,7 @@ and errdefer env pos (e : expr) =
   match e.e with
   | Call (f, args) when f <> "box" ->
       ignore (expr env e);
+      let f = callee e f in
       List.iter
         (fun (a : expr) ->
           match a.e with
@@ -884,6 +910,7 @@ let prepare (p : program) =
   Hashtbl.reset impls;
   Hashtbl.reset gbounds;
   Hashtbl.reset vec_calls;
+  Hashtbl.reset method_res;
   (* 内建的 Option<T>：vec_pop 返回它，写法和用户的枚举一样（.Some(x) / .None） *)
   Hashtbl.add gtypes "Option"
     ( [ "T" ],
@@ -1201,12 +1228,16 @@ let check_main env0 =
   | Some _ -> err { line = 1; col = 1 } "main 必须是 fn main()，没有参数、没有返回值、没有类型参数"
   | None -> err { line = 1; col = 1 } "缺少 fn main()"
 
-(* 检查整个程序。返回解析过类型的程序（impl 换成它的方法），后面接上用到的泛型函数实例（单态化），每个实例照常检查。 *)
+(* 检查整个程序。返回解析过类型的程序（impl 换成它的方法），后面接上用到的泛型函数实例（单态化），每个实例照常检查。
+   方法调用在检查之后换成解析出的函数名；实例是从检查过的泛型函数复制的，复制时已经换好。 *)
 let program (p : program) : program =
   let env0 = prepare p in
   let p = List.concat_map resolve_items p in
   List.iter (check_fn env0) p;
   check_main env0;
+  let p =
+    List.map (function Fn f -> Fn { f with body = map_body ~fresh:false (fun _ t -> t) f.body } | it -> it) p
+  in
   let rec drain acc =
     match Queue.take_opt pending with
     | None -> List.rev acc

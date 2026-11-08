@@ -172,6 +172,9 @@ expr:
   | f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN { mk (Call (f, args)) $startpos }
   | n = UIDENT LBRACE nls fs = inits RBRACE { mk (StructLit (n, fs)) $startpos }
   | e = expr DOT f = IDENT { mk (Field (e, f)) $startpos }
+  (* 方法调用 e.f(…)：就是 f(e, …)，函数名由类型检查按 e 的类型确定（"." 开头表示还没确定） *)
+  | e = expr DOT f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN
+    { mk (Call ("." ^ f, e :: args)) $startpos(f) }
   | e = expr QUESTION { mk (Try e) $startpos($2) }
   | n = UIDENT LPAREN a = expr RPAREN
     { match n with
