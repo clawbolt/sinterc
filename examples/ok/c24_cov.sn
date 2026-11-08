@@ -1,0 +1,25 @@
+struct Pair<A, B> { a: A, b: B }
+
+fn get(o: Option<&I64 in x>) -> I64 {
+    match o {
+        .Some(r) => *r,
+        .None => 0
+    }
+}
+
+fn first(p: Pair<&I64 in x, &I64 in x>) -> I64 { *p.a + *p.b }
+
+fn main() {
+    arena |a| {
+        let o: Option<&I64 in a> = .Some(alloc(a, 1))
+        arena |b| {
+            var cur: Option<&I64 in b> = .Some(alloc(b, 2))
+            print_i64(get(cur))
+            cur = o
+            print_i64(get(cur))
+            let p = Pair { a: alloc(a, 3), b: alloc(b, 4) }
+            let q: Pair<&I64 in b, &I64 in b> = p
+            print_i64(first(q))
+        }
+    }
+}

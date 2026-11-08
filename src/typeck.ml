@@ -143,15 +143,25 @@ let lax_regions = ref false
 let outlives x y =
   !lax_regions || x = y || match List.assoc_opt y !regions with Some a -> List.mem x a | None -> false
 
-(* got 能不能当作 want 用：外层区域的引用可以当作内层区域的引用（D2 协变），其余要求相同。 *)
+(* 实例名 → 泛型名和类型实参。 *)
+let inst_tbl : (string, string * ty list) Hashtbl.t = Hashtbl.create 16
+
+(* 泛型结构体、枚举 g 的第 i 个类型参数能不能协变（后面定义）。 *)
+let covariant_fwd : (string -> int -> bool) ref = ref (fun _ _ -> false)
+
+(* got 能不能当作 want 用：外层区域的引用可以当作内层区域的引用（D2 协变），其余要求相同。
+   同一个泛型结构体、枚举的两个实例：能协变的类型参数逐个按 sub 比较，其他的要求相同（C24，Lean M16）。 *)
 let rec sub got want =
   match got, want with
   | TRef (t, x), TRef (t', y) -> t = t' && outlives x y
   | TResult (a, b), TResult (c, d) -> sub a c && sub b d
+  | TStruct a, TStruct b when a <> b -> (
+      match Hashtbl.find_opt inst_tbl a, Hashtbl.find_opt inst_tbl b with
+      | Some (g, ts), Some (h, us) when g = h && List.length ts = List.length us ->
+          List.for_all Fun.id
+            (List.mapi (fun i (t, u) -> t = u || (!covariant_fwd g i && sub t u)) (List.combine ts us))
+      | _ -> false)
   | _ -> got = want
-
-(* 实例名 → 泛型名和类型实参。 *)
-let inst_tbl : (string, string * ty list) Hashtbl.t = Hashtbl.create 16
 
 (* 泛型结构体、枚举的实例的类型实参（不是实例时为空）。区域名的收集、换名都要看进类型实参（C20，Lean M15）。 *)
 let inst_args n = match Hashtbl.find_opt inst_tbl n with Some (_, ts) -> ts | None -> []
@@ -358,6 +368,47 @@ let rec params_of = function
   | TBox t | TVec t | TRef (t, _) -> params_of t
   | TResult (a, b) -> params_of a @ params_of b
   | TI64 | TBool | TUnit | TArena _ | TApp _ -> []
+
+(* 协变（C24，Lean M16）：泛型结构体、枚举 g 的第 i 个类型参数只出现在只读的位置时，
+   g<…外层…> 可以当作 g<…内层…> 用。只读的位置：字段、载荷直接是这个参数，
+   或者在 Result 里，或者是另一个实例里能协变的类型实参。
+   Box、Vec 里的保守地算不变（实例之间不比较）；可以修改的 inout 实参本来就要求类型完全相同。 *)
+let cov_memo : (string * int, bool) Hashtbl.t = Hashtbl.create 16
+
+let rec covariant g i =
+  match Hashtbl.find_opt cov_memo (g, i) with
+  | Some b -> b
+  | None ->
+      (* 先记一个结果，防止递归的类型（经过自己）死循环 *)
+      Hashtbl.replace cov_memo (g, i) true;
+      let ps, _ = Hashtbl.find gtypes g in
+      let p = List.nth ps i in
+      let abs = match instantiate g (List.map (fun q -> TParam (q, false)) ps) with TStruct n -> n | _ -> g in
+      let tys =
+        match Hashtbl.find_opt struct_tbl abs, Hashtbl.find_opt enum_tbl abs with
+        | Some fs, _ -> List.map (fun (f : field) -> f.fty) fs
+        | None, Some vs -> List.filter_map snd vs
+        | None, None -> []
+      in
+      let b = List.for_all (only_cov p) tys in
+      Hashtbl.replace cov_memo (g, i) b;
+      b
+
+(* 类型参数 p 在 t 里只出现在只读的位置（或者不出现）。 *)
+and only_cov p t =
+  match t with
+  | TParam _ -> true
+  | TResult (a, b) -> only_cov p a && only_cov p b
+  | TStruct n -> (
+      match Hashtbl.find_opt inst_tbl n with
+      | Some (g, ts) ->
+          List.for_all Fun.id
+            (List.mapi (fun i t -> (not (List.mem p (params_of t))) || (covariant g i && only_cov p t)) ts)
+      | None -> true)
+  | TBox _ | TVec _ | TRef _ -> not (List.mem p (params_of t))
+  | TI64 | TBool | TUnit | TArena _ | TApp _ -> true
+
+let () = covariant_fwd := covariant
 
 (* 推断类型实参：模式 p 里的类型参数按 t 里对应位置的类型确定，先确定的为准。 *)
 let rec unify s p t =
@@ -1001,6 +1052,7 @@ let prepare (p : program) =
   Hashtbl.reset enum_tbl;
   Hashtbl.reset gtypes;
   Hashtbl.reset inst_tbl;
+  Hashtbl.reset cov_memo;
   Hashtbl.reset gparams;
   Hashtbl.reset gfns;
   Hashtbl.reset call_inst;
