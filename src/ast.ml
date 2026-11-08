@@ -57,6 +57,8 @@ and stmt_desc =
   | Return of expr option
   | Expr of expr
   | Errdefer of expr        (* 出错返回时执行的调用 *)
+  | Break                   (* 跳出最内层的循环（C31） *)
+  | Continue                (* 进入最内层循环的下一轮（C31） *)
   | Destruct of string * (string * string) list * expr
       (* let Node { v, next: n } = e：把结构体的每个字段移进各自的变量（字段名, 变量名），结构体本身被移走 *)
 

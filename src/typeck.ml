@@ -150,6 +150,9 @@ let regions : (string * string list) list ref = ref []
 (* --unchecked（C22）：不检查区域的先后和 R3，照样导出，看 Lean 是否独立地拒绝。 *)
 let lax_regions = ref false
 
+(* 当前所在的循环有几层：break / continue 只能用在循环里（C31）。 *)
+let loop_depth = ref 0
+
 let outlives x y =
   !lax_regions || x = y || match List.assoc_opt y !regions with Some a -> List.mem x a | None -> false
 
@@ -464,6 +467,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | Return e -> Return (Option.map ex e)
       | Expr e -> Expr (ex e)
       | Errdefer e -> Errdefer (ex e)
+      | (Break | Continue) as d -> d
       | Destruct (n, bs, e) -> Destruct (n, bs, ex e)
     in
     { s with s = d }
@@ -980,8 +984,14 @@ and block ?want env (b : block) : t =
             go env rest
         | While (c, body) ->
             expect c.pos TBool (expr env c);
-            expect pos TUnit (block env body);
+            incr loop_depth;
+            Fun.protect ~finally:(fun () -> decr loop_depth) (fun () -> expect pos TUnit (block env body));
             go env rest
+        | (Break | Continue) as d ->
+            (* 之后的语句走不到，和 return 一样记作 Never *)
+            if !loop_depth = 0 then err pos "%s 只能用在循环里" (if d = Break then "break" else "continue");
+            ignore (go env rest);
+            Never
         | Return None ->
             expect pos env.ret (Ty TUnit);
             ignore (go env rest);

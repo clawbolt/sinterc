@@ -43,6 +43,7 @@ let table =
     ("未定义的变量 %s", "undefined variable {1}");
     ("字符串用 str_eq(a, b) 或 a.eq(b) 比较", "compare strings with str_eq(a, b) or a.eq(b)");
     ("for 只能遍历变量或字段里的 Vec，或者写成 a..b", "for can only iterate over a Vec in a variable or field, or a range a..b");
+    ("%s 只能用在循环里", "{1} can only be used inside a loop");
     ("只能比较 I64 和 Bool", "only I64 and Bool values can be compared");
     ("consume 只能用于 linear 结构体，%s 不是", "consume only works on linear structs; {1} is not one");
     ("unbox 的参数必须是 Box，%s 不是", "unbox needs a Box; {1} is not one");

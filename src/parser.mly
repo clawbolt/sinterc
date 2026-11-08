@@ -18,12 +18,13 @@ let arena_param n = function TArena _ -> TArena n | t -> t
 (* for 循环（C30）：解析时展开成 while，之后的检查、降级、翻译验证都不用改。
    隐藏变量的名字带 #，用户写不出来，不会和用户的变量冲突；嵌套的 for 在各自的块里遮住外层的。
    for x in a..b { … }：
-     { var #i: I64 = a; let #n: I64 = b; while #i < #n { let x = #i; { … }; #i = #i + 1 } }
+     { var #i: I64 = a; let #n: I64 = b; while #i < #n { let x = #i; #i = #i + 1; { … } } }
    a、b 各求值一次；#i < #n 时加一不会溢出。x 是 let，循环体里不能改。
    for x in v { … }（v 是变量或字段里的 Vec）：
-     { var #k: I64 = 0; while #k < vec_len(v) { let x = vec_get(v, #k); { … }; #k = #k + 1 } }
+     { var #k: I64 = 0; while #k < vec_len(v) { let x = vec_get(v, #k); #k = #k + 1; { … } } }
    每一轮按借用取第 i 个元素：可复制的元素复制，需要析构的元素是投影，锁住 v（Lean M4、M12）；
-   长度每轮重新读，循环体里改了 v 也只会少走或多走几轮，下标照样检查。 *)
+   长度每轮重新读，循环体里改了 v 也只会少走或多走几轮，下标照样检查。
+   加一放在取出元素之后、循环体之前（C31）：continue 直接回到条件，不会漏掉加一。 *)
 let for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
   let e d = mk d pos and s d = mks d pos in
   let rec copy (v : expr) =
@@ -35,7 +36,7 @@ let for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
   in
   let loop k init cond first =
     let step = s (Assign (k, e (Binop (Add, e (Var k), e (Int 1L))))) in
-    let inner = { stmts = [ s (Let (false, x, None, first)); s (Expr (e (Block body))); step ]; tail = None } in
+    let inner = { stmts = [ s (Let (false, x, None, first)); step; s (Expr (e (Block body))) ]; tail = None } in
     s (Expr (e (Block { stmts = init @ [ s (While (cond, inner)) ]; tail = None })))
   in
   match src with
@@ -73,7 +74,7 @@ let ty_of_name = function
 %token <string> STRING
 %token <string> IDENT UIDENT
 %token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
-%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM TRAIT IMPL FOR
+%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM TRAIT IMPL FOR BREAK CONTINUE
 %token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ DOTDOT
 %token PLUS MINUS STAR SLASH PERCENT BANG
 %token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
@@ -197,6 +198,8 @@ stmt:
   | FOR x = IDENT IN a = expr DOTDOT b = expr bl = block { for_loop $startpos x (`Range (a, b)) bl }
   | FOR x = IDENT IN v = expr bl = block { for_loop $startpos x (`Vec v) bl }
   | RETURN e = option(expr) { mks (Return e) $startpos }
+  | BREAK { mks Break $startpos }
+  | CONTINUE { mks Continue $startpos }
   | ERRDEFER e = expr { mks (Errdefer e) $startpos }
   | LET t = UIDENT LBRACE nls bs = binds RBRACE EQ e = expr { mks (Destruct (t, bs, e)) $startpos }
   | e = expr { mks (Expr e) $startpos }

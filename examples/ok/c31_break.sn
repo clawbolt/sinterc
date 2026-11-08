@@ -1,0 +1,24 @@
+// C31：break / continue 跳走之前析构循环里的值、释放循环里的区域。
+fn main() {
+    var v: Vec<Box<I64>> = vec_new()
+    for i in 0..5 {
+        v.push(box(i))
+    }
+    for b in v {
+        let c = box(*b)
+        if *c == 1 { continue }
+        if *c == 3 { break }
+        print_i64(*c)
+    }
+    var n = 0
+    while n < 10 {
+        n = n + 1
+        arena |a| {
+            let r = alloc(a, n)
+            let s = "x"
+            if *r == 2 { break }
+            print(s)
+        }
+    }
+    print_i64(n)
+}

@@ -15,6 +15,7 @@ let keywords = [
   "while", WHILE; "return", RETURN; "true", TRUE; "false", FALSE;
   "inout", INOUT; "sink", SINK; "linear", LINEAR; "errdefer", ERRDEFER; "match", MATCH;
   "arena", ARENA; "in", IN; "enum", ENUM; "trait", TRAIT; "impl", IMPL; "for", FOR;
+  "break", BREAK; "continue", CONTINUE;
 ]
 }
 

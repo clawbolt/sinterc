@@ -127,6 +127,8 @@ type st = {
   mutable regarena : (local * (string * local) list) list;
   mutable guards : (local * string * (string * local) list * expr) list;
       (* 生效的 errdefer：要消费的局部、它的名字、登记时的环境、调用表达式；内层在前 *)
+  mutable loops : (int * int * int * int) list;
+      (* 所在的循环，内层在前：条件块、出口块、进入循环时作用域和区域的层数（C31 的 break / continue） *)
 }
 
 let new_local ?(lref = false) ?(pos = nopos) st lname lty =
@@ -590,10 +592,25 @@ and block st env (b : Ast.block) : operand option =
             let oc = Option.get (expr st env c) in
             terminate st (Branch (oc, bbody, exit));
             st.cur <- bbody;
+            st.loops <- (head, exit, List.length st.scopes, List.length st.regions) :: st.loops;
             ignore (block st env body);
+            st.loops <- List.tl st.loops;
             terminate st (Goto head);
             st.cur <- exit;
             go env rest
+        | Break | Continue -> (
+            (* 析构循环里各层作用域的局部、释放循环里进入的区域（和 return 穿过它们一样），
+               然后跳到出口或条件。之后的代码走不到 *)
+            match st.loops with
+            | (head, exit, ns, nr) :: _ ->
+                let inner l n = List.filteri (fun i _ -> i < List.length l - n) l in
+                List.iter (List.iter (fun l -> emit st (Drop (l, s.spos, End)))) (inner st.scopes ns);
+                List.iter (fun l -> emit st (Leave l)) (inner st.regions nr);
+                terminate st (Goto (if s.s = Break then exit else head));
+                st.cur <- new_block st;
+                ignore (go env rest);
+                dummy
+            | [] -> go env rest)
         | Return e ->
             let o = Option.bind e (expr st env) in
             (match st.fret, o with
@@ -657,6 +674,7 @@ let lower_fn name params ret body ipos =
       refarena = [];
       regarena = [];
       guards = [];
+      loops = [];
     }
   in
   let ps =
