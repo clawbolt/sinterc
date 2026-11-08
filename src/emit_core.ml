@@ -5,8 +5,8 @@
    跟踪三类局部，各自重新编号成 Lean 的变量 0 … N-1：
    - 所有权（M2b）：自己拥有、需要析构、不是 linear 的局部。读 → use，移走 → free 或调用里的 sink，
      析构 → free，得到新值 → alloc，整个移进另一个局部 → move。调用整体导出成带约定的 call（M3）。
-     按 drop flag 析构（DropIf）导出成 nop：状态保持“可能拥有”，由模型在出口按 drop flag 释放；
-     之后如果要重新赋值，Lean 会保守地拒绝。
+     按 drop flag 析构（DropIf、DropFieldIf）导出成 M4D 的 dropIf：flag 为真才释放，之后状态是“没有”，
+     所以只在某些路径上移走之后还可以重新赋值。
      部分移动过的结构体（C14、C15）每个需要析构的字段各是一个所有权变量（Lean M13 的位置编码）：
      整体的读、移走、析构、得到新值对每个字段各做一次，移走、放回一个字段只动这个字段。
    - 线性值（M6）：自己拥有的 linear 局部。得到新值 → lnew，移走 → consume，整个移进另一个局部 → lmove。
@@ -19,6 +19,7 @@ open Mir
 type kind = Own | Lin | Rf of int   (* Rf k：引用，区域深度 k *)
 
 let op_base s = Printf.sprintf ".cmd (.base (.own (.c (.base (%s)))))" s
+let op_drop x = Printf.sprintf ".cmd (.base (.own (.dropIf %d)))" x
 let op_call args =
   Printf.sprintf ".cmd (.base (.own (.call [%s] [])))"
     (String.concat ", " (List.map (fun (m, x) -> Printf.sprintf "⟨.%s, %d⟩" m x) args))
@@ -113,6 +114,7 @@ let func (f : func) =
         | _ -> [])
   in
   let own_ops cmd p = List.map (fun i -> op_base (Printf.sprintf ".%s %d" cmd i)) (owners p) in
+  let drop_ops p = List.map op_drop (owners p) in
   (* 读一个位置 *)
   let touch (p : place) =
     match kind p.base with
@@ -197,7 +199,9 @@ let func (f : func) =
              f.refarena
     | Leave _ -> [ ".leave" ]
     | DropAt _ -> []   (* 给没有部分移动过的字段赋值前析构旧值：模型里结构体整体仍然拥有值 *)
-    | DropIf _ | DropFieldIf _ | Live _ | Raise | Drop _ -> []
+    | DropIf (l, _) -> ( match kinds.(l) with Some Own -> drop_ops (whole l) | _ -> [])
+    | DropFieldIf (l, g, _) -> drop_ops { (whole l) with proj = [ PField g ] }
+    | Live _ | Raise | Drop _ -> []
   in
   (* 入口：区域参数依次 enter；参数里的引用 decl 并视为已赋值；
      拥有值的参数一开始就拥有；以区域参数为区域的其他引用局部也在这里 decl *)
