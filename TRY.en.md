@@ -42,6 +42,7 @@ The comments and printed text in the examples and tests are in Chinese; the code
 
 - Types: `I64`, `Bool`, `()`, structs, enums, `Box<T>`, `Vec<T>`, `Result<T, E>`, `Option<T>`, and references `&T in a`.
 - Variables: `let` cannot be reassigned, `var` can.
+- Loops: `while c { … }`; `for i in 0..n { … }`; `for x in v { … }` borrows each element of a `Vec` in turn, and `v` is locked while an element is in use.
 - Parameter modes: `let` by default (read-only borrow; the argument is still usable after the call); `inout` (modifies the caller's variable or field); `sink` (takes ownership).
 - Ownership: `Box`, `Vec` and structs containing them are moved, and dropped automatically at the end of their scope; using a value after moving it is a compile error.
   You can move out a single field of a struct (`var a = q.p.a`) and put it back later (`q.p.a = box(7)`).

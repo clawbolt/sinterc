@@ -15,6 +15,41 @@ let mk_block ss =
 (* 参数 a: Arena 引入名为 a 的区域。 *)
 let arena_param n = function TArena _ -> TArena n | t -> t
 
+(* for 循环（C30）：解析时展开成 while，之后的检查、降级、翻译验证都不用改。
+   隐藏变量的名字带 #，用户写不出来，不会和用户的变量冲突；嵌套的 for 在各自的块里遮住外层的。
+   for x in a..b { … }：
+     { var #i: I64 = a; let #n: I64 = b; while #i < #n { let x = #i; { … }; #i = #i + 1 } }
+   a、b 各求值一次；#i < #n 时加一不会溢出。x 是 let，循环体里不能改。
+   for x in v { … }（v 是变量或字段里的 Vec）：
+     { var #k: I64 = 0; while #k < vec_len(v) { let x = vec_get(v, #k); { … }; #k = #k + 1 } }
+   每一轮按借用取第 i 个元素：可复制的元素复制，需要析构的元素是投影，锁住 v（Lean M4、M12）；
+   长度每轮重新读，循环体里改了 v 也只会少走或多走几轮，下标照样检查。 *)
+let for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
+  let e d = mk d pos and s d = mks d pos in
+  let rec copy (v : expr) =
+    match v.e with
+    | Var _ -> { v with id = fresh_id () }
+    | Field (a, f) -> { v with e = Field (copy a, f); id = fresh_id () }
+    | Deref a -> { v with e = Deref (copy a); id = fresh_id () }
+    | _ -> raise (Syntax (v.pos, "for 只能遍历变量或字段里的 Vec，或者写成 a..b"))
+  in
+  let loop k init cond first =
+    let step = s (Assign (k, e (Binop (Add, e (Var k), e (Int 1L))))) in
+    let inner = { stmts = [ s (Let (false, x, None, first)); s (Expr (e (Block body))); step ]; tail = None } in
+    s (Expr (e (Block { stmts = init @ [ s (While (cond, inner)) ]; tail = None })))
+  in
+  match src with
+  | `Range (a, b) ->
+      loop "#i"
+        [ s (Let (true, "#i", Some TI64, a)); s (Let (false, "#n", Some TI64, b)) ]
+        (e (Binop (Lt, e (Var "#i"), e (Var "#n"))))
+        (e (Var "#i"))
+  | `Vec v ->
+      loop "#k"
+        [ s (Let (true, "#k", Some TI64, e (Int 0L))) ]
+        (e (Binop (Lt, e (Var "#k"), e (Call ("vec_len", [ copy v ])))))
+        (e (Call ("vec_get", [ copy v; e (Var "#k") ])))
+
 (* 类型参数 <T, U: Show + linear>：拆成 (名字, 是否 linear) 和 trait 约束 (名字, trait)。 *)
 let split_tparams tp =
   ( List.map (fun (n, bs) -> (n, List.mem "" bs)) tp,
@@ -39,7 +74,7 @@ let ty_of_name = function
 %token <string> IDENT UIDENT
 %token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
 %token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM TRAIT IMPL FOR
-%token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ
+%token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ DOTDOT
 %token PLUS MINUS STAR SLASH PERCENT BANG
 %token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
 
@@ -159,6 +194,8 @@ stmt:
   | x = IDENT EQ e = expr { mks (Assign (x, e)) $startpos }
   | a = expr DOT f = IDENT EQ e = expr { mks (SetField (a, f, e)) $startpos }
   | WHILE c = expr b = block { mks (While (c, b)) $startpos }
+  | FOR x = IDENT IN a = expr DOTDOT b = expr bl = block { for_loop $startpos x (`Range (a, b)) bl }
+  | FOR x = IDENT IN v = expr bl = block { for_loop $startpos x (`Vec v) bl }
   | RETURN e = option(expr) { mks (Return e) $startpos }
   | ERRDEFER e = expr { mks (Errdefer e) $startpos }
   | LET t = UIDENT LBRACE nls bs = binds RBRACE EQ e = expr { mks (Destruct (t, bs, e)) $startpos }

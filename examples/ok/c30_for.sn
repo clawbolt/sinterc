@@ -1,0 +1,20 @@
+// C30：for 循环展开成 while；遍历需要析构的元素时每轮是一个投影，锁住 Vec。
+fn total(v: Vec<Box<I64>>) -> I64 {
+    var s = 0
+    for b in v {
+        s = s + *b
+    }
+    s
+}
+
+fn main() {
+    var v: Vec<Box<I64>> = vec_new()
+    for i in 0..4 {
+        v.push(box(i))
+    }
+    for b in v {
+        print_i64(*b)
+    }
+    v.push(box(10))
+    print_i64(total(v))
+}

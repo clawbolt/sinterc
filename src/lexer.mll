@@ -51,6 +51,7 @@ rule token = parse
   | '{'   { LBRACE } | '}'  { RBRACE }
   | ','   { COMMA }  | ':'  { COLON }
   | ';'   { NL }
+  | ".."  { DOTDOT }
   | '.'   { DOT }
   | '"'   { (* 读完整个字符串后把起点改回左引号，报错位置才指向字面量的开头 *)
             let start = lexbuf.Lexing.lex_start_p and p = pos lexbuf in
