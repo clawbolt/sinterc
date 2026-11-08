@@ -57,7 +57,8 @@ let cname prefix n =
         Hashtbl.add gen_names n c;
         c
 
-let sname n = cname "S_" n   (* 结构体、枚举 *)
+(* 结构体、枚举。只差区域的实例（Option<&I64 in a> 和 Option<&I64 in b>）是同一个 C 类型。 *)
+let sname n = cname "S_" (match Typeck.erase (TStruct n) with TStruct m -> m | _ -> n)
 let fname n = cname "u_" n   (* 函数 *)
 
 (* Result<T, E> 的 C 名字由两个类型拼出来（每个用到的 Result 是一个具体的枚举）。 *)
