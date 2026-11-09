@@ -1,5 +1,5 @@
 #!/bin/sh
-# 附录 F 的 C5（后半）：M7（六）的 22400 个程序，Lean、sinterc、运行结果三方对照。
+# 附录 F 的 C5（后半）：M7（六）的 22400 个程序和 C5c 的第三组（移动、调用、闭包、泛型），Lean、sinterc、运行结果三方对照。
 # 1. Lean 把程序打印成 Sinter 源码，每个函数名带着 Lean 的结论（lean/Core/C5b.lean）；
 # 2. sinterc --batch 逐个检查：Lean 接受的必须接受；
 # 3. sinterc 接受的编译成 C，每个按 15 组选择序列各跑一遍，不能泄漏。

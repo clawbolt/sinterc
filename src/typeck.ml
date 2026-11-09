@@ -1765,3 +1765,41 @@ let program (p : program) : program =
       | Fn f -> Some (Fn { f with body = map_body ~fresh:false (fun _ t -> t) f.body })
       | it -> Some it)
     (p @ insts)
+
+(* 对照测试（--batch）：程序里的函数逐个检查，每个连同它引出的泛型实例、提升出的闭包和特化一起，
+   返回要降级的条目（规则和 program 相同）。出错时清空队列再抛出，不影响下一个函数。
+   调用前要用 batch_items 登记所有函数（特化时按名字找函数）。 *)
+let batch_items (p : program) =
+  let p = List.map resolve_item p in
+  List.iter (function Fn f as it -> Hashtbl.replace fn_items f.name it | _ -> ()) p;
+  p
+
+let check_batch env0 it =
+  try
+    check_fn env0 it;
+    let rec drain acc =
+      match Queue.take_opt pending with
+      | Some r ->
+          let i = instance r in
+          check_fn env0 i;
+          drain (i :: acc)
+      | None -> (
+          match Queue.take_opt pending_items with
+          | Some (i, clos, fvars, rord) ->
+              check_fn ~clos ~fvars ~rord env0 i;
+              drain (i :: acc)
+          | None -> List.rev acc)
+    in
+    let insts = drain [] in
+    List.filter_map
+      (function
+        | Fn f when List.exists (fun (_, _, t) -> is_fn t) f.params -> None
+        | Fn f when f.tparams <> [] && Hashtbl.mem skip_lower f.name -> None
+        | Fn f -> Some (Fn { f with body = map_body ~fresh:false (fun _ t -> t) f.body })
+        | it -> Some it)
+      (it :: insts)
+  with e ->
+    Queue.clear pending;
+    Queue.clear pending_items;
+    regions := [];
+    raise e

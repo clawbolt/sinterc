@@ -141,7 +141,7 @@ sh validate.sh
 sh diff.sh
 ```
 
-`lean/Core/C5b.lean` 把 M7（六）的 22400 个程序打印成 `_batch/suite.sn`，每个函数名 `p<编号>_<y|n>` 带着 Lean（`acceptsG`）的结论。
+`lean/Core/C5b.lean` 把 M7（六）的 22400 个程序和 C5c 的第三组 19600 个（整体移动、let / inout 调用、闭包读写捕获、泛型实例，共 42000 个）打印成 `_batch/suite.sn`，每个函数名 `p<编号>_<y|n>` 带着 Lean（`acceptsG`）的结论。
 `sinterc --batch` 逐个检查这些函数并统计：Lean 接受的 sinterc 必须接受（sinterc 会自动析构 `Box`，所以反过来不要求）；
 sinterc 接受的生成 C，每个按所有长度不超过 3 的选择序列（`choose()` 依次返回的真假）各跑一遍，不能泄漏 `Box` 或区域内存。
 为此加了测试用的内建函数 `choose()`，以及先不给初值的声明 `var x: T`（读之前必须赋值，由所有权检查保证）。

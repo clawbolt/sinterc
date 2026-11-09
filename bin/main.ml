@@ -130,10 +130,11 @@ let () =
       if n > 3 && name.[0] = 'p' && name.[n - 2] = '_' then Some (name.[n - 1] = 'y') else None
     in
     let compile it =
-      let it = Typeck.resolve_item it in
-      Typeck.check_fn env0 it;
-      List.map (fun f -> Borrow.check (Own.elaborate f)) (Mir.lower [ it ])
+      List.concat_map
+        (fun it -> List.map (fun f -> Borrow.check (Own.elaborate f)) (Mir.lower [ it ]))
+        (Typeck.check_batch env0 it)
     in
+    let prog = Typeck.batch_items prog in
     let both = ref 0 and neither = ref 0 and only_lean = ref [] and only_sn = ref 0
     and internal = ref [] in
     let fs =
@@ -175,6 +176,7 @@ let () =
     let names =
       List.filter_map (fun (f : Mir.func) -> if lean_says f.name <> None then Some f.name else None) fs
     in
+    let fs = List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) fs in
     let text = Emit_c.program ~batch:names prog fs in
     (match !out with
     | None -> print_string text
