@@ -474,6 +474,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | Decl (v, t) -> Decl (v, ft s.spos t)
       | Assign (v, e) -> Assign (v, ex e)
       | SetField (a, f, e) -> SetField (ex a, f, ex e)
+      | SetPlace (a, e) -> SetPlace (ex a, ex e)
       | While (c, b) -> While (ex c, blk b)
       | Return e -> Return (Option.map ex e)
       | Expr e -> Expr (ex e)
@@ -994,6 +995,31 @@ and block ?want env (b : block) : t =
             | None -> err a.pos "只能给变量（或它里面的位置）的字段赋值");
             if is_linear fty then err pos "字段 %s 是 linear 值，不能直接赋值（旧值没有被消费）" f;
             ignore (check env fty e);
+            go env rest
+        | SetPlace (a, e) ->
+            (* for x in inout v 里的 x = e（C33）：a 是 vec_get(v, #j)。和给字段赋值一样：v 以可修改的变量为根，
+               路径上不经过引用；旧值由 own.ml 先析构（M18 的 replace_reach） *)
+            let rec path (x : expr) =
+              match x.e with
+              | Var _ -> ()
+              | Field (b, _) -> path b
+              | Deref b -> (
+                  match Hashtbl.find_opt types b.id with
+                  | Some (Ty (TBox _)) -> path b
+                  | _ -> err x.pos "不能通过引用修改它指向的值")
+              | Call (g, [ b; _ ]) when callee x g = "vec_get" -> path b
+              | _ -> err x.pos "只能给变量里的位置赋值"
+            in
+            let t = match expr env a with Ty t -> t | Never -> err a.pos "不能给一个不会返回的值赋值" in
+            path a;
+            (match root a with
+            | Some v -> (
+                match List.assoc_opt v env.vars with
+                | Some (_, true) -> ()
+                | _ -> err pos "%s 不可修改，不能给它的元素赋值（需要 var 变量或 inout / sink 参数）" v)
+            | None -> err pos "只能给变量里的位置赋值");
+            if is_linear t then err pos "元素是 linear 值，不能直接赋值（旧值没有被消费）";
+            ignore (check env t e);
             go env rest
         | While (c, body) ->
             expect c.pos TBool (expr env c);

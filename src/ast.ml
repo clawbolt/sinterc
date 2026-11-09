@@ -53,6 +53,7 @@ and stmt_desc =
   | Decl of string * ty     (* var x: T，先不给初值；读之前必须赋值 *)
   | Assign of string * expr
   | SetField of expr * string * expr   (* a.f = e：给变量里的一个字段赋值（a 是位置） *)
+  | SetPlace of expr * expr   (* p = e：给 Vec 的一个元素整体赋值；只由 for x in inout v 的展开产生（C33） *)
   | While of expr * block
   | Return of expr option
   | Expr of expr

@@ -149,6 +149,7 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
           Decl (x, ty pos t)
       | Assign (x, e) -> Assign (x, ex e)
       | SetField (a, f, e) -> SetField (ex a, f, ex e)
+      | SetPlace (a, e) -> SetPlace (ex a, ex e)
       | While (c, b) -> While (ex c, blk b)
       | Return e -> Return (Option.map ex e)
       | Expr e -> Expr (ex e)

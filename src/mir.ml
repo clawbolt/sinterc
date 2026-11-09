@@ -597,6 +597,14 @@ and block st env (b : Ast.block) : operand option =
                 emit st (Assign ({ p with proj = p.proj @ [ PField f ]; at = s.spos }, Use o))
             | None -> ());
             go env rest
+        | SetPlace (a, e) ->
+            (* 元素整体赋值（C33）：和字段赋值一样，先算右边再算位置；own.ml 在赋值前析构旧值 *)
+            (match expr_v st env e with
+            | Some o ->
+                let p = place st env a in
+                emit st (Assign ({ p with at = s.spos }, Use o))
+            | None -> ());
+            go env rest
         | While (c, body) ->
             let head = new_block st and bbody = new_block st and exit = new_block st in
             terminate st (Goto head);

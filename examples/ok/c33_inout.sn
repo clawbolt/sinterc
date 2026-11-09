@@ -1,0 +1,27 @@
+// C33：for x in inout v。整体赋值先析构旧的 Str，改字段、借给 inout 参数都在原地；导出给 Lean 检查。
+struct P { x: I64, name: Str }
+
+fn bump(inout n: I64) { n = n + 1 }
+
+fn main() {
+    var v: Vec<I64> = vec_new()
+    v.push(1)
+    v.push(2)
+    for x in inout v {
+        x = x * 2
+        bump(x)
+    }
+    var names: Vec<Str> = vec_new()
+    names.push("a")
+    for s in inout names {
+        s = str_concat(s, "!")
+    }
+    var ps: Vec<P> = vec_new()
+    ps.push(P { x: 1, name: "p" })
+    for p in inout ps {
+        p.x = p.x + vec_len(v)
+    }
+    for s in names {
+        print(s)
+    }
+}

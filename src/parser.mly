@@ -51,6 +51,126 @@ let for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
         (e (Binop (Lt, e (Var "#k"), e (Call ("vec_len", [ copy v ])))))
         (e (Call ("vec_get", [ copy v; e (Var "#k") ])))
 
+(* for x in inout v { … }（C33，Lean M18）：x 是第 i 个元素本身（可变借用），不是副本。展开成
+     { var #k: I64 = 0; while #k < vec_len(v) { let #jN = #k; #k = #k + 1; { …[x := vec_get(v, #jN)]… } } }
+   循环体里的 x 换成位置 vec_get(v, #jN)：读 x 就是读元素，x.f = e 改元素的字段，f(inout x) 把元素借出去，
+   x = e 给元素整体赋值（SetPlace，旧值先析构）；把 x 移走照样被拒绝（不能从 Vec 里移出元素）。
+   #jN 每个循环一个名字，嵌套时外层的 x 不会被内层的 #j 遮住。
+   排他性：循环体里不能提到 v 的根变量——v 整个借给了循环，不能 push / pop / 读 / 再借（M18 的 okBody；
+   bad_pop 说明去掉这条会越界）。按名字检查，比按作用域严格：循环体里新声明的同名变量也算。 *)
+let inout_count = ref 0
+
+let for_inout pos x (v : expr) body =
+  let e d = mk d pos and s d = mks d pos in
+  let rec copy (v : expr) =
+    match v.e with
+    | Var _ -> { v with id = fresh_id () }
+    | Field (a, f) -> { v with e = Field (copy a, f); id = fresh_id () }
+    | Deref a -> { v with e = Deref (copy a); id = fresh_id () }
+    | _ -> raise (Syntax (v.pos, "for x in inout 只能遍历变量或字段里的 Vec"))
+  in
+  let rec root (v : expr) = match v.e with Var r -> r | Field (a, _) | Deref a -> root a | _ -> "" in
+  let r = root (copy v) in
+  incr inout_count;
+  let j = "#j" ^ string_of_int !inout_count in
+  let place (at : pos) = { e = Call ("vec_get", [ copy v; { e = Var j; pos = at; id = fresh_id () } ]); pos = at; id = fresh_id () } in
+  let mention (at : pos) =
+    raise (Syntax (at, Printf.sprintf "for %s in inout %s 的循环体里不能用 %s（%s 整个借给了循环，不能 push、pop、读或再借）" x r r r))
+  in
+  (* 把循环体里的 x 换成元素的位置；遇到重新绑定 x 的地方停下（之后的 x 是新的变量）。顺便检查有没有提到 v *)
+  let rec ex (a : expr) : expr =
+    let d =
+      match a.e with
+      | Var y when y = r -> mention a.pos
+      | Var y when y = x -> (place a.pos).e
+      | Int _ | Bool _ | Unit | Str _ | Var _ -> a.e
+      | Binop (o, b, c) -> Binop (o, ex b, ex c)
+      | Unop (o, b) -> Unop (o, ex b)
+      | Call (f, bs) -> Call (f, List.map ex bs)
+      | StructLit (n, fs) -> StructLit (n, List.map (fun (f, b) -> (f, ex b)) fs)
+      | Field (b, f) -> Field (ex b, f)
+      | Deref b -> Deref (ex b)
+      | Try b -> Try (ex b)
+      | Variant (w, b) -> Variant (w, Option.map ex b)
+      | Match (bw, b, arms) ->
+          Match (bw, ex b, List.map (fun (w, y, c) -> (w, y, if y = x then check_only c else ex c)) arms)
+      | Arena (n, b) -> Arena (n, if n = x then check_block b else blk b)
+      | If (c, b1, b2) -> If (ex c, blk b1, Option.map blk b2)
+      | Block b -> Block (blk b)
+    in
+    { a with e = d }
+  (* x 被遮住之后：不再替换，但仍然不能提到 v *)
+  and check_only (a : expr) : expr =
+    let rec scan (a : expr) =
+      match a.e with
+      | Var y when y = r -> mention a.pos
+      | Int _ | Bool _ | Unit | Str _ | Var _ -> ()
+      | Binop (_, b, c) -> scan b; scan c
+      | Unop (_, b) | Field (b, _) | Deref b | Try b -> scan b
+      | Call (_, bs) -> List.iter scan bs
+      | StructLit (_, fs) -> List.iter (fun (_, b) -> scan b) fs
+      | Variant (_, b) -> Option.iter scan b
+      | Match (_, b, arms) -> scan b; List.iter (fun (_, _, c) -> scan c) arms
+      | Arena (_, b) | Block b -> scan_block b
+      | If (c, b1, b2) -> scan c; scan_block b1; Option.iter scan_block b2
+    and scan_block (b : block) = List.iter scan_stmt b.stmts; Option.iter scan b.tail
+    and scan_stmt (t : stmt) =
+      match t.s with
+      | Let (_, _, _, b) | Expr b | Errdefer b | Destruct (_, _, b) -> scan b
+      | Assign (y, b) -> if y = r then mention t.spos; scan b
+      | SetField (b, _, c) | SetPlace (b, c) -> scan b; scan c
+      | While (c, b) -> scan c; scan_block b
+      | Return b -> Option.iter scan b
+      | Decl _ | Break | Continue -> ()
+    in
+    scan a;
+    a
+  and check_block (b : block) = ignore (check_only { e = Block b; pos = p pos; id = 0 }); b
+  and blk (b : block) : block =
+    let rec go = function
+      | [] -> ([], true)
+      | (t : stmt) :: rest -> (
+          match t.s with
+          | Let (m, y, ty, c) when y = x ->
+              let t' = { t with s = Let (m, y, ty, ex c) } in
+              let rest = List.map (fun t -> ignore (check_block { stmts = [ t ]; tail = None }); t) rest in
+              (t' :: rest, false)
+          | Decl (y, _) when y = x ->
+              let rest = List.map (fun t -> ignore (check_block { stmts = [ t ]; tail = None }); t) rest in
+              (t :: rest, false)
+          | Destruct (n, bs, c) when List.exists (fun (_, y) -> y = x) bs ->
+              let t' = { t with s = Destruct (n, bs, ex c) } in
+              let rest = List.map (fun t -> ignore (check_block { stmts = [ t ]; tail = None }); t) rest in
+              (t' :: rest, false)
+          | _ ->
+              let t' = { t with s = stmt t } in
+              let rest, live = go rest in
+              (t' :: rest, live))
+    in
+    let stmts, live = go b.stmts in
+    { stmts; tail = Option.map (fun c -> if live then ex c else check_only c) b.tail }
+  and stmt (t : stmt) : stmt_desc =
+    match t.s with
+    | Assign (y, _) when y = r -> mention t.spos
+    | Assign (y, c) when y = x -> SetPlace (place t.spos, ex c)
+    | Assign (y, c) -> Assign (y, ex c)
+    | Let (m, y, ty, c) -> Let (m, y, ty, ex c)
+    | Decl _ as d -> d
+    | SetField (a, f, c) -> SetField (ex a, f, ex c)
+    | SetPlace (a, c) -> SetPlace (ex a, ex c)
+    | While (c, b) -> While (ex c, blk b)
+    | Return c -> Return (Option.map ex c)
+    | Expr c -> Expr (ex c)
+    | Errdefer c -> Errdefer (ex c)
+    | (Break | Continue) as d -> d
+    | Destruct (n, bs, c) -> Destruct (n, bs, ex c)
+  in
+  let body = blk body in
+  let step = s (Assign ("#k", e (Binop (Add, e (Var "#k"), e (Int 1L))))) in
+  let inner = { stmts = [ s (Let (false, j, Some TI64, e (Var "#k"))); step; s (Expr (e (Block body))) ]; tail = None } in
+  let cond = e (Binop (Lt, e (Var "#k"), e (Call ("vec_len", [ copy v ])))) in
+  s (Expr (e (Block { stmts = [ s (Let (true, "#k", Some TI64, e (Int 0L))); s (While (cond, inner)) ]; tail = None })))
+
 (* 类型参数 <T, U: Show + linear>：拆成 (名字, 是否 linear) 和 trait 约束 (名字, trait)。 *)
 let split_tparams tp =
   ( List.map (fun (n, bs) -> (n, List.mem "" bs)) tp,
@@ -215,6 +335,7 @@ stmt:
   | a = expr DOT f = IDENT EQ e = expr { mks (SetField (a, f, e)) $startpos }
   | WHILE c = expr b = block { mks (While (c, b)) $startpos }
   | FOR x = IDENT IN a = expr DOTDOT b = expr bl = block { for_loop $startpos x (`Range (a, b)) bl }
+  | FOR x = IDENT IN INOUT v = expr bl = block { for_inout $startpos x v bl }
   | FOR x = IDENT IN v = expr bl = block { for_loop $startpos x (`Vec v) bl }
   | RETURN e = option(expr) { mks (Return e) $startpos }
   | BREAK { mks Break $startpos }
