@@ -71,7 +71,8 @@ static void sn_arena_free(sn_arena *a) { sn_chunk *c = a->head; while (c) { sn_c
 let gen_names : (string, string) Hashtbl.t = Hashtbl.create 16
 
 let cname prefix n =
-  if not (String.contains n '<') then prefix ^ n
+  (* 泛型实例（Option<I64>）和别的模块里的名字（geom.area，C34）不是 C 的标识符，另起一个名字 *)
+  if not (String.contains n '<' || String.contains n '.') then prefix ^ n
   else
     match Hashtbl.find_opt gen_names n with
     | Some c -> c
@@ -91,7 +92,7 @@ let rec mangle = function
   | TBool -> "Bool"
   | TStr -> "Str"
   | TUnit -> "U"
-  | TStruct n -> if String.contains n '<' then sname n else n
+  | TStruct n -> if String.contains n '<' || String.contains n '.' then sname n else n
   | TBox t -> "B" ^ mangle t
   | TVec t -> "V" ^ mangle t ^ "_"
   | TResult (a, b) -> "R" ^ mangle a ^ "_" ^ mangle b ^ "_"

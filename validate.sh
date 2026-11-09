@@ -7,8 +7,10 @@
 set -e
 cd "$(dirname "$0")"
 dune build
-# _build 里的 main.exe 有时没有执行权限（-rw-------），和 diff.sh 一样复制一份再加上权限
+# _build 里的 main.exe 有时没有执行权限（-rw-------），和 diff.sh 一样复制一份再加上权限。
+# 先删掉旧的再复制：macOS 会杀掉被原地覆盖的可执行文件（签名缓存对不上，Killed: 9）
 mkdir -p _batch
+rm -f _batch/sinterc
 cp _build/default/bin/main.exe _batch/sinterc
 chmod +x _batch/sinterc
 out=../lean/Validate

@@ -92,6 +92,23 @@ and msig = { mname : string; mparams : (mode * string * ty) list; mret : ty; mpo
 
 type program = item list
 
+(* 一个源文件解析的结果（C34）：开头的 use，和每个条目（true：标了 pub）。
+   use m 引入同目录的 m.sn；use m { a, B } 另外把这几个名字直接引入。 *)
+type source = { uses : (string * string list option * pos) list; items : (bool * item) list }
+
+(* 多个文件的位置（C34）：第 i 个文件（0 是主文件）的行号从 i * line_base + 1 开始，
+   位置照常是一个 pos，报错时再换回文件名和文件里的行号。 *)
+let line_base = 1_000_000
+let files : string array ref = ref [||]
+let file_of (p : pos) = p.line / line_base
+
+let locate default (p : pos) =
+  let i = file_of p in
+  if i > 0 && i < Array.length !files then (!files.(i), p.line mod line_base) else (default, p.line)
+
+(* 结构体、枚举（加上模块前缀的名字）定义在第几个文件里：consume 只能在定义 linear 类型的文件里用。 *)
+let type_file : (string, int) Hashtbl.t = Hashtbl.create 16
+
 (* 解析时发现的、语法规则表达不了的错误。 *)
 exception Syntax of pos * string
 

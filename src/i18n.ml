@@ -213,6 +213,17 @@ let table =
     ("字符串没有结束（缺少右边的 \"，字符串不能跨行）", "unterminated string (missing the closing \"; strings cannot span lines)");
     ("语法错误（在 '%s' 附近）", "syntax error near '{1}'");
     ("结构体和枚举的类型参数暂不能写 trait 约束", "type parameters of structs and enums cannot have trait bounds yet");
+    (* 模块（C34） *)
+    ("%s 定义在模块 %s 里，只能在那里 consume（可以让模块 %s 提供一个 pub 的函数来消费它）",
+     "{1} is defined in module {2} and can only be consumed there (module {3} can provide a pub function that consumes it)");
+    ("模块 %s 里没有 %s", "module {1} has no item named {2}");
+    ("%s.%s 不是 pub 的，不能在模块 %s 之外使用", "{1}.{2} is not pub and cannot be used outside module {3}");
+    ("引入的 %s 和本文件里的定义重名", "the imported name {1} clashes with a definition in this file");
+    ("没有引入模块 %s（在文件开头写 use %s）", "module {1} is not imported (add use {2} at the top of the file)");
+    ("变量 %s 和引入的模块同名，换一个名字", "variable {1} has the same name as an imported module; rename it");
+    ("impl 不用写 pub（实现跟着 trait 和类型，到处可见）", "impl does not take pub (an impl is visible wherever its trait and type are)");
+    ("模块不能引入自己", "a module cannot import itself");
+    ("找不到模块 %s（应当是文件 %s）", "cannot find module {1} (expected the file {2})");
   ]
 
 (* 填进信息里的固定中文短语。 *)

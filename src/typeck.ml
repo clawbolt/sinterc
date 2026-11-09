@@ -582,7 +582,15 @@ and expr1 env (x : expr) : t =
       | Never -> Never)
   | Call ("consume", [ a ]) -> (
       match expr env a with
-      | Ty (TStruct n) when Hashtbl.mem linear_tbl n -> Ty TUnit
+      | Ty (TStruct n) when Hashtbl.mem linear_tbl n ->
+          (* 只能在定义这个 linear 类型的文件里消费（C34）：别的模块只能交给它的 pub 函数 *)
+          let base = match String.index_opt n '<' with Some i -> String.sub n 0 i | None -> n in
+          (match Hashtbl.find_opt Ast.type_file base with
+          | Some fi when fi <> Ast.file_of pos ->
+              let m = match String.rindex_opt base '.' with Some i -> String.sub base 0 i | None -> "" in
+              err pos "%s 定义在模块 %s 里，只能在那里 consume（可以让模块 %s 提供一个 pub 的函数来消费它）" n m m
+          | _ -> ());
+          Ty TUnit
       | Never -> Never
       | Ty t -> err pos "consume 只能用于 linear 结构体，%s 不是" (string_of_ty t))
   | Call ("unbox", [ a ]) -> (

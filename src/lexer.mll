@@ -15,7 +15,7 @@ let keywords = [
   "while", WHILE; "return", RETURN; "true", TRUE; "false", FALSE;
   "inout", INOUT; "sink", SINK; "linear", LINEAR; "errdefer", ERRDEFER; "match", MATCH;
   "arena", ARENA; "in", IN; "enum", ENUM; "trait", TRAIT; "impl", IMPL; "for", FOR;
-  "break", BREAK; "continue", CONTINUE;
+  "break", BREAK; "continue", CONTINUE; "use", USE; "pub", PUB;
 ]
 }
 
@@ -36,6 +36,8 @@ rule token = parse
                             | Some k -> k
                             | None -> IDENT s }
   | upper alnum* as s     { match s with "Box" -> BOX | "Result" -> RESULT | _ -> UIDENT s }
+  (* 另一个模块里的类型或 trait（C34）：geom.Point，中间没有空格。字段名都是小写，不会和它混淆 *)
+  | (lower alnum* '.' upper alnum*) as s { UIDENT s }
   | "->"  { ARROW }   | "=>"  { FATARROW }
   | '?'   { QUESTION }
   | "=="  { EQEQ }  | "!="  { NE }

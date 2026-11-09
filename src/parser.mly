@@ -74,7 +74,7 @@ let ty_of_name = function
 %token <string> STRING
 %token <string> IDENT UIDENT
 %token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
-%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM TRAIT IMPL FOR BREAK CONTINUE
+%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM TRAIT IMPL FOR BREAK CONTINUE USE PUB
 %token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ DOTDOT
 %token PLUS MINUS STAR SLASH PERCENT BANG
 %token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
@@ -87,15 +87,31 @@ let ty_of_name = function
 %nonassoc UNARY
 %left DOT QUESTION
 
-%start <Ast.program> program
+%start <Ast.source> program
 %%
 
 program:
-  | nls is = items EOF { is }
+  | nls us = uses is = items EOF { { uses = us; items = is } }
+
+(* 文件开头的 use（C34）：use m 或 use m { a, B } *)
+uses:
+  | { [] }
+  | USE m = IDENT nls us = uses { (m, None, p $startpos) :: us }
+  | USE m = IDENT LBRACE nls ns = use_names RBRACE nls us = uses { (m, Some ns, p $startpos) :: us }
+
+use_names:
+  | { [] }
+  | n = use_name nls { [n] }
+  | n = use_name COMMA nls ns = use_names { n :: ns }
+
+use_name:
+  | n = IDENT { n }
+  | n = UIDENT { n }
 
 items:
   | { [] }
-  | i = item nls is = items { i :: is }
+  | i = item nls is = items { (false, i) :: is }
+  | PUB i = item nls is = items { (true, i) :: is }
 
 nls:
   | { () }

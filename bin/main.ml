@@ -13,8 +13,10 @@ open Sinter
 
 let version = "0.1.0"
 
+(* 位置可能在引入的模块里（C34）：换回那个文件的名字和行号。 *)
 let fail file (pos : Ast.pos) msg =
-  Printf.eprintf "%s:%d:%d: %s%s\n" file pos.line pos.col (I18n.pick "错误：" "error: ") (I18n.msg msg);
+  let file, line = Ast.locate file pos in
+  Printf.eprintf "%s:%d:%d: %s%s\n" file line pos.col (I18n.pick "错误：" "error: ") (I18n.msg msg);
   exit 1
 
 let help () =
@@ -91,22 +93,14 @@ let () =
   let file = match !file with Some f -> f | None -> usage () in
   if !unchecked && not !core then usage ();
   if mode <> Emit && (!core || !batch) then usage ();
-  let ic =
-    try open_in_bin file with Sys_error _ ->
-      prerr_endline (I18n.pick ("错误：打不开文件 " ^ file) ("error: cannot open file " ^ file));
-      exit 1
-  in
-  let lexbuf = Lexing.from_channel ic in
-  Lexing.set_filename lexbuf file;
+  (* 读主文件和它用 use 引入的模块（C34），合成一个程序 *)
   let prog =
-    try Parser.program Lexer.token lexbuf with
+    try Modules.load file with
+    | Sys_error _ ->
+        prerr_endline (I18n.pick ("错误：打不开文件 " ^ file) ("error: cannot open file " ^ file));
+        exit 1
     | Lexer.Error (pos, msg) | Ast.Syntax (pos, msg) -> fail file pos msg
-    | Parser.Error ->
-        let p = Lexing.lexeme_start_p lexbuf in
-        fail file { line = p.pos_lnum; col = p.pos_cnum - p.pos_bol + 1 }
-          (Printf.sprintf "语法错误（在 '%s' 附近）" (Lexing.lexeme lexbuf))
   in
-  close_in ic;
   if !batch then begin
     (* 对照测试：名字形如 p123_y / p123_n 的函数逐个检查，y / n 是 Lean（acceptsG）的结论。
        要求 Lean 接受的 sinterc 都接受；sinterc 接受的生成 C，运行时检查（附录 F 的 C5）。 *)
