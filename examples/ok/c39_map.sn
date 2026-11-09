@@ -1,0 +1,48 @@
+use std.map
+use std.option
+
+fn show(m: map.Map<Str, I64>) {
+    var i = 0
+    while i < map.len(m) {
+        print(vec_get(m.keys, i))
+        print_i64(vec_get(m.vals, i))
+        i = i + 1
+    }
+}
+
+fn main() {
+    var m: map.Map<Str, I64> = map.new()
+    print_bool(option.is_none(map.insert(m, "pear", 3)))
+    let a = map.insert(m, "apple", 1)
+    let b = map.insert(m, "fig", 2)
+    print_i64(option.unwrap_or(map.insert(m, "fig", 20), 0))
+    show(m)
+    print_bool(map.contains(m, "fig"))
+    print_bool(map.contains(m, "kiwi"))
+    match map.index_of(m, "pear") {
+        .Some(i) => print_i64(vec_get(m.vals, i)),
+        .None => print("没有")
+    }
+    print_i64(option.unwrap_or(map.remove(m, "apple"), 0))
+    print_i64(option.unwrap_or(map.remove(m, "kiwi"), -1))
+    print_i64(map.len(m))
+    show(m)
+    var n: map.Map<I64, Str> = map.new()
+    var k = 5
+    while k > 0 {
+        let c = map.insert(n, k, str_concat("v", str_slice("abcde", k - 1, k)))
+        k = k - 1
+    }
+    print(option.unwrap_or(map.insert(n, 3, "C"), "?"))
+    for key in n.keys {
+        print_i64(key)
+    }
+    for val in n.vals {
+        print(val)
+    }
+    var v: Vec<I64> = vec_new()
+    v.push(1)
+    v.push(2)
+    v.swap(0, 1)
+    print_i64(vec_get(v, 0))
+}

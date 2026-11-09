@@ -1,0 +1,86 @@
+// std.map：按键从小到大排好的映射 Map<K, V>。键要实现 std.math 的 Ord（满足它的四条定律）。
+// 规格见 lean/Core/S4.lean：插入、删除之后键仍严格递增（没有重复的键，遍历按键的顺序），
+// 插入后查得到刚放进的值，删除后查不到，别的键不受影响。
+// 存成两个一样长的 Vec：keys[i] 对应 vals[i]。可以读 m.keys、m.vals（例如 for k in m.keys、vec_get(m.vals, i)），
+// 但不要直接改它们，否则键不再有序，查找的结果就不对了。插入、删除用 vec_swap 挪动元素（Lean M20）。
+use std.math
+
+pub struct Map<K, V> { keys: Vec<K>, vals: Vec<V> }
+
+pub fn new<K, V>() -> Map<K, V> {
+    let ks: Vec<K> = vec_new()
+    let vs: Vec<V> = vec_new()
+    Map { keys: ks, vals: vs }
+}
+
+pub fn len<K, V>(m: Map<K, V>) -> I64 { vec_len(m.keys) }
+
+// 第一个不小于 k 的键的下标；没有时是 len(m)。
+fn lower<K: math.Ord, V>(m: Map<K, V>, k: K) -> I64 {
+    let n = vec_len(m.keys)
+    var i = 0
+    while i < n {
+        if cmp(vec_get(m.keys, i), k) >= 0 { return i }
+        i = i + 1
+    }
+    n
+}
+
+// 键 k 的下标；没有时是 .None。取值写 vec_get(m.vals, i)。
+pub fn index_of<K: math.Ord, V>(m: Map<K, V>, k: K) -> Option<I64> {
+    let i = lower(m, k)
+    if i < vec_len(m.keys) {
+        if cmp(vec_get(m.keys, i), k) == 0 { return .Some(i) }
+    }
+    .None
+}
+
+pub fn contains<K: math.Ord, V>(m: Map<K, V>, k: K) -> Bool {
+    match index_of(m, k) {
+        .Some(i) => true,
+        .None => false
+    }
+}
+
+// 放进 (k, v)。已有键 k 时换掉它的值并返回旧值（这时 k 被析构，保留原来的键）；否则返回 .None。
+pub fn insert<K: math.Ord, V>(inout m: Map<K, V>, sink k: K, sink v: V) -> Option<V> {
+    let i = lower(m, k)
+    let n = vec_len(m.keys)
+    if i < n {
+        if cmp(vec_get(m.keys, i), k) == 0 {
+            // 新值放到末尾，和旧值交换，再把旧值 pop 出来
+            m.vals.push(v)
+            vec_swap(m.vals, i, n)
+            return m.vals.pop()
+        }
+    }
+    // 放到末尾，再逐个往前换到下标 i
+    m.keys.push(k)
+    m.vals.push(v)
+    var j = n
+    while j > i {
+        vec_swap(m.keys, j, j - 1)
+        vec_swap(m.vals, j, j - 1)
+        j = j - 1
+    }
+    .None
+}
+
+// 去掉键 k，返回它的值；没有这个键时返回 .None。
+pub fn remove<K: math.Ord, V>(inout m: Map<K, V>, k: K) -> Option<V> {
+    match index_of(m, k) {
+        .Some(i) => {
+            // 逐个往后换到末尾，再 pop 出来
+            let n = vec_len(m.keys)
+            var j = i
+            while j + 1 < n {
+                vec_swap(m.keys, j, j + 1)
+                vec_swap(m.vals, j, j + 1)
+                j = j + 1
+            }
+            let old_key = m.keys.pop()
+            m.vals.pop()
+        },
+        .None => .None
+    }
+}

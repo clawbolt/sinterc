@@ -261,6 +261,10 @@ let type_defs (p : program) (fs : Mir.func list) =
               Printf.sprintf
                 "static %s %s(%s *v) { if (v->len == 0) return (%s){ .tag = 1 }; v->len--; return (%s){ .tag = 0, .u.v0 = v->data[v->len] }; }\n"
                 o (vec_fn b e) v o o
+          | "swap" ->
+              Printf.sprintf
+                "static void %s(%s *v, const int64_t *i, const int64_t *j) { int64_t a = sn_idx(v->len, *i), b = sn_idx(v->len, *j); %s t = v->data[a]; v->data[a] = v->data[b]; v->data[b] = t; }\n"
+                (vec_fn b e) v te
           | _ -> Printf.sprintf "static int64_t %s(%s *v) { return v->len; }\n" (vec_fn b e) v)
       end)
     Typeck.vec_calls;

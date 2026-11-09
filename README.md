@@ -1,6 +1,6 @@
-# sinterc：Sinter 编译器（C38，含 C28、C33）
+# sinterc：Sinter 编译器（C39，含 C28、C33）
 
-附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变；C25 试用版命令行（run、build）和上手文档 TRY.md（英文版 TRY.en.md）；C26 用 print 输出文字；C27 英文错误信息（--lang=en）；C29 字符串类型 Str（Lean M17）；C30 for 循环（a..b 和 Vec）；C31 break 和 continue；C32 读取输入（read_line）和字符串的字节、子串、整数解析；C34 模块（use、pub）；C35 标准库第一版（std.math、std.option、std.result、std.vec、std.str）；C36 文件与参数（args、read_file、write_file）；C37 () 作类型实参；C28 一次报多个错误（每个函数报它的第一个，最多 20 个）；C33 for x in inout v（Lean M18：循环体里改元素本身，不能用 v）；C38 panic（Lean M19），std 的 unwrap、expect。
+附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变；C25 试用版命令行（run、build）和上手文档 TRY.md（英文版 TRY.en.md）；C26 用 print 输出文字；C27 英文错误信息（--lang=en）；C29 字符串类型 Str（Lean M17）；C30 for 循环（a..b 和 Vec）；C31 break 和 continue；C32 读取输入（read_line）和字符串的字节、子串、整数解析；C34 模块（use、pub）；C35 标准库第一版（std.math、std.option、std.result、std.vec、std.str）；C36 文件与参数（args、read_file、write_file）；C37 () 作类型实参；C28 一次报多个错误（每个函数报它的第一个，最多 20 个）；C33 for x in inout v（Lean M18：循环体里改元素本身，不能用 v）；C38 panic（Lean M19），std 的 unwrap、expect；C39 std.map（Lean S4）和 vec_swap（Lean M20）。
 支持 `I64`、`Bool`、`()`、结构体、`Box<T>`、函数、`let` / `var` / 赋值、`if`（可作表达式）、`while`、`return`，
 以及内置的 `print`、`print_i64`、`print_bool`、字符串的 `str_len` / `str_eq` / `str_concat` / `str_push` / `str_clone` / `str_from_i64` / `str_to_i64` / `str_byte` / `str_slice`、`read_line`、`box(e)`、解引用 `*b`、`unbox(b)`（取出 Box 里的值并释放），拆开结构体 `let Node { v, next } = n`。
 参数约定 `let`（默认）/ `inout` / `sink`，`let` 绑定投影；`linear struct`、内建的 `Result<T, E>`、`Ok` / `Err`、`?`、`match`、`errdefer`、`consume(x)`。
@@ -41,6 +41,10 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   - `std.vec`：`sum`、`max`、`contains`、`index_of`（元素要实现 `math.Eq`）、`reverse`（`inout`）。
   - `std.str`（按字节）：`starts_with`、`ends_with`、`find`、`contains`、`trim`、`split`、`join`、`repeat`。
   - `std.option`、`std.result` 还有 `unwrap`、`expect`（C38：没有值或出错时 panic）。暂缺：没有 `map` / `filter`（没有闭包）。
+  - `std.map`（C39，规格 Lean S4）：`Map<K, V>`，键要实现 `math.Ord`，按键从小到大存成两个 Vec（`m.keys`、`m.vals`，只读）。
+    `new`、`len`、`index_of`（取值写 `vec_get(m.vals, i)`）、`contains`、`insert`（`inout`，已有键时换值并返回旧值）、`remove`（返回去掉的值）。
+    查找、插入、删除都是线性时间。
+- `vec_swap(inout v, i, j)`（也写 `v.swap(i, j)`，C39，Lean M20）：交换两个元素，越界时 panic。
 - panic（C38，Lean M19）：`panic(msg)` 打印说明后立刻结束进程（退出码 101），类型是 Never。不析构任何值、不执行 `errdefer`、
   不要求线性值已被消费——线性值的保证只对正常返回和 `Err` 返回成立；需要清理的出错情况用 `Result`。
 - `()`（C37，Lean M9u）：只有一个值的 copy 类型，可以作泛型函数、`Vec`、`Option` 等的类型实参，也可以是变量、参数、字段、`Box` 里的值；

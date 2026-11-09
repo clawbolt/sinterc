@@ -110,7 +110,7 @@ let builtins =
 let str_methods = [ "len"; "eq"; "concat"; "push"; "clone"; "to_i64"; "byte"; "slice" ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
-let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "panic" ]
+let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "vec_swap"; "panic" ]
 
 (* Vec 的内建函数的参数约定（给降级用；类型由类型检查单独处理）。vec_get 是位置，不是调用。 *)
 let vec_sigs =
@@ -119,6 +119,7 @@ let vec_sigs =
     "vec_push", ([ (MInout, TUnit); (MSink, TUnit) ], TUnit);
     "vec_pop", ([ (MInout, TUnit) ], TUnit);
     "vec_len", ([ (MLet, TUnit) ], TI64);
+    "vec_swap", ([ (MInout, TUnit); (MLet, TI64); (MLet, TI64) ], TUnit);
   ]
 
 (* Vec 内建函数的实例（降级后的调用名，例如 vec_push<I64>）→ 函数（push 等）和元素类型，给代码生成找辅助函数用。 *)
@@ -621,7 +622,7 @@ and expr1 env (x : expr) : t =
   | Call ("alloc", _) -> err pos "alloc 需要 2 个参数：区域和值"
   | Call ("vec_new", []) ->
       err pos "无法确定 vec_new() 的元素类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方"
-  | Call (("vec_push" | "vec_pop" | "vec_len" | "vec_get") as f, v :: rest) -> (
+  | Call (("vec_push" | "vec_pop" | "vec_len" | "vec_get" | "vec_swap") as f, v :: rest) -> (
       match expr env v, f, rest with
       | Never, _, _ -> Never
       | Ty (TVec t), "vec_push", [ e ] ->
@@ -636,14 +637,21 @@ and expr1 env (x : expr) : t =
       | Ty (TVec t), "vec_len", [] ->
           vec_inst x "len" t;
           Ty TI64
+      | Ty (TVec t), "vec_swap", [ i; j ] ->
+          (* 交换第 i、j 个元素：只调换顺序，拥有关系不变（Lean M20），越界时 panic *)
+          inout_place env v;
+          expect i.pos TI64 (expr env i);
+          expect j.pos TI64 (expr env j);
+          vec_inst x "swap" t;
+          Ty TUnit
       | Ty (TVec t), "vec_get", [ i ] ->
           (* 第 i 个元素这个位置：可复制的值复制，需要析构的值 let 绑定成投影（锁住 v），越界时 panic *)
           expect i.pos TI64 (expr env i);
           Ty t
       | Ty (TVec _), _, _ ->
-          err pos "%s 需要 %d 个参数" f (match f with "vec_push" | "vec_get" -> 2 | _ -> 1)
+          err pos "%s 需要 %d 个参数" f (match f with "vec_push" | "vec_get" -> 2 | "vec_swap" -> 3 | _ -> 1)
       | Ty t, _, _ -> err v.pos "%s 的第一个参数必须是 Vec，%s 不是" f (string_of_ty t))
-  | Call (("vec_new" | "vec_push" | "vec_pop" | "vec_len" | "vec_get") as f, _) -> err pos "%s 的参数个数不对" f
+  | Call (("vec_new" | "vec_push" | "vec_pop" | "vec_len" | "vec_get" | "vec_swap") as f, _) -> err pos "%s 的参数个数不对" f
   | Deref a -> (
       match expr env a with
       | Ty (TBox t | TRef (t, _)) -> Ty t
@@ -692,7 +700,7 @@ and method_name env (x : expr) f (r : expr) =
   let m = String.sub f 1 (String.length f - 1) in
   let g =
     match expr env r, m with
-    | Ty (TVec _), ("push" | "pop" | "len" | "get") -> "vec_" ^ m
+    | Ty (TVec _), ("push" | "pop" | "len" | "get" | "swap") -> "vec_" ^ m
     | Ty TStr, m when List.mem m str_methods -> "str_" ^ m
     | _ -> m
   in
