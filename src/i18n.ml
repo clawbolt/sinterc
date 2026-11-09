@@ -247,8 +247,7 @@ let table =
     ("闭包的参数 %s 重复", "closure parameter {1} is repeated");
     ("闭包里暂不能用函数参数 %s（可以把它作为实参直接传下去）",
      "a closure cannot use the function parameter {1} yet (pass it on directly as an argument instead)");
-    ("闭包里暂不能用区域 %s", "a closure cannot use the region {1} yet");
-    ("闭包里暂不能用含引用的变量 %s（类型是 %s）", "a closure cannot use {1}, which contains references, yet (its type is {2})");
+    ("闭包捕获的区域太多（最多 100 个）", "the closure captures too many regions (at most 100)");
     ("%s 的这个参数是 %s：要写闭包 |…| …，或者传入同类型的函数参数",
      "this parameter of {1} has type {2}: write a closure |…| …, or pass a function parameter of the same type");
     ("无法推断闭包参数的类型（%s 的类型参数 %s 要先从别的实参确定）",

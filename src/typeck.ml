@@ -19,8 +19,8 @@ type env = {
       (* 局部变量和它是否可修改（var、inout / sink 参数），内层在前 *)
   guards : string list;              (* 当前生效的 errdefer 要消费的变量 *)
   tbounds : (string * string) list;  (* 当前泛型函数的类型参数的 trait 约束，(T, Show) 表示 T: Show *)
-  clos : (string * (closure * string list)) list;
-      (* 特化里 fn(…) 参数绑定的闭包，和这个特化里传它的捕获的参数名（C40） *)
+  clos : (string * (closure * (string * ty) list)) list;
+      (* 特化里 fn(…) 参数绑定的闭包，和这个特化里传它的捕获的参数（名字和类型）（C40） *)
 }
 
 (* ---------- 闭包（C40，Lean M21） ----------
@@ -33,6 +33,9 @@ type env = {
 and closure = {
   cname : string;                      (* 提升出来的函数名，按闭包的位置和类型确定 *)
   caps : (mode * string * ty) list;    (* 捕获的外层变量（按第一次用到的顺序）：只读的 let，修改的 inout *)
+  rord : (string * string list) list;
+      (* 捕获的类型里的区域换成的区域参数 'c00、'c01…（按闭包所在位置的嵌套顺序，外层在前），
+         和比它活得久的区域参数（只取那里真实成立的先后关系，M22） *)
 }
 
 (* 正在检查的闭包：env.vars 最后 outer 个是外层的变量；用到的外层变量（按第一次出现的顺序）；改过的外层变量。 *)
@@ -347,8 +350,11 @@ let cur_fn = ref ""
 (* 函数体里有闭包、自己又不生成代码的泛型函数：不在定义处降级（它的实例照常降级、检查）。 *)
 let skip_lower : (string, unit) Hashtbl.t = Hashtbl.create 16
 
-(* 还没检查的提升出的闭包和特化：条目、特化里 fn(…) 参数绑定的闭包、这些 fn(…) 参数的名字和类型（仍可在函数体里用）。 *)
-let pending_items : (item * (string * (closure * string list)) list * (string * ty) list) Queue.t = Queue.create ()
+(* 还没检查的提升出的闭包和特化：条目、特化里 fn(…) 参数绑定的闭包、这些 fn(…) 参数的名字和类型（仍可在函数体里用）、
+   区域参数的先后关系（M22）。 *)
+let pending_items :
+    (item * (string * (closure * (string * ty) list)) list * (string * ty) list * (string * string list) list) Queue.t =
+  Queue.create ()
 
 (* 调用的改写：调用表达式的 id → 新的函数名和实参，检查完之后换上（和方法调用的名字一样）。 *)
 let rewrites : (int, string * expr list) Hashtbl.t = Hashtbl.create 16
@@ -816,9 +822,8 @@ and call env want (x : expr) f args : t =
         pts args;
       (if !concrete then
          match List.assoc_opt f env.clos with
-         | Some (c, names) ->
-             Hashtbl.replace rewrites x.id
-               (c.cname, List.map2 (fun (_, _, t) n -> var_expr x.pos n t) c.caps names @ args)
+         | Some (c, caps) ->
+             Hashtbl.replace rewrites x.id (c.cname, List.map (fun (n, t) -> var_expr x.pos n t) caps @ args)
          | None -> ());
       Ty r
   | _ -> call_named env want x f args
@@ -847,18 +852,28 @@ and lambda env (a : expr) ys body pts r : closure * t =
         loop_depth := depth)
       (fun () -> match r with Some r -> check env' r body | None -> expr env' body)
   in
-  let caps =
+  let caps0 =
     List.map
       (fun v ->
         let t, _ = List.assoc v env.vars in
         (match t with
         | TFn _ -> err pos "闭包里暂不能用函数参数 %s（可以把它作为实参直接传下去）" v
-        | TArena _ -> err pos "闭包里暂不能用区域 %s" v
-        | t when region_names t <> [] -> err pos "闭包里暂不能用含引用的变量 %s（类型是 %s）" v (string_of_ty t)
         | _ -> ());
         ((if Hashtbl.mem fr.written v then MInout else MLet), v, t))
       !(fr.used)
   in
+  (* 捕获的类型里的区域换成区域参数 'c00、'c01…：按这里的嵌套顺序编号（外层在前），
+     先后关系只取这里真实成立的（M22 的 capture_mono；调用时这些区域都活着是 capture_below） *)
+  let outer_first = List.rev_map fst !regions in
+  let idx r = Option.value (List.find_index (( = ) r) outer_first) ~default:max_int in
+  let rs =
+    List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) caps0)
+    |> List.stable_sort (fun a b -> compare (idx a) (idx b))
+  in
+  if List.length rs > 100 then err pos "闭包捕获的区域太多（最多 100 个）";
+  let s = List.mapi (fun k r -> (r, Printf.sprintf "'c%02d" k)) rs in
+  let rord = List.map (fun (r, c) -> (c, List.filter_map (fun (r', c') -> if r' <> r && outlives r' r then Some c' else None) s)) s in
+  let caps = List.map (fun (m, v, t) -> (m, v, rename s t)) caps0 in
   let file, line = Ast.locate (if Array.length !Ast.files > 0 then !Ast.files.(0) else "") pos in
   let tys = List.map (fun (_, _, t) -> string_of_ty t) caps @ [ string_of_ty (TFn (pts, Option.value r ~default:TUnit)) ] in
   let cname = Printf.sprintf "闭包<%s:%d:%d, %s>" (Filename.basename file) line pos.col (String.concat ", " tys) in
@@ -869,11 +884,13 @@ and lambda env (a : expr) ys body pts r : closure * t =
         let params = caps @ List.map2 (fun y (m, t) -> (m, y, t)) ys pts in
         Hashtbl.replace sigs cname (List.map (fun (m, _, t) -> (m, t)) params, r);
         let b = match body.e with Block b -> b | _ -> { stmts = []; tail = Some body } in
-        let body = map_body ~fresh:true (fun _ t -> t) b in
-        Queue.add (Fn { name = cname; tparams = []; bounds = []; params; ret = r; body; ipos = pos }, [], []) pending_items
+        let body = map_body ~fresh:true (fun _ t -> rename s t) b in
+        Queue.add
+          (Fn { name = cname; tparams = []; bounds = []; params; ret = r; body; ipos = pos }, [], [], rord)
+          pending_items
       end
   | _ -> if not !concrete then Hashtbl.replace skip_lower !cur_fn ());
-  ({ cname; caps }, t)
+  ({ cname; caps; rord }, t)
 
 (* fn(…) 类型的参数 p 的实参：闭包，或者当前函数的同类型 fn(…) 参数（原样传下去）。
    返回绑定的闭包和它的捕获在调用处的实参（闭包写在这里时是外层变量本身，传下去的是这个特化里的捕获参数）。 *)
@@ -882,15 +899,16 @@ and fn_arg env f p pts pr (a : expr) : closure * expr list =
   match a.e with
   | Lambda (ys, body) ->
       let c, _ = lambda env a ys body pts (Some pr) in
-      (c, List.map (fun (_, v, t) -> var_expr a.pos v t) c.caps)
+      (* 闭包写在这里：捕获的实参是外层变量本身（真实的区域；类型检查不再比较，由 M22 保证、Lean 复核） *)
+      (c, List.map (fun v -> var_expr a.pos v (fst (List.assoc v env.vars))) (List.map (fun (_, v, _) -> v) c.caps))
   | Var g -> (
       note env.vars g;
       match List.assoc_opt g env.vars with
       | Some ((TFn _ as t), _) -> (
           if t <> p then err a.pos "类型不匹配：需要 %s，实际是 %s" (string_of_ty p) (string_of_ty t);
           match List.assoc_opt g env.clos with
-          | Some (c, names) -> (c, List.map2 (fun (_, _, t) n -> var_expr a.pos n t) c.caps names)
-          | None -> ({ cname = ""; caps = [] }, []))
+          | Some (c, caps) -> (c, List.map (fun (n, t) -> var_expr a.pos n t) caps)
+          | None -> ({ cname = ""; caps = []; rord = [] }, []))
       | _ -> bad ())
   | _ -> bad ()
 
@@ -911,12 +929,20 @@ and specialize (x : expr) f args ps cls =
         let body = if ts = None then map_body ~fresh:true (fun _ t -> t) g.body else g.body in
         let fparams = List.filter (fun (_, _, t) -> is_fn t) g.params in
         let binding = List.map2 (fun (_, y, t) (c, _) -> (y, t, c)) fparams cls in
-        let caps = List.concat_map (fun (y, _, c) -> List.map (fun (m, v, t) -> (m, v ^ "@" ^ y, t)) c.caps) binding in
+        (* 每个闭包的区域参数加上 @y 区分（两个闭包都有 'c00 时是不同的区域，彼此之间没有顺序） *)
+        let ry (c : closure) y = List.map (fun (r, _) -> (r, r ^ "@" ^ y)) c.rord in
+        let capsof (y, _, (c : closure)) = List.map (fun (m, v, t) -> (m, v ^ "@" ^ y, rename (ry c y) t)) c.caps in
+        let caps = List.concat_map capsof binding in
         let params = List.filter (fun (_, _, t) -> not (is_fn t)) g.params @ caps in
         Hashtbl.replace sigs name (List.map (fun (m, _, t) -> (m, t)) params, g.ret);
-        let clos = List.map (fun (y, _, c) -> (y, (c, List.map (fun (_, v, _) -> v ^ "@" ^ y) c.caps))) binding in
+        let clos = List.map (fun ((y, _, c) as b) -> (y, (c, List.map (fun (_, v, t) -> (v, t)) (capsof b)))) binding in
         let fvars = List.map (fun (y, t, _) -> (y, t)) binding in
-        Queue.add (Fn { g with name; params; body; tparams = []; bounds = [] }, clos, fvars) pending_items
+        let rord =
+          List.concat_map
+            (fun (y, _, (c : closure)) -> List.map (fun (r, os) -> (r ^ "@" ^ y, List.map (fun o -> o ^ "@" ^ y) os)) c.rord)
+            binding
+        in
+        Queue.add (Fn { g with name; params; body; tparams = []; bounds = [] }, clos, fvars, rord) pending_items
     | _ -> assert false
   end
 
@@ -1665,15 +1691,16 @@ let resolve_items = function
   | Trait _ -> []
   | (Struct _ | Enum _) as it -> [ it ]
 
-(* 检查一个函数。特化（C40）：clos 是 fn(…) 参数绑定的闭包，fvars 是这些参数（已经从参数里去掉，函数体里仍按名字用）。 *)
-let check_fn ?(clos = []) ?(fvars = []) env0 = function
+(* 检查一个函数。特化（C40）：clos 是 fn(…) 参数绑定的闭包，fvars 是这些参数（已经从参数里去掉，函数体里仍按名字用）。
+   rord：闭包捕获的区域参数之间的先后关系（M22）；其余区域参数之间没有顺序（D3）。 *)
+let check_fn ?(clos = []) ?(fvars = []) ?(rord = []) env0 = function
   | Fn { name; tparams; params; ret; body; ipos; bounds } ->
       cur_fn := name;
       concrete := tparams = [] && not (List.exists (fun (_, _, t) -> is_fn t) params);
       (* 区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3） *)
       regions :=
         List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) params)
-        |> List.map (fun r -> (r, []));
+        |> List.map (fun r -> (r, Option.value (List.assoc_opt r rord) ~default:[]));
       List.iter
         (fun (m, x, t) ->
           check_ty ~param:true env0 ipos t;
@@ -1724,8 +1751,8 @@ let program (p : program) : program =
         drain (it :: acc)
     | None -> (
         match Queue.take_opt pending_items with
-        | Some (it, clos, fvars) ->
-            guard (check_fn ~clos ~fvars env0) it;
+        | Some (it, clos, fvars, rord) ->
+            guard (check_fn ~clos ~fvars ~rord env0) it;
             drain (it :: acc)
         | None -> List.rev acc)
   in
