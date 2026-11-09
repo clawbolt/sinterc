@@ -19,7 +19,40 @@ type env = {
       (* 局部变量和它是否可修改（var、inout / sink 参数），内层在前 *)
   guards : string list;              (* 当前生效的 errdefer 要消费的变量 *)
   tbounds : (string * string) list;  (* 当前泛型函数的类型参数的 trait 约束，(T, Show) 表示 T: Show *)
+  clos : (string * (closure * string list)) list;
+      (* 特化里 fn(…) 参数绑定的闭包，和这个特化里传它的捕获的参数名（C40） *)
 }
+
+(* ---------- 闭包（C40，Lean M21） ----------
+   闭包 |x| e 只能写在实参的位置，传给类型是 fn(…) 的参数；fn(…) 类型的值不能存、不能返回（second-class）。
+   闭包用到的外层变量是它的捕获：只读的按 let，赋值、作 inout 实参或改字段的按 inout。
+   实现是按闭包特化：闭包提升成一个普通函数（捕获在前，闭包的参数在后）；调用 h(a, |x| …) 换成调用
+   h 的特化 h[闭包]，它没有 fn(…) 参数，多出闭包的捕获作参数，函数体里的 f(y) 换成调用提升出的函数。
+   于是捕获就是一层层传下去的额外实参：调用处按 M3n 的规则检查一次（M21 的 inner_ok 说明这就够了），
+   之后的所有权、排他性检查和翻译验证看到的都是普通的函数，不用改。闭包不能逃逸，引用的栈帧总还活着（M21 的 clo_live）。 *)
+and closure = {
+  cname : string;                      (* 提升出来的函数名，按闭包的位置和类型确定 *)
+  caps : (mode * string * ty) list;    (* 捕获的外层变量（按第一次用到的顺序）：只读的 let，修改的 inout *)
+}
+
+(* 正在检查的闭包：env.vars 最后 outer 个是外层的变量；用到的外层变量（按第一次出现的顺序）；改过的外层变量。 *)
+type frame = { outer : int; used : string list ref; written : (string, unit) Hashtbl.t }
+
+let lambda_frame : frame option ref = ref None
+
+(* 在闭包里用到变量 v（write：修改它）：v 是外层的变量时记成捕获。 *)
+let note ?(write = false) (vars : (string * (ty * bool)) list) v =
+  match !lambda_frame with
+  | None -> ()
+  | Some fr -> (
+      let rec find i = function [] -> None | (y, _) :: r -> if y = v then Some i else find (i + 1) r in
+      match find 0 vars with
+      | Some i when i >= List.length vars - fr.outer ->
+          if not (List.mem v !(fr.used)) then fr.used := !(fr.used) @ [ v ];
+          if write then Hashtbl.replace fr.written v ()
+      | _ -> ())
+
+let is_fn = function TFn _ -> true | _ -> false
 
 (* 每个表达式的类型，按表达式 id 记录。 *)
 let types : (int, t) Hashtbl.t = Hashtbl.create 256
@@ -61,7 +94,7 @@ let rec is_linear = function
   | TResult (a, b) -> is_linear a || is_linear b
   | TBox t | TVec t -> is_linear t
   | TParam (_, l) -> l
-  | TI64 | TBool | TStr | TUnit | TRef _ | TArena _ | TApp _ -> false
+  | TI64 | TBool | TStr | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
 
 (* 需要析构（或者是 linear）的类型：这些类型的值只能移动，不能复制。 *)
 let rec needs_drop = function
@@ -78,7 +111,7 @@ let rec needs_drop = function
           | None -> false))
   | TResult (a, b) -> needs_drop a || needs_drop b
   | TParam _ -> true            (* 类型参数按抽象类型检查：可能需要析构，只能移动（Lean M9） *)
-  | TI64 | TBool | TUnit | TRef _ | TArena _ | TApp _ -> false
+  | TI64 | TBool | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
 
 (* 内建函数按值接收可复制的参数，记作 sink；字符串按 let（只读借用）或 inout 传入（C29）。 *)
 let builtins =
@@ -148,6 +181,7 @@ let inout_place env (a : expr) =
   match root a with
   | None -> err a.pos "inout 实参必须是变量、字段或解引用这样的位置"
   | Some v -> (
+      note ~write:true env.vars v;
       match List.assoc_opt v env.vars with
       | Some (_, true) -> ()
       | _ -> err a.pos "%s 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）" v)
@@ -201,7 +235,7 @@ let rec mentions r = function
   | TBox t | TVec t -> mentions r t
   | TResult (a, b) -> mentions r a || mentions r b
   | TStruct n -> List.exists (mentions r) (inst_args n)
-  | TI64 | TBool | TStr | TUnit | TApp _ | TParam _ -> false
+  | TI64 | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> false   (* fn(…) 里不能有区域（check_ty） *)
 
 let rec region_names = function
   | TRef (t, x) -> x :: region_names t
@@ -209,7 +243,7 @@ let rec region_names = function
   | TBox t | TVec t -> region_names t
   | TResult (a, b) -> region_names a @ region_names b
   | TStruct n -> List.concat_map region_names (inst_args n)
-  | TI64 | TBool | TStr | TUnit | TApp _ | TParam _ -> []
+  | TI64 | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> []
 
 let rec rename s = function
   | TRef (t, x) -> TRef (rename s t, Option.value (List.assoc_opt x s) ~default:x)
@@ -259,6 +293,13 @@ let rec check_ty ?(param = false) env pos = function
   | TVec t -> check_ty env pos t
   | TResult (a, b) -> check_ty env pos a; check_ty env pos b
   | TArena _ when not param -> err pos "Arena 只能作为函数参数的类型"
+  | TFn _ when not param ->
+      err pos "函数类型 fn(…) 只能作为函数参数的类型（闭包不能存进变量、字段、Vec，也不能返回）"
+  | TFn (ps, r) ->
+      if List.exists (fun (_, t) -> region_names t <> []) ps || region_names r <> [] then
+        err pos "函数类型 fn(…) 里暂不能有引用或区域";
+      List.iter (fun (_, t) -> check_ty env pos t) ps;
+      check_ty env pos r
   | TRef (t, r) ->
       if not (List.mem_assoc r !regions) then err pos "未知区域 %s" r;
       if region_names t <> [] then err pos "还不支持指向引用或区域的引用";
@@ -297,6 +338,23 @@ let pending : (string * ty list) Queue.t = Queue.create ()
 let requested : (string, unit) Hashtbl.t = Hashtbl.create 16
 
 let inst_name g ts = g ^ "<" ^ String.concat ", " (List.map string_of_ty ts) ^ ">"
+
+(* 闭包（C40）：当前检查的函数会不会生成代码（不是泛型函数、没有 fn(…) 参数；泛型实例、特化、提升出的闭包都是）。
+   只有这时才提升闭包、登记特化、改写调用；其他函数里的闭包只检查。 *)
+let concrete = ref false
+let cur_fn = ref ""
+
+(* 函数体里有闭包、自己又不生成代码的泛型函数：不在定义处降级（它的实例照常降级、检查）。 *)
+let skip_lower : (string, unit) Hashtbl.t = Hashtbl.create 16
+
+(* 还没检查的提升出的闭包和特化：条目、特化里 fn(…) 参数绑定的闭包、这些 fn(…) 参数的名字和类型（仍可在函数体里用）。 *)
+let pending_items : (item * (string * (closure * string list)) list * (string * ty) list) Queue.t = Queue.create ()
+
+(* 调用的改写：调用表达式的 id → 新的函数名和实参，检查完之后换上（和方法调用的名字一样）。 *)
+let rewrites : (int, string * expr list) Hashtbl.t = Hashtbl.create 16
+
+(* 解析过类型的非泛型函数，特化时复制。 *)
+let fn_items : (string, item) Hashtbl.t = Hashtbl.create 16
 
 let inst_of n = Option.map fst (Hashtbl.find_opt inst_tbl n)
 
@@ -348,6 +406,7 @@ let rec resolve sc pos = function
   | TVec t -> TVec (resolve sc pos t)
   | TResult (a, b) -> TResult (resolve sc pos a, resolve sc pos b)
   | TRef (t, r) -> TRef (resolve sc pos t, r)
+  | TFn (ps, r) -> TFn (List.map (fun (m, t) -> (m, resolve sc pos t)) ps, resolve sc pos r)
   | t -> t
 
 and instantiate g ts =
@@ -383,6 +442,7 @@ let rec subst s = function
   | TVec t -> TVec (subst s t)
   | TResult (a, b) -> TResult (subst s a, subst s b)
   | TRef (t, r) -> TRef (subst s t, r)
+  | TFn (ps, r) -> TFn (List.map (fun (m, t) -> (m, subst s t)) ps, subst s r)
   | t -> t
 
 (* 类型里出现的类型参数。 *)
@@ -392,6 +452,7 @@ let rec params_of = function
       match Hashtbl.find_opt inst_tbl n with Some (_, ts) -> List.concat_map params_of ts | None -> [])
   | TBox t | TVec t | TRef (t, _) -> params_of t
   | TResult (a, b) -> params_of a @ params_of b
+  | TFn (ps, r) -> List.concat_map (fun (_, t) -> params_of t) ps @ params_of r
   | TI64 | TBool | TStr | TUnit | TArena _ | TApp _ -> []
 
 (* 协变（C24，Lean M16）：泛型结构体、枚举 g 的第 i 个类型参数只出现在只读的位置时，
@@ -430,7 +491,7 @@ and only_cov p t =
           List.for_all Fun.id
             (List.mapi (fun i t -> (not (List.mem p (params_of t))) || (covariant g i && only_cov p t)) ts)
       | None -> true)
-  | TBox _ | TVec _ | TRef _ -> not (List.mem p (params_of t))
+  | TBox _ | TVec _ | TRef _ | TFn _ -> not (List.mem p (params_of t))
   | TI64 | TBool | TStr | TUnit | TArena _ | TApp _ -> true
 
 let () = covariant_fwd := covariant
@@ -441,6 +502,9 @@ let rec unify s p t =
   | TParam (n, _), t -> if not (List.mem_assoc n !s) then s := (n, t) :: !s
   | TBox p, TBox t | TVec p, TVec t -> unify s p t
   | TResult (a, b), TResult (c, d) -> unify s a c; unify s b d
+  | TFn (ps, r), TFn (qs, u) when List.length ps = List.length qs ->
+      List.iter2 (fun (_, p) (_, q) -> unify s p q) ps qs;
+      unify s r u
   | TStruct a, TStruct b -> (
       match Hashtbl.find_opt inst_tbl a, Hashtbl.find_opt inst_tbl b with
       | Some (g, ps), Some (h, ts) when g = h -> List.iter2 (unify s) ps ts
@@ -448,7 +512,7 @@ let rec unify s p t =
   | _ -> ()
 
 (* 改写函数体里写出的类型（let 标注、var 声明），方法调用换成解析出的函数名（检查过的才有）。
-   fresh：表达式换新的 id（复制出实例时用）。 *)
+   fresh：表达式换新的 id（复制出实例时用）；不是 fresh 时还换上记下的调用改写（C40）。 *)
 let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
   let rec ex (x : expr) =
     let e =
@@ -456,7 +520,10 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | (Int _ | Bool _ | Unit | Str _ | Var _) as d -> d
       | Binop (o, a, b) -> Binop (o, ex a, ex b)
       | Unop (o, a) -> Unop (o, ex a)
-      | Call (f, args) -> Call (callee x f, List.map ex args)
+      | Call (f, args) -> (
+          match if fresh then None else Hashtbl.find_opt rewrites x.id with
+          | Some (g, args) -> Call (g, List.map ex args)
+          | None -> Call (callee x f, List.map ex args))
       | StructLit (n, fs) -> StructLit (n, List.map (fun (f, e) -> (f, ex e)) fs)
       | Field (a, f) -> Field (ex a, f)
       | Deref a -> Deref (ex a)
@@ -466,6 +533,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | Arena (r, b) -> Arena (r, blk b)
       | If (c, a, b) -> If (ex c, blk a, Option.map blk b)
       | Block b -> Block (blk b)
+      | Lambda (ps, a) -> Lambda (ps, ex a)
     in
     { x with e; id = (if fresh then fresh_id () else x.id) }
   and st (s : stmt) =
@@ -492,6 +560,29 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
 let vec_inst (x : expr) b t =
   Hashtbl.replace call_inst x.id [ t ];
   if params_of t = [] then Hashtbl.replace vec_calls (inst_name ("vec_" ^ b) [ t ]) (b, t)
+
+(* 泛型函数 f 按类型实参 ts 的实例：复制函数体（表达式换新的 id），类型参数换成具体类型。 *)
+let instance (f, ts) =
+  match Hashtbl.find gfns f with
+  | Fn g ->
+      let s = List.combine (List.map fst g.tparams) ts in
+      Fn
+        {
+          g with
+          name = inst_name f ts;
+          tparams = [];
+          bounds = [];
+          params = List.map (fun (m, x, t) -> (m, x, subst s t)) g.params;
+          ret = subst s g.ret;
+          body = map_body ~fresh:true (fun _ -> subst s) g.body;
+        }
+  | it -> it
+
+(* 改写调用时新加的实参：变量 v（类型是 t），类型直接记下（C40）。 *)
+let var_expr pos v t =
+  let id = fresh_id () in
+  Hashtbl.replace types id (Ty t);
+  { e = Var v; pos; id }
 
 (* 每个表达式的类型按 id 记下来，给降级用。 *)
 let rec expr env (x : expr) : t =
@@ -556,9 +647,13 @@ and expr1 env (x : expr) : t =
   | Unit -> Ty TUnit
   | Str _ -> Ty TStr
   | Var v -> (
+      note env.vars v;
       match List.assoc_opt v env.vars with
+      | Some (TFn _, _) ->
+          err pos "%s 是函数参数，只能调用它（%s(…)），或者作为实参传给 fn(…) 类型的参数" v v
       | Some (t, _) -> Ty t
       | None -> err pos "未定义的变量 %s" v)
+  | Lambda _ -> err pos "闭包只能直接写在调用的实参里，传给类型是 fn(…) 的参数"
   | Binop (op, a, b) -> (
       let ta = expr env a in
       let tb = expr env b in
@@ -570,8 +665,8 @@ and expr1 env (x : expr) : t =
       | Eq | Ne -> (
           match ta, tb with
           | Ty TStr, _ | _, Ty TStr -> err pos "字符串用 str_eq(a, b) 或 a.eq(b) 比较"
-          | Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _), _
-          | _, Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _) ->
+          | Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _), _
+          | _, Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _) ->
               err pos "只能比较 I64 和 Bool"
           | _ -> ignore (join pos "比较" ta tb); Ty TBool)
       | And | Or -> expect a.pos TBool ta; expect b.pos TBool tb; Ty TBool)
@@ -708,6 +803,124 @@ and method_name env (x : expr) f (r : expr) =
   g
 
 and call env want (x : expr) f args : t =
+  match List.assoc_opt f env.vars with
+  | Some (TFn (pts, r), _) ->
+      (* 调用 fn(…) 参数：实参按参数约定检查；在特化里换成调用绑定的闭包提升出的函数，前面接上捕获（C40） *)
+      note env.vars f;
+      if List.length pts <> List.length args then
+        err x.pos "%s 需要 %d 个参数，实际给了 %d 个" f (List.length pts) (List.length args);
+      List.iter2
+        (fun (m, p) (a : expr) ->
+          ignore (check env p a);
+          if m = MInout then inout_place env a)
+        pts args;
+      (if !concrete then
+         match List.assoc_opt f env.clos with
+         | Some (c, names) ->
+             Hashtbl.replace rewrites x.id
+               (c.cname, List.map2 (fun (_, _, t) n -> var_expr x.pos n t) c.caps names @ args)
+         | None -> ());
+      Ty r
+  | _ -> call_named env want x f args
+
+(* 闭包 |ys| body 作 fn(pts) -> r 类型的参数的实参（C40）：参数的类型取 pts，在原地检查函数体，找出捕获。
+   r 为 None 时只推出函数体的类型（泛型函数的类型实参还没确定时）。会生成代码时把闭包提升成普通函数：
+   捕获在前、闭包的参数在后；名字按位置和类型确定，同一个闭包只提升一次。 *)
+and lambda env (a : expr) ys body pts r : closure * t =
+  let pos = a.pos in
+  if !lambda_frame <> None then err pos "闭包里暂不能再写闭包";
+  if List.length ys <> List.length pts then
+    err pos "闭包有 %d 个参数，这里需要 %d 个" (List.length ys) (List.length pts);
+  List.iteri
+    (fun i y -> if List.mem y (List.filteri (fun j _ -> j < i) ys) then err pos "闭包的参数 %s 重复" y)
+    ys;
+  let fr = { outer = List.length env.vars; used = ref []; written = Hashtbl.create 8 } in
+  let vars = List.rev (List.map2 (fun y (m, t) -> (y, (t, m <> MLet))) ys pts) @ env.vars in
+  let env' = { env with vars; guards = []; ret = Option.value r ~default:TUnit } in
+  let depth = !loop_depth in
+  lambda_frame := Some fr;
+  loop_depth := 0;
+  let t =
+    Fun.protect
+      ~finally:(fun () ->
+        lambda_frame := None;
+        loop_depth := depth)
+      (fun () -> match r with Some r -> check env' r body | None -> expr env' body)
+  in
+  let caps =
+    List.map
+      (fun v ->
+        let t, _ = List.assoc v env.vars in
+        (match t with
+        | TFn _ -> err pos "闭包里暂不能用函数参数 %s（可以把它作为实参直接传下去）" v
+        | TArena _ -> err pos "闭包里暂不能用区域 %s" v
+        | t when region_names t <> [] -> err pos "闭包里暂不能用含引用的变量 %s（类型是 %s）" v (string_of_ty t)
+        | _ -> ());
+        ((if Hashtbl.mem fr.written v then MInout else MLet), v, t))
+      !(fr.used)
+  in
+  let file, line = Ast.locate (if Array.length !Ast.files > 0 then !Ast.files.(0) else "") pos in
+  let tys = List.map (fun (_, _, t) -> string_of_ty t) caps @ [ string_of_ty (TFn (pts, Option.value r ~default:TUnit)) ] in
+  let cname = Printf.sprintf "闭包<%s:%d:%d, %s>" (Filename.basename file) line pos.col (String.concat ", " tys) in
+  (match r with
+  | Some r when !concrete ->
+      if not (Hashtbl.mem requested cname) then begin
+        Hashtbl.replace requested cname ();
+        let params = caps @ List.map2 (fun y (m, t) -> (m, y, t)) ys pts in
+        Hashtbl.replace sigs cname (List.map (fun (m, _, t) -> (m, t)) params, r);
+        let b = match body.e with Block b -> b | _ -> { stmts = []; tail = Some body } in
+        let body = map_body ~fresh:true (fun _ t -> t) b in
+        Queue.add (Fn { name = cname; tparams = []; bounds = []; params; ret = r; body; ipos = pos }, [], []) pending_items
+      end
+  | _ -> if not !concrete then Hashtbl.replace skip_lower !cur_fn ());
+  ({ cname; caps }, t)
+
+(* fn(…) 类型的参数 p 的实参：闭包，或者当前函数的同类型 fn(…) 参数（原样传下去）。
+   返回绑定的闭包和它的捕获在调用处的实参（闭包写在这里时是外层变量本身，传下去的是这个特化里的捕获参数）。 *)
+and fn_arg env f p pts pr (a : expr) : closure * expr list =
+  let bad () = err a.pos "%s 的这个参数是 %s：要写闭包 |…| …，或者传入同类型的函数参数" f (string_of_ty p) in
+  match a.e with
+  | Lambda (ys, body) ->
+      let c, _ = lambda env a ys body pts (Some pr) in
+      (c, List.map (fun (_, v, t) -> var_expr a.pos v t) c.caps)
+  | Var g -> (
+      note env.vars g;
+      match List.assoc_opt g env.vars with
+      | Some ((TFn _ as t), _) -> (
+          if t <> p then err a.pos "类型不匹配：需要 %s，实际是 %s" (string_of_ty p) (string_of_ty t);
+          match List.assoc_opt g env.clos with
+          | Some (c, names) -> (c, List.map2 (fun (_, _, t) n -> var_expr a.pos n t) c.caps names)
+          | None -> ({ cname = ""; caps = [] }, []))
+      | _ -> bad ())
+  | _ -> bad ()
+
+(* 调用带 fn(…) 参数的函数 f：换成调用 f 对这些闭包的特化（第一次用到时生成，名字是 f[闭包, …]），
+   去掉 fn(…) 参数，后面接上每个闭包的捕获（M21：捕获当作额外的实参，排他性在这里一起检查）。 *)
+and specialize (x : expr) f args ps cls =
+  let ts = Hashtbl.find_opt call_inst x.id in
+  let base = match ts with Some ts -> inst_name f ts | None -> f in
+  let name = base ^ "[" ^ String.concat ", " (List.map (fun ((c : closure), _) -> c.cname) cls) ^ "]" in
+  let keep = List.filteri (fun i _ -> not (is_fn (snd (List.nth ps i)))) args in
+  Hashtbl.replace rewrites x.id (name, keep @ List.concat_map snd cls);
+  Hashtbl.remove call_inst x.id;
+  if not (Hashtbl.mem requested name) then begin
+    Hashtbl.replace requested name ();
+    match (match ts with Some ts -> instance (f, ts) | None -> Hashtbl.find fn_items f) with
+    | Fn g ->
+        (* 泛型实例已经复制过；非泛型函数在这里复制（表达式换新的 id） *)
+        let body = if ts = None then map_body ~fresh:true (fun _ t -> t) g.body else g.body in
+        let fparams = List.filter (fun (_, _, t) -> is_fn t) g.params in
+        let binding = List.map2 (fun (_, y, t) (c, _) -> (y, t, c)) fparams cls in
+        let caps = List.concat_map (fun (y, _, c) -> List.map (fun (m, v, t) -> (m, v ^ "@" ^ y, t)) c.caps) binding in
+        let params = List.filter (fun (_, _, t) -> not (is_fn t)) g.params @ caps in
+        Hashtbl.replace sigs name (List.map (fun (m, _, t) -> (m, t)) params, g.ret);
+        let clos = List.map (fun (y, _, c) -> (y, (c, List.map (fun (_, v, _) -> v ^ "@" ^ y) c.caps))) binding in
+        let fvars = List.map (fun (y, t, _) -> (y, t)) binding in
+        Queue.add (Fn { g with name; params; body; tparams = []; bounds = [] }, clos, fvars) pending_items
+    | _ -> assert false
+  end
+
+and call_named env want (x : expr) f args : t =
   let pos = x.pos in
   let ps, r =
     match Hashtbl.find_opt env.fns f with
@@ -721,6 +934,7 @@ and call env want (x : expr) f args : t =
   in
   if List.length ps <> List.length args then
     err pos "%s 需要 %d 个参数，实际给了 %d 个" f (List.length ps) (List.length args);
+  let has_fn = List.exists (fun (_, p) -> is_fn p) ps in
   (* 泛型函数：从期望的返回类型和实参类型推出类型实参，检查约束（普通的 T 不能是 linear 类型），
      然后按具体类型检查实参；类型实参都是具体类型时登记这个实例（Lean M9 的 Respects） *)
   let ps, r =
@@ -729,13 +943,35 @@ and call env want (x : expr) f args : t =
     | Some tps ->
         let s = ref [] in
         Option.iter (fun w -> unify s r w) want;
-        (* .A(e) / .B 自己推不出类型，留到类型实参确定之后按期望类型检查 *)
+        (* .A(e) / .B 自己推不出类型，留到类型实参确定之后按期望类型检查；
+           fn(…) 参数：传下去的函数参数按它的类型推，闭包等别的实参推完之后再推（C40） *)
         List.iter2
           (fun (_, p) (a : expr) ->
-            if List.exists (fun n -> not (List.mem_assoc n !s)) (params_of p)
-               && (match a.e with Variant _ -> false | _ -> true)
-            then
-              match expr env a with Ty t -> unify s p t | Never -> ())
+            if List.exists (fun n -> not (List.mem_assoc n !s)) (params_of p) then
+              match p, a.e with
+              | TFn _, Var g -> (
+                  match List.assoc_opt g env.vars with Some (t, _) -> unify s p t | None -> ())
+              | TFn _, _ | _, Variant _ -> ()
+              | _ -> ( match expr env a with Ty t -> unify s p t | Never -> ()))
+          ps args;
+        (* 闭包的参数类型由别的实参确定，函数体的类型确定返回类型里的类型参数（例如 map 的 U） *)
+        List.iter2
+          (fun (_, p) (a : expr) ->
+            match p, a.e with
+            | TFn (pts, pr), Lambda (ys, body) when List.exists (fun n -> not (List.mem_assoc n !s)) (params_of pr) -> (
+                List.iter
+                  (fun (_, t) ->
+                    List.iter
+                      (fun n ->
+                        if not (List.mem_assoc n !s) then
+                          err a.pos "无法推断闭包参数的类型（%s 的类型参数 %s 要先从别的实参确定）" f n)
+                      (params_of t))
+                  pts;
+                let pts = List.map (fun (m, t) -> (m, subst !s t)) pts in
+                match snd (lambda env a ys body pts None) with
+                | Ty t -> unify s pr t
+                | Never -> ())
+            | _ -> ())
           ps args;
         let ts =
           List.map
@@ -780,9 +1016,10 @@ and call env want (x : expr) f args : t =
         in
         let ts = List.map (rename (List.mapi (fun i r -> (r, "'" ^ string_of_int i)) rs)) ts in
         Hashtbl.replace call_inst x.id ts;
-        (* 方法调用直接用 impl 里的函数，不用生成实例 *)
+        (* 方法调用直接用 impl 里的函数，不用生成实例；带 fn(…) 参数的函数生成的是特化 *)
         if List.for_all (fun t -> params_of t = []) ts
            && (not (Hashtbl.mem methods f))
+           && (not has_fn)
            && not (Hashtbl.mem requested (inst_name f ts))
         then begin
           Hashtbl.replace requested (inst_name f ts) ();
@@ -813,20 +1050,25 @@ and call env want (x : expr) f args : t =
       if region_names p <> [] then match expr env a with Ty t -> bind p t | Never -> ())
     ps args;
   let s = !s in
+  let cls = ref [] in
   List.iter2
     (fun (m, p) (a : expr) ->
       let p = rename s p in
-      ignore (check env p a);
-      if m = MInout then begin
-        inout_place env a;
-        (* inout 实参里的区域不能放宽（不变）：被调用的函数可能往里面写一个活得更短的引用 *)
-        match Hashtbl.find_opt types a.id with
-        | Some (Ty t) when t <> p ->
-            err a.pos "inout 实参的类型要和参数类型完全相同：需要 %s，实际是 %s（区域不能放宽）"
-              (string_of_ty p) (string_of_ty t)
-        | _ -> ()
-      end)
+      match p with
+      | TFn (pts, pr) -> cls := !cls @ [ fn_arg env f p pts pr a ]
+      | _ ->
+          ignore (check env p a);
+          if m = MInout then begin
+            inout_place env a;
+            (* inout 实参里的区域不能放宽（不变）：被调用的函数可能往里面写一个活得更短的引用 *)
+            match Hashtbl.find_opt types a.id with
+            | Some (Ty t) when t <> p ->
+                err a.pos "inout 实参的类型要和参数类型完全相同：需要 %s，实际是 %s（区域不能放宽）"
+                  (string_of_ty p) (string_of_ty t)
+            | _ -> ()
+          end)
     ps args;
+  if has_fn then if !concrete then specialize x f args ps !cls else Hashtbl.replace skip_lower !cur_fn ();
   Ty (rename s r)
 
 (* 结构体字面量。泛型结构体的类型实参取期望的类型，不知道时从字段的值推出来。 *)
@@ -971,6 +1213,7 @@ and block ?want env (b : block) : t =
             (match ty with TArena _ -> err pos "区域不能存进变量" | _ -> ());
             go { env with vars = (v, (ty, mut)) :: env.vars } rest
         | Assign (v, e) ->
+            note ~write:true env.vars v;
             (match List.assoc_opt v env.vars with
             | Some (t, true) -> ignore (check env t e)
             | Some (_, false) -> err pos "%s 是用 let 声明的变量或参数，不能重新赋值（需要的话改用 var / inout）" v
@@ -1000,6 +1243,7 @@ and block ?want env (b : block) : t =
               | Never -> err a.pos "不能给一个不会返回的值的字段赋值"
             in
             path a;
+            Option.iter (note ~write:true env.vars) (root a);
             (match root a with
             | Some v -> (
                 match List.assoc_opt v env.vars with
@@ -1025,6 +1269,7 @@ and block ?want env (b : block) : t =
             in
             let t = match expr env a with Ty t -> t | Never -> err a.pos "不能给一个不会返回的值赋值" in
             path a;
+            Option.iter (note ~write:true env.vars) (root a);
             (match root a with
             | Some v -> (
                 match List.assoc_opt v env.vars with
@@ -1093,6 +1338,8 @@ and block ?want env (b : block) : t =
    出错返回时由它消费。返回这个变量。 *)
 and errdefer env pos (e : expr) =
   match e.e with
+  | Call (f, _) when (match List.assoc_opt f env.vars with Some (TFn _, _) -> true | _ -> false) ->
+      err pos "errdefer 暂不能调用函数参数 %s" f
   | Call (f, args) when f <> "box" ->
       ignore (expr env e);
       let f = callee e f in
@@ -1139,6 +1386,11 @@ let prepare (p : program) =
   Hashtbl.reset gbounds;
   Hashtbl.reset vec_calls;
   Hashtbl.reset method_res;
+  Hashtbl.reset skip_lower;
+  Hashtbl.reset rewrites;
+  Hashtbl.reset fn_items;
+  Queue.clear pending_items;
+  lambda_frame := None;
   (* 内建的 Option<T>：vec_pop 返回它，写法和用户的枚举一样（.Some(x) / .None） *)
   Hashtbl.add gtypes "Option"
     ( [ "T" ],
@@ -1265,6 +1517,7 @@ let prepare (p : program) =
                  || Hashtbl.mem methods m.mname
               then err m.mpos "方法名 %s 和已有的函数或方法同名（暂不支持重载）" m.mname;
               let ps = List.map (fun (md, _, t) -> (md, resolve sc m.mpos t)) m.mparams in
+              if List.exists (fun (_, t) -> is_fn t) ps then err m.mpos "trait 的方法暂不能有 fn(…) 参数";
               let ret = resolve sc m.mpos m.mret in
               if List.exists (fun (_, t) -> region_names t <> []) ps || region_names ret <> [] then
                 err m.mpos "trait 的方法暂不支持区域参数和引用";
@@ -1285,6 +1538,7 @@ let prepare (p : program) =
             (function
               | Fn { name; tparams; params; ret; ipos; _ } ->
                   if tparams <> [] then err ipos "impl 里的方法暂不能有类型参数";
+                  if List.exists (fun (_, _, t) -> is_fn t) params then err ipos "impl 里的方法暂不能有 fn(…) 参数";
                   let sc = [ ("Self", st) ] in
                   Hashtbl.replace fns (inst_name name [ st ])
                     (List.map (fun (md, _, t) -> (md, resolve sc ipos t)) params, resolve sc ipos ret)
@@ -1294,7 +1548,7 @@ let prepare (p : program) =
   Hashtbl.reset sigs;
   Hashtbl.iter (Hashtbl.replace sigs) fns;
   List.iter (fun (f, s) -> Hashtbl.replace sigs f s) (builtins @ vec_sigs);
-  let env0 = { structs = struct_tbl; fns; ret = TUnit; vars = []; guards = []; tbounds = [] } in
+  let env0 = { structs = struct_tbl; fns; ret = TUnit; vars = []; guards = []; tbounds = []; clos = [] } in
   (* 字段和载荷的规则；泛型定义按类型参数是抽象类型的实例检查 *)
   let abstract name tparams =
     if tparams = [] then name
@@ -1411,26 +1665,11 @@ let resolve_items = function
   | Trait _ -> []
   | (Struct _ | Enum _) as it -> [ it ]
 
-(* 泛型函数 f 按类型实参 ts 的实例：复制函数体（表达式换新的 id），类型参数换成具体类型。 *)
-let instance (f, ts) =
-  match Hashtbl.find gfns f with
-  | Fn g ->
-      let s = List.combine (List.map fst g.tparams) ts in
-      Fn
-        {
-          g with
-          name = inst_name f ts;
-          tparams = [];
-          bounds = [];
-          params = List.map (fun (m, x, t) -> (m, x, subst s t)) g.params;
-          ret = subst s g.ret;
-          body = map_body ~fresh:true (fun _ -> subst s) g.body;
-        }
-  | it -> it
-
-(* 检查一个函数。 *)
-let check_fn env0 = function
-  | Fn { params; ret; body; ipos; bounds; _ } ->
+(* 检查一个函数。特化（C40）：clos 是 fn(…) 参数绑定的闭包，fvars 是这些参数（已经从参数里去掉，函数体里仍按名字用）。 *)
+let check_fn ?(clos = []) ?(fvars = []) env0 = function
+  | Fn { name; tparams; params; ret; body; ipos; bounds } ->
+      cur_fn := name;
+      concrete := tparams = [] && not (List.exists (fun (_, _, t) -> is_fn t) params);
       (* 区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3） *)
       regions :=
         List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) params)
@@ -1440,11 +1679,13 @@ let check_fn env0 = function
           check_ty ~param:true env0 ipos t;
           (match t with
           | TArena _ when m <> MLet -> err ipos "区域参数 %s 只能按 let 传入" x
+          | TFn _ when m <> MLet -> err ipos "函数类型的参数 %s 只能按 let 传入（不写约定）" x
           | _ -> ()))
         params;
       check_ty env0 ipos ret;
       let vars = List.rev_map (fun (m, x, t) -> (x, (t, m <> MLet))) params in
-      let env = { env0 with ret; vars; tbounds = bounds } in
+      let vars = List.map (fun (y, t) -> (y, (t, false))) fvars @ vars in
+      let env = { env0 with ret; vars; tbounds = bounds; clos } in
       expect ipos ret (block env ~want:ret body);
       regions := []
   | Struct _ | Enum _ | Trait _ | Impl _ -> ()
@@ -1456,10 +1697,13 @@ let check_main env0 =
   | None -> err { line = 1; col = 1 } "缺少 fn main()"
 
 (* 检查整个程序。返回解析过类型的程序（impl 换成它的方法），后面接上用到的泛型函数实例（单态化），每个实例照常检查。
-   方法调用在检查之后换成解析出的函数名；实例是从检查过的泛型函数复制的，复制时已经换好。 *)
+   方法调用在检查之后换成解析出的函数名；实例是从检查过的泛型函数复制的，复制时已经换好。
+   闭包（C40）：提升出的闭包和特化也接在后面、照常检查；调用的改写在全部检查完之后换上。
+   带 fn(…) 参数的函数本身不输出（只输出它的特化），函数体里有闭包的泛型函数不在定义处降级。 *)
 let program (p : program) : program =
   let env0 = prepare p in
   let p = List.concat_map resolve_items p in
+  List.iter (function Fn f as it -> Hashtbl.replace fn_items f.name it | _ -> ()) p;
   (* C28：函数之间互不影响，每个函数报它的第一个错误；有错误时不再生成泛型实例（免得同一个错误报好几次） *)
   let errs = ref [] in
   let guard g x =
@@ -1470,19 +1714,27 @@ let program (p : program) : program =
   List.iter (guard (check_fn env0)) p;
   guard check_main env0;
   if !errs <> [] then raise (Errors (List.rev !errs));
-  let p =
-    List.map (function Fn f -> Fn { f with body = map_body ~fresh:false (fun _ t -> t) f.body } | it -> it) p
-  in
   let rec drain acc =
+    if List.length acc >= 1000 then
+      err { line = 1; col = 1 } "泛型函数的实例超过 1000 个（可能是多态递归）";
     match Queue.take_opt pending with
-    | None -> List.rev acc
     | Some r ->
-        if List.length acc >= 1000 then
-          err { line = 1; col = 1 } "泛型函数的实例超过 1000 个（可能是多态递归）";
         let it = instance r in
         guard (check_fn env0) it;
         drain (it :: acc)
+    | None -> (
+        match Queue.take_opt pending_items with
+        | Some (it, clos, fvars) ->
+            guard (check_fn ~clos ~fvars env0) it;
+            drain (it :: acc)
+        | None -> List.rev acc)
   in
   let insts = drain [] in
   if !errs <> [] then raise (Errors (List.rev !errs));
-  p @ insts
+  List.filter_map
+    (function
+      | Fn f when List.exists (fun (_, _, t) -> is_fn t) f.params -> None
+      | Fn f when f.tparams <> [] && Hashtbl.mem skip_lower f.name -> None
+      | Fn f -> Some (Fn { f with body = map_body ~fresh:false (fun _ t -> t) f.body })
+      | it -> Some it)
+    (p @ insts)

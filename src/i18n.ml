@@ -234,6 +234,29 @@ let table =
      "the body of for {1} in inout {2} cannot use {3} ({4} is lent to the loop: no push, pop, read or reborrow)");
     ("%s 不可修改，不能给它的元素赋值（需要 var 变量或 inout / sink 参数）",
      "{1} is not mutable, cannot assign to its element (needs a var variable or an inout / sink parameter)");
+    (* C40 闭包 *)
+    ("函数类型 fn(…) 只能作为函数参数的类型（闭包不能存进变量、字段、Vec，也不能返回）",
+     "a function type fn(…) can only be the type of a function parameter (closures cannot be stored in variables, fields or Vecs, or returned)");
+    ("函数类型 fn(…) 里暂不能有引用或区域", "function types fn(…) cannot contain references or regions yet");
+    ("%s 是函数参数，只能调用它（%s(…)），或者作为实参传给 fn(…) 类型的参数",
+     "{1} is a function parameter: it can only be called ({2}(…)) or passed on to a parameter of type fn(…)");
+    ("闭包只能直接写在调用的实参里，传给类型是 fn(…) 的参数",
+     "a closure can only be written directly as a call argument, for a parameter of type fn(…)");
+    ("闭包里暂不能再写闭包", "closures inside closures are not supported yet");
+    ("闭包有 %d 个参数，这里需要 %d 个", "the closure has {1} parameters, {2} expected here");
+    ("闭包的参数 %s 重复", "closure parameter {1} is repeated");
+    ("闭包里暂不能用函数参数 %s（可以把它作为实参直接传下去）",
+     "a closure cannot use the function parameter {1} yet (pass it on directly as an argument instead)");
+    ("闭包里暂不能用区域 %s", "a closure cannot use the region {1} yet");
+    ("闭包里暂不能用含引用的变量 %s（类型是 %s）", "a closure cannot use {1}, which contains references, yet (its type is {2})");
+    ("%s 的这个参数是 %s：要写闭包 |…| …，或者传入同类型的函数参数",
+     "this parameter of {1} has type {2}: write a closure |…| …, or pass a function parameter of the same type");
+    ("无法推断闭包参数的类型（%s 的类型参数 %s 要先从别的实参确定）",
+     "cannot infer the closure's parameter types (type parameter {2} of {1} must be determined by another argument first)");
+    ("errdefer 暂不能调用函数参数 %s", "errdefer cannot call the function parameter {1} yet");
+    ("trait 的方法暂不能有 fn(…) 参数", "trait methods cannot have fn(…) parameters yet");
+    ("impl 里的方法暂不能有 fn(…) 参数", "methods in an impl cannot have fn(…) parameters yet");
+    ("函数类型的参数 %s 只能按 let 传入（不写约定）", "function-typed parameter {1} must be passed as let (write no mode)");
   ]
 
 (* 填进信息里的固定中文短语。 *)

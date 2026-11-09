@@ -1,4 +1,4 @@
-// std.vec：Vec<T> 的常用函数。比较元素用 std.math 的 Eq。
+// std.vec：Vec<T> 的常用函数。比较元素用 std.math 的 Eq；map、filter 等接收闭包（C40）。
 use std.math
 
 pub fn sum(v: Vec<I64>) -> I64 {
@@ -47,4 +47,69 @@ pub fn reverse<T>(inout v: Vec<T>) {
         }
     }
     v = out
+}
+
+// 下面几个函数接收闭包（C40，Lean M21）：闭包只能当实参传，可以读、改外面的变量，例如
+//   vec.map(v, |x| x * k)、vec.for_each(v, |x| { total = total + x })。
+
+// 对每个元素调用 f，结果按顺序放进新的 Vec。
+pub fn map<T, U>(v: Vec<T>, f: fn(T) -> U) -> Vec<U> {
+    var out: Vec<U> = vec_new()
+    for x in v {
+        out.push(f(x))
+    }
+    out
+}
+
+// 留下 f 为真的元素（按原来的顺序），其余的析构。元素是移动进来的，所以 v 按 sink 传入。
+pub fn filter<T>(sink v: Vec<T>, f: fn(T) -> Bool) -> Vec<T> {
+    var kept: Vec<T> = vec_new()
+    var go = true
+    while go {
+        match vec_pop(v) {
+            .Some(x) => {
+                if f(x) { kept.push(x) }
+            },
+            .None => { go = false }
+        }
+    }
+    reverse(kept)
+    kept
+}
+
+pub fn any<T>(v: Vec<T>, f: fn(T) -> Bool) -> Bool {
+    for x in v {
+        if f(x) { return true }
+    }
+    false
+}
+
+pub fn all<T>(v: Vec<T>, f: fn(T) -> Bool) -> Bool {
+    for x in v {
+        if !f(x) { return false }
+    }
+    true
+}
+
+pub fn count<T>(v: Vec<T>, f: fn(T) -> Bool) -> I64 {
+    var n = 0
+    for x in v {
+        if f(x) { n = n + 1 }
+    }
+    n
+}
+
+pub fn for_each<T>(v: Vec<T>, f: fn(T)) {
+    for x in v {
+        f(x)
+    }
+}
+
+// 从 init 开始，依次把累积值和每个元素交给 f，得到新的累积值。
+pub fn fold<T, A>(v: Vec<T>, sink init: A, f: fn(A, T) -> A) -> A {
+    var acc = init
+    for x in v {
+        acc = f(acc, x)
+    }
+    acc
 }

@@ -106,7 +106,7 @@ let rec mangle = function
   | TResult (a, b) -> "R" ^ mangle a ^ "_" ^ mangle b ^ "_"
   | TRef (t, _) -> "P" ^ mangle t
   | TArena _ -> "A"
-  | TApp _ | TParam _ -> failwith "泛型的类型参数不会出现在生成的 C 里"
+  | TApp _ | TParam _ | TFn _ -> failwith "泛型的类型参数和函数类型不会出现在生成的 C 里"
 
 let rec cty = function
   | TI64 -> "int64_t"
@@ -119,7 +119,7 @@ let rec cty = function
   | TVec _ as t -> "S_" ^ mangle t
   | TRef (t, _) -> cty t ^ "*"
   | TArena _ -> "sn_arena"
-  | TApp _ | TParam _ -> failwith "泛型的类型参数不会出现在生成的 C 里"
+  | TApp _ | TParam _ | TFn _ -> failwith "泛型的类型参数和函数类型不会出现在生成的 C 里"
 
 (* 析构一个值：先析构 Box 里面的值，再释放 Box；字符串释放它的字节；结构体、枚举（含 Result）调用这个类型的析构函数。
    析构函数每个类型一个（type_defs 生成），所以经过 Box 的递归类型（链表、树）的析构是递归调用（Lean M11）。 *)
@@ -130,7 +130,7 @@ let rec drop_code ty lv =
   | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
   | TStr -> Printf.sprintf "sn_free(%s.p); " lv
   | (TStruct _ | TResult _ | TVec _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
-  | TI64 | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ -> ""
+  | TI64 | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ | TFn _ -> ""
 
 (* 析构函数的函数体：结构体逐个析构字段；枚举按运行时标签析构对应变体的载荷（Lean M8 的 dropOne）；
    Vec 逐个析构元素，再释放缓冲区（Lean M12）。 *)
@@ -210,7 +210,7 @@ let type_defs (p : program) (fs : Mir.func list) =
           (fun (f : field) -> Buffer.add_string defs (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname))
           fields;
         Buffer.add_string defs " };\n"
-    | (TI64 | TBool | TStr | TUnit | TArena _ | TResult _ | TApp _ | TParam _), _ -> ()
+    | (TI64 | TBool | TStr | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _), _ -> ()
   in
   List.iter
     (function

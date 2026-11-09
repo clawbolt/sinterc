@@ -2,6 +2,9 @@
 
 type pos = { line : int; col : int }
 
+(* 参数约定：let 只读借用（默认），inout 可变借用，sink 转移所有权。 *)
+type mode = MLet | MInout | MSink
+
 type ty =
   | TI64
   | TBool
@@ -15,6 +18,7 @@ type ty =
   | TArena of string    (* 区域本身，只能作为函数参数类型或 arena 块引入的名字 *)
   | TApp of string * ty list   (* Option<I64>：泛型结构体或枚举加类型实参；类型检查时换成具体的 TStruct *)
   | TParam of string * bool    (* 泛型函数里的类型参数 T；true：T: linear（Lean M9） *)
+  | TFn of (mode * ty) list * ty   (* fn(T) -> U：只能作为函数参数的类型，实参是闭包（C40，Lean M21） *)
 
 type binop =
   | Add | Sub | Mul | Div | Rem
@@ -45,6 +49,7 @@ and expr_desc =
   | Arena of string * block   (* arena |a| { … } *)
   | If of expr * block * block option
   | Block of block
+  | Lambda of string list * expr   (* |x, y| e：闭包，只能写在类型是 fn(…) 的参数的实参位置（C40） *)
 
 and stmt = { s : stmt_desc; spos : pos }
 
@@ -67,9 +72,6 @@ and stmt_desc =
 and block = { stmts : stmt list; tail : expr option }
 
 type field = { fname : string; fty : ty }
-
-(* 参数约定：let 只读借用（默认），inout 可变借用，sink 转移所有权。 *)
-type mode = MLet | MInout | MSink
 
 (* tparams：类型参数，true 表示标了 linear（只有函数可以标）。
    bounds：函数类型参数的 trait 约束，(T, Show) 表示 T: Show。 *)
@@ -130,3 +132,6 @@ let rec string_of_ty = function
   | TArena _ -> "Arena"
   | TApp (n, ts) -> n ^ "<" ^ String.concat ", " (List.map string_of_ty ts) ^ ">"
   | TParam (n, _) -> n
+  | TFn (ps, r) ->
+      let m = function MLet -> "" | MInout -> "inout " | MSink -> "sink " in
+      "fn(" ^ String.concat ", " (List.map (fun (md, t) -> m md ^ string_of_ty t) ps) ^ ") -> " ^ string_of_ty r

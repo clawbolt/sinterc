@@ -97,6 +97,7 @@ let for_inout pos x (v : expr) body =
       | Arena (n, b) -> Arena (n, if n = x then check_block b else blk b)
       | If (c, b1, b2) -> If (ex c, blk b1, Option.map blk b2)
       | Block b -> Block (blk b)
+      | Lambda (ps, b) -> Lambda (ps, if List.mem x ps then check_only b else ex b)
     in
     { a with e = d }
   (* x 被遮住之后：不再替换，但仍然不能提到 v *)
@@ -106,7 +107,7 @@ let for_inout pos x (v : expr) body =
       | Var y when y = r -> mention a.pos
       | Int _ | Bool _ | Unit | Str _ | Var _ -> ()
       | Binop (_, b, c) -> scan b; scan c
-      | Unop (_, b) | Field (b, _) | Deref b | Try b -> scan b
+      | Unop (_, b) | Field (b, _) | Deref b | Try b | Lambda (_, b) -> scan b
       | Call (_, bs) -> List.iter scan bs
       | StructLit (_, fs) -> List.iter (fun (_, b) -> scan b) fs
       | Variant (_, b) -> Option.iter scan b
@@ -199,6 +200,7 @@ let ty_of_name = function
 %token PLUS MINUS STAR SLASH PERCENT BANG
 %token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
 
+%nonassoc LAMBDA   (* 闭包的函数体尽量往后延伸：|x| x + 1 是 |x| (x + 1) *)
 %left OROR
 %left ANDAND
 %nonassoc EQEQ NE LT LE GT GE
@@ -314,6 +316,13 @@ ty:
   | BOX LT t = ty GT { TBox t }
   | AMP t = ty IN r = IDENT { TRef (t, r) }
   | RESULT LT t = ty COMMA e = ty GT { TResult (t, e) }
+  | FN LPAREN ps = separated_list(COMMA, fn_param) RPAREN r = ret { TFn (ps, r) }
+
+(* 函数类型 fn(T, inout U) 的参数：约定和类型（C40） *)
+fn_param:
+  | t = ty { (MLet, t) }
+  | INOUT t = ty { (MInout, t) }
+  | SINK t = ty { (MSink, t) }
 
 ret:
   | { TUnit }
@@ -374,6 +383,9 @@ expr:
   | STAR e = expr %prec UNARY { mk (Deref e) $startpos }
   | i = if_expr { i }
   | b = block { mk (Block b) $startpos }
+  (* 闭包（C40）：|x, y| e，没有参数时写 || e *)
+  | BAR ps = separated_list(COMMA, IDENT) BAR e = expr %prec LAMBDA { mk (Lambda (ps, e)) $startpos }
+  | OROR e = expr %prec LAMBDA { mk (Lambda ([], e)) $startpos }
 
 if_expr:
   | IF c = expr b = block { mk (If (c, b, None)) $startpos }

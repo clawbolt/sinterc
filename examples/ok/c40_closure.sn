@@ -1,0 +1,44 @@
+use std.vec
+
+fn apply_twice(x: I64, f: fn(I64) -> I64) -> I64 {
+    f(f(x))
+}
+
+// 把闭包原样传下去
+fn total_of(v: Vec<I64>, f: fn(I64) -> I64) -> I64 {
+    vec.fold(v, 0, |a, x| a + x) + vec.count(v, |x| x > 100) + apply_twice(0, f)
+}
+
+fn main() {
+    var v: Vec<I64> = vec_new()
+    for i in 1..6 {
+        v.push(i)
+    }
+    let k = 10
+    let w = vec.map(v, |x| x * k)
+    for x in w {
+        print_i64(x)
+    }
+    print_bool(vec.any(v, |x| x > 4))
+    print_bool(vec.all(v, |x| x > 4))
+    var total = 0
+    vec.for_each(v, |x| { total = total + x })
+    print_i64(total)
+    print_i64(vec.fold(v, 0, |a, x| a * 10 + x))
+    let odd = vec.filter(w, |x| x % 20 != 0)
+    for x in odd {
+        print_i64(x)
+    }
+    print_i64(apply_twice(3, |x| x + k))
+    print_i64(total_of(v, |x| x + 1))
+    var names: Vec<Str> = vec_new()
+    names.push("ann")
+    names.push("bob")
+    let shout = vec.map(names, |s| str_concat(s, "!"))
+    for s in shout {
+        print(s)
+    }
+    print_i64(vec.count(names, |s| str_eq(s, "bob")))
+    let long = vec.filter(names, |s| s.len() > 2)
+    print_i64(vec_len(long))
+}

@@ -96,6 +96,7 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
     | TVec t -> TVec (ty pos t)
     | TResult (a, b) -> TResult (ty pos a, ty pos b)
     | TRef (t, r) -> TRef (ty pos t, r)
+    | TFn (ps, r) -> TFn (List.map (fun (m, t) -> (m, ty pos t)) ps, ty pos r)
     | (TI64 | TBool | TStr | TUnit | TArena _ | TParam _) as t -> t
   in
   let binder pos x =
@@ -135,6 +136,9 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
       | Arena (r, b) -> Arena (r, blk b)
       | If (c, a, b) -> If (ex c, blk a, Option.map blk b)
       | Block b -> Block (blk b)
+      | Lambda (ps, a) ->
+          List.iter (binder pos) ps;
+          Lambda (ps, ex a)
     in
     { x with e }
   and st (s : stmt) =

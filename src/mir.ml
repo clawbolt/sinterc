@@ -334,6 +334,7 @@ let rec expr st env (x : expr) : operand option =
       st.cur <- join;
       result t ty x.pos
   | Block b -> block st env b
+  | Lambda _ -> failwith "闭包在类型检查之后已经换成提升出来的函数（C40）"
   | Arena (r, b) ->
       (* 块的值先存进块外的临时变量，再释放区域：值的类型不含这个区域（R3），可以安全带出 *)
       let l = new_local ~pos:x.pos st r (TArena r) in
