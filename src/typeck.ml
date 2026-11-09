@@ -98,6 +98,11 @@ let builtins =
     "str_byte", ([ (MLet, TStr); (MSink, TI64) ], TI64);
     "str_slice", ([ (MLet, TStr); (MSink, TI64); (MSink, TI64) ], TStr);
     "choose", ([], TBool);       (* 对照测试用：按运行时给定的选择序列返回真假 *)
+    (* C36（Lean S3）：命令行参数（不含程序名）；读整个文件；把文件换成 s（先写临时文件再 rename，失败时原文件不变）。
+       出错时 Err(说明)，返回的字符串都是新分配的 *)
+    "args", ([], TVec TStr);
+    "read_file", ([ (MLet, TStr) ], TResult (TStr, TStr));
+    "write_file", ([ (MLet, TStr); (MLet, TStr) ], TResult (TUnit, TStr));
   ]
 
 (* 字符串的方法调用：s.len() 就是 str_len(s)。 *)

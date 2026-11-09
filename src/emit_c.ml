@@ -7,8 +7,12 @@ let prelude = {|#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 static void sn_panic(const char *m) { fflush(stdout); fprintf(stderr, "panic: %s\n", m); exit(101); }
+/* 命令行参数（C36）：main 里记下来，args() 读。 */
+static int sn_argc = 0;
+static char **sn_argv = 0;
 static int64_t sn_add(int64_t a, int64_t b) { int64_t r; if (__builtin_add_overflow(a, b, &r)) sn_panic("整数溢出"); return r; }
 static int64_t sn_sub(int64_t a, int64_t b) { int64_t r; if (__builtin_sub_overflow(a, b, &r)) sn_panic("整数溢出"); return r; }
 static int64_t sn_mul(int64_t a, int64_t b) { int64_t r; if (__builtin_mul_overflow(a, b, &r)) sn_panic("整数溢出"); return r; }
@@ -224,6 +228,11 @@ let type_defs (p : program) (fs : Mir.func list) =
   let opt_str = Typeck.instantiate "Option" [ TStr ] and opt_i64 = Typeck.instantiate "Option" [ TI64 ] in
   visit opt_str;
   visit opt_i64;
+  (* args、read_file、write_file 的返回类型（C36） *)
+  let vstr = TVec TStr and rstr = TResult (TStr, TStr) and runit = TResult (TUnit, TStr) in
+  visit vstr;
+  visit rstr;
+  visit runit;
   while not (Queue.is_empty later) do
     visit (Queue.pop later)
   done;
@@ -281,6 +290,49 @@ let type_defs (p : program) (fs : Mir.func list) =
        \  return (%s){ .tag = 0, .u.v0 = n };\n\
         }\n"
        os os os oi oi oi oi oi);
+  (* 文件与参数（C36，Lean S3）。出错说明是“路径：系统的说明”。
+     write_file 先写到 path.sinter-tmp，写完、关闭都成功后 rename 换上去（原子的）；任何一步失败都删掉临时文件、原文件不变。 *)
+  let vs = cty vstr and rs = cty rstr and ru = cty runit in
+  Buffer.add_string helpers
+    (Printf.sprintf
+       "static sn_str sn_io_err(const char *path) {\n\
+       \  char b[512]; int n = snprintf(b, sizeof b, \"%%s：%%s\", path, strerror(errno));\n\
+       \  if (n < 0) n = 0; if (n >= (int)sizeof b) n = (int)sizeof b - 1;\n\
+       \  return sn_str_make(b, n);\n\
+        }\n\
+        static %s u_args(void) {\n\
+       \  %s r = { 0, 0, 0 };\n\
+       \  int n = sn_argc > 1 ? sn_argc - 1 : 0;\n\
+       \  if (n > 0) { r.data = sn_alloc((size_t)n * sizeof(sn_str)); r.cap = n; }\n\
+       \  for (int i = 0; i < n; i++) r.data[r.len++] = u_str_lit(sn_argv[i + 1]);\n\
+       \  return r;\n\
+        }\n\
+        static %s u_read_file(const sn_str *path) {\n\
+       \  FILE *f = fopen(path->p, \"rb\");\n\
+       \  if (!f) return (%s){ .tag = 1, .u.v1 = sn_io_err(path->p) };\n\
+       \  int64_t cap = 256; sn_str r; r.p = sn_alloc((size_t)cap); r.len = 0; size_t k;\n\
+       \  while ((k = fread(r.p + r.len, 1, (size_t)(cap - 1 - r.len), f)) > 0) {\n\
+       \    r.len += (int64_t)k;\n\
+       \    if (r.len + 1 >= cap) { cap *= 2; r.p = sn_realloc(r.p, (size_t)cap); }\n\
+       \  }\n\
+       \  if (ferror(f)) { sn_str e = sn_io_err(path->p); fclose(f); sn_free(r.p); return (%s){ .tag = 1, .u.v1 = e }; }\n\
+       \  fclose(f);\n\
+       \  r.p[r.len] = 0;\n\
+       \  return (%s){ .tag = 0, .u.v0 = r };\n\
+        }\n\
+        static %s u_write_file(const sn_str *path, const sn_str *s) {\n\
+       \  size_t n = (size_t)path->len + 16; char *tmp = malloc(n);\n\
+       \  if (!tmp) sn_panic(\"内存不足\");\n\
+       \  snprintf(tmp, n, \"%%s.sinter-tmp\", path->p);\n\
+       \  FILE *f = fopen(tmp, \"wb\");\n\
+       \  if (!f) { sn_str e = sn_io_err(path->p); free(tmp); return (%s){ .tag = 1, .u.v1 = e }; }\n\
+       \  bool ok = fwrite(s->p, 1, (size_t)s->len, f) == (size_t)s->len;\n\
+       \  if (!ok) { sn_str e = sn_io_err(path->p); fclose(f); remove(tmp); free(tmp); return (%s){ .tag = 1, .u.v1 = e }; }\n\
+       \  if (fclose(f) != 0 || rename(tmp, path->p) != 0) { sn_str e = sn_io_err(path->p); remove(tmp); free(tmp); return (%s){ .tag = 1, .u.v1 = e }; }\n\
+       \  free(tmp);\n\
+       \  return (%s){ .tag = 0 };\n\
+        }\n"
+       vs vs rs rs rs rs ru ru ru ru ru);
   Buffer.contents fwd ^ Buffer.contents defs ^ Buffer.contents protos ^ Buffer.contents bodies
   ^ Buffer.contents helpers
 
@@ -445,7 +497,8 @@ let program ?batch (p : program) (fs : Mir.func list) : string =
   (match batch with
   | None ->
       add
-        "int main(void) {\n\
+        "int main(int argc, char **argv) {\n\
+        \  sn_argc = argc; sn_argv = argv;\n\
         \  u_main();\n\
         \  if (sn_live != 0) { fprintf(stderr, \"leak: %lld 个 Box 没有释放\\n\", sn_live); return 102; }\n\
         \  return 0;\n\

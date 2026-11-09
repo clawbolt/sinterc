@@ -1,0 +1,15 @@
+// C36：文件与参数。read_file、write_file 返回的 Result 按移动 match，Err 里的说明被析构；args() 的 Vec 逐个析构。
+fn copy_first(a: Vec<Str>) -> Result<(), Str> {
+    if vec_len(a) < 2 { return Err("用法：程序 源文件 目标文件") }
+    let text = read_file(vec_get(a, 0))?
+    write_file(vec_get(a, 1), text)?
+    Ok(())
+}
+
+fn main() {
+    let a = args()
+    match copy_first(a) {
+        Ok(_) => print("复制好了"),
+        Err(e) => print(e)
+    }
+}

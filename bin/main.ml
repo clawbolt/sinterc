@@ -1,5 +1,5 @@
 (* 用法：
-     sinterc run 源文件.sn            编译并运行，退出码就是程序的退出码
+     sinterc run 源文件.sn [参数…]    编译并运行，后面的参数交给程序（args()），退出码就是程序的退出码
      sinterc build 源文件.sn [-o 程序]  编译成可执行文件（默认和源文件同名，去掉 .sn）
      sinterc 源文件.sn [-o 输出.c]     只生成 C（不给 -o 时写到标准输出）
      sinterc --version / --help
@@ -23,7 +23,7 @@ let help () =
   I18n.pick
     ("Sinter 编译器 sinterc " ^ version ^ "\n\n\
       用法：\n\
-     \  sinterc run 源文件.sn             编译并运行\n\
+     \  sinterc run 源文件.sn [参数…]     编译并运行\n\
      \  sinterc build 源文件.sn [-o 程序]  编译成可执行文件\n\
      \  sinterc 源文件.sn [-o 输出.c]      只生成 C\n\
      \  sinterc --version | --help\n\n\
@@ -31,7 +31,7 @@ let help () =
       --lang=en 或 SINTER_LANG=en：英文的错误信息。\n")
     ("Sinter compiler sinterc " ^ version ^ "\n\n\
       Usage:\n\
-     \  sinterc run FILE.sn             compile and run\n\
+     \  sinterc run FILE.sn [ARGS…]     compile and run\n\
      \  sinterc build FILE.sn [-o EXE]  compile to an executable\n\
      \  sinterc FILE.sn [-o OUT.c]      emit C only\n\
      \  sinterc --version | --help\n\n\
@@ -79,8 +79,11 @@ let () =
     | ("--help" | "-h") :: _ -> print_string (help ()); exit 0
     | _ -> (Emit, argv)
   in
+  (* run：源文件后面的都是给程序的参数（C36 的 args()） *)
+  let prog_args = ref [] in
   let rec args = function
     | [] -> ()
+    | rest when mode = Run && !file <> None -> prog_args := rest
     | "-o" :: o :: rest -> out := Some o; args rest
     | "--emit=core" :: rest -> core := true; args rest
     | "--emit=c" :: rest -> core := false; args rest
@@ -206,6 +209,6 @@ let () =
       cc c exe;
       Sys.remove c;
       flush_all ();
-      let code = Sys.command (Filename.quote exe) in
+      let code = Sys.command (String.concat " " (List.map Filename.quote (exe :: !prog_args))) in
       Sys.remove exe;
       exit code
