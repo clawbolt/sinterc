@@ -14,9 +14,26 @@ open Sinter
 let version = "0.1.0"
 
 (* 位置可能在引入的模块里（C34）：换回那个文件的名字和行号。 *)
-let fail file (pos : Ast.pos) msg =
+let report file (pos : Ast.pos) msg =
   let file, line = Ast.locate file pos in
-  Printf.eprintf "%s:%d:%d: %s%s\n" file line pos.col (I18n.pick "错误：" "error: ") (I18n.msg msg);
+  Printf.eprintf "%s:%d:%d: %s%s\n" file line pos.col (I18n.pick "错误：" "error: ") (I18n.msg msg)
+
+let fail file pos msg =
+  report file pos msg;
+  exit 1
+
+(* 一次报多个错误（C28）：按位置排序（行号里含文件的序号，所以先按文件），最多显示 20 个。 *)
+let max_errors = 20
+
+let fail_many file errs =
+  let errs = List.sort_uniq (fun ((p : Ast.pos), m) ((q : Ast.pos), n) -> compare (p.line, p.col, m) (q.line, q.col, n)) errs in
+  List.iteri (fun i (pos, msg) -> if i < max_errors then report file pos msg) errs;
+  let n = List.length errs in
+  if n > max_errors then
+    prerr_endline
+      (I18n.pick
+         (Printf.sprintf "（还有 %d 个错误没有显示）" (n - max_errors))
+         (Printf.sprintf "(%d more errors not shown)" (n - max_errors)));
   exit 1
 
 let help () =
@@ -168,21 +185,33 @@ let () =
     exit (if !only_lean = [] && !internal = [] then 0 else 1)
   end;
   (* 类型检查、降级、所有权检查、投影与排他性检查都可能报错。
-     泛型函数本身也降级并检查（定义处检查，Lean M9），但只输出它的实例。 *)
+     泛型函数本身也降级并检查（定义处检查，Lean M9），但只输出它的实例。
+     C28：类型检查有错误时报出所有函数的类型错误就停下；都通过时，每个函数各自降级、检查，报出所有函数的所有权错误 *)
   let prog, fs =
     try
       Typeck.lax_regions := !unchecked;
       let prog = Typeck.program prog in
       let check = not !unchecked in
+      let errs = ref [] in
       let fs =
-        List.map
-          (fun f ->
-            let f = Own.elaborate ~check f in
-            if check then Borrow.check f else f)
-          (Mir.lower prog)
+        List.concat_map
+          (fun it ->
+            try
+              List.map
+                (fun f ->
+                  let f = Own.elaborate ~check f in
+                  if check then Borrow.check f else f)
+                (Mir.lower [ it ])
+            with Typeck.Error (pos, msg) ->
+              errs := (pos, msg) :: !errs;
+              [])
+          prog
       in
+      if !errs <> [] then fail_many file !errs;
       (prog, List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) fs)
-    with Typeck.Error (pos, msg) -> fail file pos msg
+    with
+    | Typeck.Error (pos, msg) -> fail file pos msg
+    | Typeck.Errors errs -> fail_many file errs
   in
   let text = if !core then Emit_core.program ~expect_ok:(not !unchecked) fs else I18n.runtime (Emit_c.program prog fs) in
   let write o =

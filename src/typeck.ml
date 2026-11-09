@@ -5,6 +5,8 @@ open Ast
 
 exception Error of pos * string
 
+(* 一次报多个错误（C28）：每个函数各自的第一个错误，按出现顺序。 *)
+exception Errors of (pos * string) list
 let err pos fmt = Printf.ksprintf (fun m -> raise (Error (pos, m))) fmt
 
 type t = Ty of ty | Never
@@ -1419,8 +1421,16 @@ let check_main env0 =
 let program (p : program) : program =
   let env0 = prepare p in
   let p = List.concat_map resolve_items p in
-  List.iter (check_fn env0) p;
-  check_main env0;
+  (* C28：函数之间互不影响，每个函数报它的第一个错误；有错误时不再生成泛型实例（免得同一个错误报好几次） *)
+  let errs = ref [] in
+  let guard g x =
+    try g x with Error (pos, msg) ->
+      regions := [];
+      errs := (pos, msg) :: !errs
+  in
+  List.iter (guard (check_fn env0)) p;
+  guard check_main env0;
+  if !errs <> [] then raise (Errors (List.rev !errs));
   let p =
     List.map (function Fn f -> Fn { f with body = map_body ~fresh:false (fun _ t -> t) f.body } | it -> it) p
   in
@@ -1431,7 +1441,9 @@ let program (p : program) : program =
         if List.length acc >= 1000 then
           err { line = 1; col = 1 } "泛型函数的实例超过 1000 个（可能是多态递归）";
         let it = instance r in
-        check_fn env0 it;
+        guard (check_fn env0) it;
         drain (it :: acc)
   in
-  p @ drain []
+  let insts = drain [] in
+  if !errs <> [] then raise (Errors (List.rev !errs));
+  p @ insts
