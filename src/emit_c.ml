@@ -9,6 +9,8 @@ let prelude = {|#include <stdint.h>
 #include <string.h>
 #include <errno.h>
 
+/* () 的值（C37）：只有一个值，存成一个字节的 0。 */
+typedef char sn_unit;
 static void sn_panic(const char *m) { fflush(stdout); fprintf(stderr, "panic: %s\n", m); exit(101); }
 /* 命令行参数（C36）：main 里记下来，args() 读。 */
 static int sn_argc = 0;
@@ -108,7 +110,7 @@ let rec cty = function
   | TI64 -> "int64_t"
   | TBool -> "bool"
   | TStr -> "sn_str"
-  | TUnit -> "void"
+  | TUnit -> "sn_unit"   (* 存值的地方（变量、字段、载荷、Vec 元素）占一个字节；函数返回 () 时仍是 void *)
   | TStruct n -> sname n
   | TBox t -> cty t ^ "*"
   | TResult _ as t -> "S_" ^ mangle t
@@ -354,6 +356,7 @@ let place f (p : Mir.place) =
 let operand f = function
   | Mir.Const (Mir.CInt n) -> Printf.sprintf "INT64_C(%Ld)" n
   | Mir.Const (Mir.CBool b) -> if b then "true" else "false"
+  | Mir.Const Mir.CUnit -> "0"
   | Mir.Const (Mir.CStr s) ->
       (* C 的字符串字面量：可打印的 ASCII 原样写，其余字节（包括 UTF-8 的中文）写成八进制转义 *)
       let b = Buffer.create (String.length s + 2) in
@@ -432,7 +435,7 @@ let signature (f : Mir.func) =
       String.concat ", "
         (List.map (fun l -> Printf.sprintf "%s l%d" (lty f.locals.(l)) l) f.params)
   in
-  Printf.sprintf "static %s %s(%s)" (cty f.ret) (fname f.name) ps
+  Printf.sprintf "static %s %s(%s)" (if f.ret = TUnit then "void" else cty f.ret) (fname f.name) ps
 
 let func b (f : Mir.func) =
   let add s = Buffer.add_string b s in

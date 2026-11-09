@@ -19,6 +19,7 @@ type proj =
 type place = { base : local; proj : proj list; at : pos }
 
 type const = CInt of int64 | CBool of bool | CStr of string   (* CStr：字符串字面量的字节，只作为 str_lit 的实参 *)
+  | CUnit   (* ()：只有一个值，所以 () 类型的表达式求完副作用后的值总是它（C37） *)
 
 type operand =
   | Const of const
@@ -290,15 +291,20 @@ let rec expr st env (x : expr) : operand option =
       let f = match Hashtbl.find_opt Typeck.call_inst x.id with Some ts -> Typeck.inst_name f ts | None -> f in
       value st x (Call (f, os))
   | StructLit (n, inits) ->
-      let fs = List.map (fun (f, e) -> (f, Option.get (expr st env e))) inits in
+      let fs = List.map (fun (f, e) -> (f, Option.get (expr_v st env e))) inits in
       (* 泛型结构体：用实例的名字 *)
       let n = match ty_of x with Some (TStruct m) -> m | _ -> n in
       value st x (Agg (n, fs))
   | Variant (v, a) -> (
-      let oa = Option.bind a (expr st env) in
+      let oa = Option.bind a (expr_v st env) in
       match ty_of x with
       | Some ty -> (
-          match Typeck.variant ty v with Some (i, _) -> value st x (MkEnum (ty, i, oa)) | None -> dummy)
+          match Typeck.variant ty v with
+          | Some (i, pty) ->
+              (* 载荷是 () 时可以省略不写：.Some 就是 .Some(()) *)
+              let oa = if oa = None && pty = Some TUnit then Some (Const CUnit) else oa in
+              value st x (MkEnum (ty, i, oa))
+          | None -> dummy)
       | None -> dummy)
   | If (c, a, b) ->
       let oc = Option.get (expr st env c) in
@@ -438,11 +444,11 @@ and result t ty pos =
   | Some t, Some ty -> Some (use_local t ty pos)
   | _ -> if ty = None then dummy else None
 
-(* 取出 Result 里一边的值，存进临时变量。值是 () 时没有临时变量，但仍要把 Result 标记为已移走。 *)
+(* 取出 Result 里一边的值，存进临时变量。值是 () 时不需要临时变量（值就是 CUnit），但仍要把 Result 标记为已移走。 *)
 and unwrap st o ty i pos =
   if ty = TUnit then begin
     (match o with Move _ -> emit st (Eval (Payload (o, i))) | _ -> ());
-    None
+    Some (Const CUnit)
   end
   else begin
     let v = temp st ty pos in
@@ -470,7 +476,7 @@ and exit_fn st at why =
    inout 一定是位置（类型检查保证）。 *)
 and arg st env m (a : expr) : operand =
   match m with
-  | MSink -> Option.get (expr st env a)
+  | MSink -> Option.get (expr_v st env a)
   | MInout -> RefMut (place st env a)
   | MLet when is_place a -> Ref (place st env a)
   | MLet ->
@@ -512,6 +518,12 @@ and value st (x : expr) rv =
       emit st (Assign (whole t, rv));
       Some (use_local t ty x.pos)
   | None -> emit st (Eval rv); dummy
+
+(* 要把值存起来的地方（变量、实参、字段、载荷）：() 类型的值用 CUnit 表示，不会是 None。 *)
+and expr_v st env (x : expr) =
+  match expr st env x with
+  | None when ty_of x = Some TUnit -> Some (Const CUnit)
+  | o -> o
 
 (* 位置的值需要析构、又不能整个移走时，let 绑定它就是投影。只看类型和路径，不产生代码。 *)
 and proj_init st env (e : expr) =
@@ -563,7 +575,7 @@ and block st env (b : Ast.block) : operand option =
             own st l ty;
             go ((v, l) :: env) rest
         | Let (_, v, ann, e) ->
-            let o = expr st env e in
+            let o = expr_v st env e in
             let ty =
               match ann, ty_of e with Some t, _ | None, Some t -> t | None, None -> TI64
             in
@@ -573,13 +585,13 @@ and block st env (b : Ast.block) : operand option =
             go ((v, l) :: env) rest
         | Assign (v, e) ->
             (* 旧值的析构由 own.ml 在赋值前插入 *)
-            (match expr st env e with
+            (match expr_v st env e with
             | Some o -> emit st (Assign (whole ~at:s.spos (List.assoc v env), Use o))
             | None -> ());
             go env rest
         | SetField (a, f, e) ->
             (* 先算右边，再算位置；旧值的析构由 own.ml 在赋值前插入 *)
-            (match expr st env e with
+            (match expr_v st env e with
             | Some o ->
                 let p = place st env a in
                 emit st (Assign ({ p with proj = p.proj @ [ PField f ]; at = s.spos }, Use o))
