@@ -3,8 +3,10 @@ open Parser
 
 exception Error of Ast.pos * string
 
-(* 圆括号里的换行不算语句分隔。 *)
+(* 圆括号里的换行不算语句分隔。花括号里重新算（C43）：f(m, |x| { a \n b }) 里闭包体的换行分隔语句，
+   saved 记下外层的圆括号层数，遇到 } 时恢复。 *)
 let depth = ref 0
+let saved : int list ref = ref []
 
 let pos lexbuf =
   let p = Lexing.lexeme_start_p lexbuf in
@@ -51,7 +53,8 @@ rule token = parse
   | '!'   { BANG }
   | '('   { incr depth; LPAREN }
   | ')'   { decr depth; RPAREN }
-  | '{'   { LBRACE } | '}'  { RBRACE }
+  | '{'   { saved := !depth :: !saved; depth := 0; LBRACE }
+  | '}'   { (match !saved with d :: ds -> depth := d; saved := ds | [] -> ()); RBRACE }
   | ','   { COMMA }  | ':'  { COLON }
   | ';'   { NL }
   | ".."  { DOTDOT }

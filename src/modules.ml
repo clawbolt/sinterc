@@ -33,6 +33,7 @@ let alias m = match String.rindex_opt m '.' with Some i -> String.sub m (i + 1) 
 (* 读一个文件（text 给出时读标准库里编进来的源码）：第 index 个文件的行号从 index * line_base + 1 开始。 *)
 let parse_file ?text path index =
   Lexer.depth := 0;
+  Lexer.saved := [];
   let ic =
     match text with
     | Some _ -> None
