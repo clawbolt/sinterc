@@ -78,9 +78,12 @@ static void sn_arena_free(sn_arena *a) { sn_chunk *c = a->head; while (c) { sn_c
 (* 泛型实例（名字里有 <）的 C 名字：编号加上去掉符号的写法，和用户写的名字（S_、u_ 开头）不会重名。 *)
 let gen_names : (string, string) Hashtbl.t = Hashtbl.create 16
 
+(* 名字本身就是 C 的标识符（只有字母、数字、下划线）时直接用；元组（C45）的实例 (I64, Bool) 等另起名字 *)
+let is_ident n = String.for_all (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true | _ -> false) n
+
 let cname prefix n =
   (* 泛型实例（Option<I64>）和别的模块里的名字（geom.area，C34）不是 C 的标识符，另起一个名字 *)
-  if not (String.contains n '<' || String.contains n '.') then prefix ^ n
+  if is_ident n then prefix ^ n
   else
     match Hashtbl.find_opt gen_names n with
     | Some c -> c
@@ -100,7 +103,7 @@ let rec mangle = function
   | TBool -> "Bool"
   | TStr -> "Str"
   | TUnit -> "U"
-  | TStruct n -> if String.contains n '<' || String.contains n '.' then sname n else n
+  | TStruct n -> if is_ident n then n else sname n
   | TBox t -> "B" ^ mangle t
   | TVec t -> "V" ^ mangle t ^ "_"
   | TResult (a, b) -> "R" ^ mangle a ^ "_" ^ mangle b ^ "_"

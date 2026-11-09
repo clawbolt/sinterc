@@ -262,5 +262,16 @@ let load (main : string) : program =
         order := mi :: !order
   in
   visit "" main None { line = 1; col = 1 };
-  (* 被引入的模块排在前面，主文件最后 *)
-  List.concat_map (rename mods) (List.rev !order)
+  (* 被引入的模块排在前面，主文件最后；最前面是元组（C45）：内建的泛型结构体 Tuple#n<A0, …>，字段 0、1、… *)
+  let tuple n =
+    let ps = List.init n (fun i -> "A" ^ string_of_int i) in
+    Struct
+      {
+        name = tuple_name n;
+        tparams = List.map (fun p -> (p, false)) ps;
+        fields = List.mapi (fun i p -> { fname = string_of_int i; fty = TStruct p }) ps;
+        linear = false;
+        ipos = { line = 1; col = 1 };
+      }
+  in
+  List.init (max_tuple - 1) (fun i -> tuple (i + 2)) @ List.concat_map (rename mods) (List.rev !order)

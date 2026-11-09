@@ -117,6 +117,8 @@ let table =
     ("字段 %s 是 linear 值，不能直接赋值（旧值没有被消费）",
      "field {1} is linear and cannot be assigned directly (the old value would not be consumed)");
     ("这里要拆开的是结构体 %s，实际是 %s", "expected struct {1} to destructure, found {2}");
+    ("这里要拆开的是 %s 个元素的元组，实际是 %s", "expected a tuple of {1} elements to destructure, found {2}");
+    ("元组最多 %d 个元素（这里有 %d 个）", "a tuple has at most {1} elements (found {2})");
     ("不能拆开一个不会返回的值", "cannot destructure a value that never returns");
     ("linear 结构体 %s 不能拆开（要用 consume）", "linear struct {1} cannot be destructured (use consume)");
     ("拆开 %s 时缺少字段 %s（每个字段都要写）", "destructuring {1} is missing field {2} (every field must be listed)");

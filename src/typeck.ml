@@ -268,7 +268,7 @@ let rec erase = function
   | TResult (a, b) -> TResult (erase a, erase b)
   | TStruct n as t -> (
       match Hashtbl.find_opt inst_tbl n with
-      | Some (g, ts) -> TStruct (g ^ "<" ^ String.concat ", " (List.map (fun t -> string_of_ty (erase t)) ts) ^ ">")
+      | Some (g, ts) -> TStruct (Ast.app_name g (List.map (fun t -> string_of_ty (erase t)) ts))
       | None -> t)
   | t -> t
 
@@ -340,7 +340,7 @@ let call_inst : (int, ty list) Hashtbl.t = Hashtbl.create 16
 let pending : (string * ty list) Queue.t = Queue.create ()
 let requested : (string, unit) Hashtbl.t = Hashtbl.create 16
 
-let inst_name g ts = g ^ "<" ^ String.concat ", " (List.map string_of_ty ts) ^ ">"
+let inst_name g ts = Ast.app_name g (List.map string_of_ty ts)
 
 (* 闭包（C40）：当前检查的函数会不会生成代码（不是泛型函数、没有 fn(…) 参数；泛型实例、特化、提升出的闭包都是）。
    只有这时才提升闭包、登记特化、改写调用；其他函数里的闭包只检查。 *)
@@ -1328,6 +1328,8 @@ and block ?want env (b : block) : t =
             let m =
               match expr env e with
               | Ty (TStruct m) when (m = n || inst_of m = Some n) && Hashtbl.mem env.structs m -> m
+              | Ty t when Ast.is_tuple n ->
+                  err e.pos "这里要拆开的是 %s 个元素的元组，实际是 %s" (String.sub n 6 (String.length n - 6)) (string_of_ty t)
               | Ty t -> err e.pos "这里要拆开的是结构体 %s，实际是 %s" n (string_of_ty t)
               | Never -> err e.pos "不能拆开一个不会返回的值"
             in

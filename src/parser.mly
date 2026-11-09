@@ -183,6 +183,12 @@ let plain_tparams pos tp =
   if bs <> [] then raise (Syntax (p pos, "结构体和枚举的类型参数暂不能写 trait 约束"));
   tp
 
+(* 元组类型：元素个数 2 到 max_tuple *)
+let tuple_ty pos ts =
+  let n = List.length ts in
+  if n > max_tuple then raise (Syntax (p pos, Printf.sprintf "元组最多 %d 个元素（这里有 %d 个）" max_tuple n));
+  TApp (tuple_name n, ts)
+
 let ty_of_name = function
   | "I64" -> TI64
   | "Bool" -> TBool
@@ -313,6 +319,8 @@ ty:
   | n = UIDENT { ty_of_name n }
   | n = UIDENT LT ts = separated_nonempty_list(COMMA, ty) GT { TApp (n, ts) }
   | LPAREN RPAREN { TUnit }
+  (* 元组类型（C45）：(A, B) 是内建的 Tuple#2<A, B> *)
+  | LPAREN t = ty COMMA ts = separated_nonempty_list(COMMA, ty) RPAREN { tuple_ty $startpos (t :: ts) }
   | BOX LT t = ty GT { TBox t }
   | AMP t = ty IN r = IDENT { TRef (t, r) }
   | RESULT LT t = ty COMMA e = ty GT { TResult (t, e) }
@@ -342,6 +350,7 @@ stmt:
   | VAR x = IDENT COLON t = ty { mks (Decl (x, t)) $startpos }
   | x = IDENT EQ e = expr { mks (Assign (x, e)) $startpos }
   | a = expr DOT f = IDENT EQ e = expr { mks (SetField (a, f, e)) $startpos }
+  | a = expr DOT n = INT EQ e = expr { mks (SetField (a, Int64.to_string n, e)) $startpos }
   | WHILE c = expr b = block { mks (While (c, b)) $startpos }
   | FOR x = IDENT IN a = expr DOTDOT b = expr bl = block { for_loop $startpos x (`Range (a, b)) bl }
   | FOR x = IDENT IN INOUT v = expr bl = block { for_inout $startpos x v bl }
@@ -351,6 +360,11 @@ stmt:
   | CONTINUE { mks Continue $startpos }
   | ERRDEFER e = expr { mks (Errdefer e) $startpos }
   | LET t = UIDENT LBRACE nls bs = binds RBRACE EQ e = expr { mks (Destruct (t, bs, e)) $startpos }
+  (* 拆开元组（C45）：let (x, y) = e *)
+  | LET LPAREN x = IDENT COMMA xs = separated_nonempty_list(COMMA, IDENT) RPAREN EQ e = expr
+    { let xs = x :: xs in
+      ignore (tuple_ty $startpos (List.map (fun _ -> TUnit) xs));
+      mks (Destruct (tuple_name (List.length xs), List.mapi (fun i x -> (string_of_int i, x)) xs, e)) $startpos }
   | e = expr { mks (Expr e) $startpos }
 
 expr:
@@ -361,10 +375,16 @@ expr:
   | LPAREN RPAREN { mk Unit $startpos }
   | x = IDENT { mk (Var x) $startpos }
   | LPAREN e = expr RPAREN { e }
+  (* 元组（C45）：(a, b) 就是 Tuple#2 { 0: a, 1: b } *)
+  | LPAREN e = expr COMMA es = separated_nonempty_list(COMMA, expr) RPAREN
+    { let es = e :: es in
+      ignore (tuple_ty $startpos (List.map (fun _ -> TUnit) es));
+      mk (StructLit (tuple_name (List.length es), List.mapi (fun i e -> (string_of_int i, e)) es)) $startpos }
   | ARENA BAR r = IDENT BAR b = block { mk (Arena (r, b)) $startpos }
   | f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN { mk (Call (f, args)) $startpos }
   | n = UIDENT LBRACE nls fs = inits RBRACE { mk (StructLit (n, fs)) $startpos }
   | e = expr DOT f = IDENT { mk (Field (e, f)) $startpos }
+  | e = expr DOT n = INT { mk (Field (e, Int64.to_string n)) $startpos }
   (* 方法调用 e.f(…)：就是 f(e, …)，函数名由类型检查按 e 的类型确定（"." 开头表示还没确定） *)
   | e = expr DOT f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN
     { mk (Call ("." ^ f, e :: args)) $startpos(f) }

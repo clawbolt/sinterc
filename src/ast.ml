@@ -119,6 +119,13 @@ exception Syntax of pos * string
 let next_id = ref 0
 let fresh_id () = incr next_id; !next_id
 
+(* 元组（C45）：(A, B) 是内建的泛型结构体 Tuple#2<A, B>（名字里有 #，用户写不出来），字段名是 0、1、…；
+   实例的名字直接写成 (A, B)。2 到 max_tuple 个元素。 *)
+let max_tuple = 6
+let tuple_name n = "Tuple#" ^ string_of_int n
+let is_tuple g = String.length g > 6 && String.sub g 0 6 = "Tuple#"
+let app_name g args = if is_tuple g then "(" ^ String.concat ", " args ^ ")" else g ^ "<" ^ String.concat ", " args ^ ">"
+
 let rec string_of_ty = function
   | TI64 -> "I64"
   | TBool -> "Bool"
@@ -130,7 +137,7 @@ let rec string_of_ty = function
   | TResult (a, b) -> "Result<" ^ string_of_ty a ^ ", " ^ string_of_ty b ^ ">"
   | TRef (t, r) -> "&" ^ string_of_ty t ^ " in " ^ r
   | TArena _ -> "Arena"
-  | TApp (n, ts) -> n ^ "<" ^ String.concat ", " (List.map string_of_ty ts) ^ ">"
+  | TApp (n, ts) -> app_name n (List.map string_of_ty ts)
   | TParam (n, _) -> n
   | TFn (ps, r) ->
       let m = function MLet -> "" | MInout -> "inout " | MSink -> "sink " in
