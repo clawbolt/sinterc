@@ -15,15 +15,16 @@ pub fn new<K, V>() -> Map<K, V> {
 
 pub fn len<K, V>(m: Map<K, V>) -> I64 { vec_len(m.keys) }
 
-// 第一个不小于 k 的键的下标；没有时是 len(m)。
+// 第一个不小于 k 的键的下标；没有时是 len(m)。二分查找（C42）：lo 之前的键都小于 k，hi 开始的都不小于 k，
+// 和原来从头往后找的结果相同（lean/Core/S5.lean 的 bs_eq_lin）。
 fn lower<K: math.Ord, V>(m: Map<K, V>, k: K) -> I64 {
-    let n = vec_len(m.keys)
-    var i = 0
-    while i < n {
-        if cmp(vec_get(m.keys, i), k) >= 0 { return i }
-        i = i + 1
+    var lo = 0
+    var hi = vec_len(m.keys)
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2
+        if cmp(vec_get(m.keys, mid), k) == -1 { lo = mid + 1 } else { hi = mid }
     }
-    n
+    lo
 }
 
 // 键 k 的下标；没有时是 .None。取值写 vec_get(m.vals, i)。
