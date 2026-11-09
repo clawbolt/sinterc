@@ -268,7 +268,7 @@ let rec expr st env (x : expr) : operand option =
       let oa = expr st env a in
       value st x (Un (op, Option.get oa))
   | Call ("box", [ a ]) ->
-      let oa = Option.get (expr st env a) in
+      let oa = Option.get (expr_v st env a) in
       let ty = match ty_of a with Some t -> t | None -> TI64 in
       value st x (BoxNew (ty, oa))
   | Call ("unbox", [ a ]) ->

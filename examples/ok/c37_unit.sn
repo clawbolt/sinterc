@@ -1,0 +1,24 @@
+// C37：() 作类型实参。泛型函数、Option<()>、Vec<()> 的实例连同 () 类型的变量、载荷一起导出给 Lean。
+use std.result
+
+fn id<T>(sink x: T) -> T { x }
+
+fn check(n: I64) -> Result<(), Str> {
+    if n < 0 { return Err("负数") }
+    Ok(())
+}
+
+fn main() {
+    print_bool(result.is_ok(check(1)))
+    let u: () = id(())
+    var v: Vec<()> = vec_new()
+    v.push(u)
+    match v.pop() {
+        .Some(x) => print("有"),
+        .None => print("空")
+    }
+    match check(-1) {
+        Ok(z) => print("成功"),
+        Err(e) => print(e)
+    }
+}

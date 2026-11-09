@@ -1,4 +1,4 @@
-// std.result：Result<T, E> 的常用函数。T、E 不能是 ()（类型实参不能是 ()）。
+// std.result：Result<T, E> 的常用函数。T、E 可以是 ()（C37），例如 result.is_ok(write_file(…))。
 
 pub fn is_ok<T, E>(r: Result<T, E>) -> Bool {
     match let r {

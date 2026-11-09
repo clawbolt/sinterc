@@ -250,7 +250,6 @@ let expect pos want got =
 let rec check_ty ?(param = false) env pos = function
   | TStruct n when not (Hashtbl.mem env.structs n || Hashtbl.mem enum_tbl n) -> err pos "未知类型 %s" n
   | TStruct n -> List.iter (check_ty env pos) (inst_args n)
-  | TBox TUnit -> err pos "Box 里不能放 ()"
   | TBox t ->
       if is_linear t then err pos "Box 里不能放 linear 值（还不能从 Box 里移出）";
       check_ty env pos t
@@ -306,9 +305,9 @@ let rec has_arena = function
   | TResult (a, b) -> has_arena a || has_arena b
   | _ -> false
 
-(* 类型实参的共同限制。泛型函数和 Vec 的类型实参可以含引用（C19）：实例的区域参数就是实参里的区域名（Lean M14）。 *)
+(* 类型实参的共同限制。泛型函数和 Vec 的类型实参可以含引用（C19）：实例的区域参数就是实参里的区域名（Lean M14）；
+   可以是 ()（C37）：() 是 copy 类别，换进任何类型参数都满足约束，实例照样安全（Lean M9u）。 *)
 let type_arg pos t =
-  if t = TUnit then err pos "类型实参不能是 ()";
   if has_arena t then err pos "类型实参不能是 Arena"
 
 let lin_arg pos t =
@@ -326,7 +325,7 @@ let rec resolve sc pos = function
   | TStruct "Vec" when not (List.mem_assoc "Vec" sc) -> err pos "Vec 要写元素类型：Vec<…>"
   | TStruct n when Hashtbl.mem gtypes n -> err pos "%s 是泛型类型，要写类型实参：%s<…>" n n
   | TApp ("Vec", ts) -> (
-      (* 内建的动态数组：元素不能是 ()、引用或 linear 值（pop 返回 Option<T>，Option 的实参还不能是 linear 的） *)
+      (* 内建的动态数组：元素不能是引用或 linear 值（pop 返回 Option<T>，Option 的实参还不能是 linear 的） *)
       match List.map (resolve sc pos) ts with
       | [ t ] ->
           type_arg pos t;
@@ -576,7 +575,6 @@ and expr1 env (x : expr) : t =
   | Unop (Not, a) -> expect a.pos TBool (expr env a); Ty TBool
   | Call ("box", [ a ]) -> (
       match expr env a with
-      | Ty TUnit -> err pos "Box 里不能放 ()"
       | Ty t when is_linear t -> err pos "Box 里不能放 linear 值（还不能从 Box 里移出）"
       | Ty t -> Ty (TBox t)
       | Never -> Never)
@@ -904,9 +902,8 @@ and enum_match env want pos ty vs arms : t =
         match List.filter (fun (u, _, _) -> u = v) arms with
         | [ (_, x, (a : expr)) ] -> (
             match pty with
-            | Some TUnit ->
-                (* () 载荷：分支写 Ok => … 或 Ok(_) => … *)
-                if x <> "" && x <> "_" then err a.pos "%s 的值是 ()，分支要写 %s(_)" w w;
+            | Some TUnit when x = "" || x = "_" ->
+                (* () 载荷：分支可以写 Ok => …，也可以写 Ok(_) 或 Ok(u) *)
                 (env, a)
             | Some t ->
                 if x = "" then err a.pos "%s 带载荷，分支要写 %s(x) 或 %s(_)" w w w;
@@ -940,7 +937,6 @@ and block ?want env (b : block) : t =
         | Decl (v, ty) ->
             check_ty env pos ty;
             (match ty with
-            | TUnit -> err pos "C0 不支持 () 类型的变量 %s" v
             | TArena _ -> err pos "区域不能存进变量"
             | _ -> ());
             go { env with vars = (v, (ty, true)) :: env.vars } rest
@@ -956,7 +952,6 @@ and block ?want env (b : block) : t =
                   | Ty t -> t
                   | Never -> err pos "%s 的初值不会返回，无法推断类型" v)
             in
-            if ty = TUnit then err pos "C0 不支持 () 类型的变量 %s" v;
             (match ty with TArena _ -> err pos "区域不能存进变量" | _ -> ());
             go { env with vars = (v, (ty, mut)) :: env.vars } rest
         | Assign (v, e) ->
@@ -1272,7 +1267,6 @@ let prepare (p : program) =
               if region_names f.fty <> [] then
                 err ipos "结构体字段 %s 不能含引用或区域（区域类型还没有实现）" f.fname;
               check_ty env0 ipos f.fty;
-              if f.fty = TUnit then err ipos "C0 不支持 () 类型的字段 %s" f.fname;
               if is_linear f.fty && not linear then
                 err ipos "%s 的字段 %s 是 linear 的，%s 也必须标 linear" name f.fname name)
             (Hashtbl.find struct_tbl (abstract name tparams))
@@ -1325,7 +1319,7 @@ let prepare (p : program) =
           List.iter
             (fun (m : msig) ->
               let ps, ret = Hashtbl.find fns m.mname in
-              List.iter (fun (_, t) -> check_ty env0 m.mpos t; if t = TUnit then err m.mpos "C0 不支持 () 类型的参数") ps;
+              List.iter (fun (_, t) -> check_ty env0 m.mpos t) ps;
               check_ty env0 m.mpos ret)
             ms
       | Fn _ -> ())
@@ -1405,8 +1399,7 @@ let check_fn env0 = function
           check_ty ~param:true env0 ipos t;
           (match t with
           | TArena _ when m <> MLet -> err ipos "区域参数 %s 只能按 let 传入" x
-          | _ -> ());
-          if t = TUnit then err ipos "C0 不支持 () 类型的参数 %s" x)
+          | _ -> ()))
         params;
       check_ty env0 ipos ret;
       let vars = List.rev_map (fun (m, x, t) -> (x, (t, m <> MLet))) params in
