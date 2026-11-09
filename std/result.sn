@@ -29,3 +29,19 @@ pub fn ok<T, E>(sink r: Result<T, E>) -> Option<T> {
         Err(e) => .None
     }
 }
+
+// 成功时取出值；出错时 panic（程序结束，见 C38）。错误值的类型是任意的 E，没法打印，要看错误用 expect 或 match。
+pub fn unwrap<T, E>(sink r: Result<T, E>) -> T {
+    match r {
+        Ok(x) => x,
+        Err(e) => panic("unwrap 了一个 Err")
+    }
+}
+
+// 和 unwrap 一样，出错时 panic 的说明是 msg。
+pub fn expect<T, E>(sink r: Result<T, E>, msg: Str) -> T {
+    match r {
+        Ok(x) => x,
+        Err(e) => panic(msg)
+    }
+}

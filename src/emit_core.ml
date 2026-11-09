@@ -38,7 +38,7 @@ let reachable (f : func) =
       match f.blocks.(i).term with
       | Goto j -> go j
       | Branch (_, a, b) -> go a; go b
-      | Return | Unterminated -> ()
+      | Return | Halt | Unterminated -> ()
     end
   in
   go 0;
@@ -324,6 +324,7 @@ let func (f : func) =
     | Branch (o, a, c) -> (ops @ operand o, `Goto [ a; c ])
     | Return | Unterminated ->
         (ops @ List.map (fun _ -> ".leave") pregions, `Exit (List.mem Raise b.stmts))
+    | Halt -> (ops, `Halt)   (* panic：写成指向自己的空节点（Lean M19 的编码），不是出口 *)
   in
   let blocks = Array.mapi (fun i b -> if seen.(i) then Some (body b) else None) f.blocks in
   (* 编号：入口代码在前，然后各块依次排开；每块的节点数是操作数加 1 *)
@@ -347,7 +348,8 @@ let func (f : func) =
           List.iteri (fun k op -> add op [ start.(i) + k + 1 ] false) ops;
           (match last with
           | `Goto js -> add ".nop" (List.map (fun j -> start.(j)) js) false
-          | `Exit raise -> add ".nop" [] raise)
+          | `Exit raise -> add ".nop" [] raise
+          | `Halt -> add ".nop" [ start.(i) + List.length ops ] false)
       | None -> ())
     blocks;
   (max 1 !next, List.rev !nodes)

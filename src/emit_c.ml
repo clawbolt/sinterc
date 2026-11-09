@@ -36,6 +36,8 @@ typedef struct { char *p; int64_t len; } sn_str;
 static sn_str sn_str_make(const char *s, int64_t n) { sn_str r; r.p = sn_alloc((size_t)n + 1); memcpy(r.p, s, (size_t)n); r.p[n] = 0; r.len = n; return r; }
 static sn_str u_str_lit(const char *s) { return sn_str_make(s, (int64_t)strlen(s)); }
 static void u_print(const sn_str *s) { fwrite(s->p, 1, (size_t)s->len, stdout); putchar('\n'); }
+/* panic(msg)（C38，Lean M19）：打印说明后结束进程，不析构任何值。 */
+static void u_panic(const sn_str *m) { sn_panic(m->p); }
 static int64_t u_str_len(const sn_str *s) { return s->len; }
 static bool u_str_eq(const sn_str *a, const sn_str *b) { return a->len == b->len && memcmp(a->p, b->p, (size_t)a->len) == 0; }
 static sn_str u_str_clone(const sn_str *s) { return sn_str_make(s->p, s->len); }
@@ -419,7 +421,7 @@ let reachable (f : Mir.func) =
       match f.blocks.(i).term with
       | Mir.Goto j -> go j
       | Mir.Branch (_, a, b) -> go a; go b
-      | Mir.Return | Mir.Unterminated -> ()
+      | Mir.Return | Mir.Halt | Mir.Unterminated -> ()
     end
   in
   go 0;
@@ -479,6 +481,7 @@ let func b (f : Mir.func) =
         | Mir.Goto j -> add (Printf.sprintf "  goto bb%d;\n" j)
         | Mir.Branch (o, a, c) ->
             add (Printf.sprintf "  if (%s) goto bb%d; else goto bb%d;\n" (operand o) a c)
+        | Mir.Halt -> add "  __builtin_unreachable();\n"   (* u_panic 不会返回 *)
         | Mir.Return | Mir.Unterminated -> (
             match f.ret_local with
             | Some r -> add (Printf.sprintf "  return l%d;\n" r)

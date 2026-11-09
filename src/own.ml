@@ -20,7 +20,7 @@ let err (p : place) fmt = Printf.ksprintf (fun m -> raise (Typeck.Error (p.at, m
 let err_at at fmt = Printf.ksprintf (fun m -> raise (Typeck.Error (at, m))) fmt
 
 let succs (b : block) =
-  match b.term with Goto j -> [ j ] | Branch (_, a, c) -> [ a; c ] | Return | Unterminated -> []
+  match b.term with Goto j -> [ j ] | Branch (_, a, c) -> [ a; c ] | Return | Halt | Unterminated -> []
 
 let operands = function
   | Use o | Un (_, o) | BoxNew (_, o) | Unbox (_, o) | Consume (_, o) | Alloc (_, _, o) -> [ o ]

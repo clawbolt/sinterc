@@ -64,6 +64,7 @@ type term =
   | Goto of int
   | Branch of operand * int * int
   | Return
+  | Halt                                  (* panic（C38，Lean M19）：进程结束；没有后继，不析构、不要求消费线性值 *)
   | Unterminated                          (* 降级过程中的临时状态 *)
 
 type block = { mutable stmts : stmt list; mutable term : term }   (* 降级时 stmts 倒序存放 *)
@@ -267,6 +268,13 @@ let rec expr st env (x : expr) : operand option =
   | Unop (op, a) ->
       let oa = expr st env a in
       value st x (Un (op, Option.get oa))
+  | Call ("panic", [ a ]) ->
+      (* 调用后进程就结束了：块以 Halt 结尾，不插入任何 Drop；之后的代码放进一个走不到的新块 *)
+      let o = arg st env MLet a in
+      emit st (Eval (Call ("panic", [ o ])));
+      terminate st Halt;
+      st.cur <- new_block st;
+      dummy
   | Call ("box", [ a ]) ->
       let oa = Option.get (expr_v st env a) in
       let ty = match ty_of a with Some t -> t | None -> TI64 in

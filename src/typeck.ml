@@ -110,7 +110,7 @@ let builtins =
 let str_methods = [ "len"; "eq"; "concat"; "push"; "clone"; "to_i64"; "byte"; "slice" ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
-let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get" ]
+let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "panic" ]
 
 (* Vec 的内建函数的参数约定（给降级用；类型由类型检查单独处理）。vec_get 是位置，不是调用。 *)
 let vec_sigs =
@@ -576,6 +576,11 @@ and expr1 env (x : expr) : t =
       | And | Or -> expect a.pos TBool ta; expect b.pos TBool tb; Ty TBool)
   | Unop (Neg, a) -> expect a.pos TI64 (expr env a); Ty TI64
   | Unop (Not, a) -> expect a.pos TBool (expr env a); Ty TBool
+  | Call ("panic", [ a ]) ->
+      (* panic(msg)（C38，Lean M19）：说明按借用读；不会返回，类型是 Never（和 return 一样） *)
+      expect a.pos TStr (expr env a);
+      Never
+  | Call ("panic", _) -> err pos "panic 需要 1 个参数（说明文字）"
   | Call ("box", [ a ]) -> (
       match expr env a with
       | Ty t when is_linear t -> err pos "Box 里不能放 linear 值（还不能从 Box 里移出）"
