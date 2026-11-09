@@ -1,0 +1,23 @@
+// std.option：Option<T> 的常用函数。
+
+pub fn is_some<T>(o: Option<T>) -> Bool {
+    match let o {
+        .Some(x) => true,
+        .None => false
+    }
+}
+
+pub fn is_none<T>(o: Option<T>) -> Bool {
+    match let o {
+        .Some(x) => false,
+        .None => true
+    }
+}
+
+// 有值时取出值（d 被析构），没有时用 d。
+pub fn unwrap_or<T>(sink o: Option<T>, sink d: T) -> T {
+    match o {
+        .Some(x) => x,
+        .None => d
+    }
+}

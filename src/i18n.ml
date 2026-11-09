@@ -224,6 +224,11 @@ let table =
     ("impl 不用写 pub（实现跟着 trait 和类型，到处可见）", "impl does not take pub (an impl is visible wherever its trait and type are)");
     ("模块不能引入自己", "a module cannot import itself");
     ("找不到模块 %s（应当是文件 %s）", "cannot find module {1} (expected the file {2})");
+    ("模块 %s 既是 %s 又是 %s，同一个程序里只能用其中一个",
+     "module {1} is both {2} and {3}; a program can use only one of them");
+    ("只有标准库的模块写成 std.m；自己的模块直接写 use %s",
+     "only standard library modules are written std.m; for your own module write use {1}");
+    ("标准库里没有模块 %s（有：%s）", "the standard library has no module {1} (available: {2})");
   ]
 
 (* 填进信息里的固定中文短语。 *)

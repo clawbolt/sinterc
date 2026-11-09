@@ -1,0 +1,81 @@
+// std.math：整数的常用函数，以及比较用的两个 trait。
+// Eq 和 Ord 的方法名 eq、cmp 和其他 trait 的方法一样是全局的（不加模块前缀）。
+
+pub trait Eq {
+    fn eq(a: Self, b: Self) -> Bool
+}
+
+// cmp(a, b)：a < b 时是 -1，相等时是 0，a > b 时是 1。
+// 自己写 impl Ord 时要满足这几条定律（编译器不检查；min_of、max_of 的正确性只依赖它们，见 lean/Core/S1.lean）：
+//   只取 -1、0、1；cmp(b, a) == -cmp(a, b)；cmp(a, b) == 0 恰好是 a、b 相等（和 Eq 一致）；
+//   cmp(a, b) == -1 且 cmp(b, c) == -1 时 cmp(a, c) == -1。I64 和 Str 的实现已经证明满足。
+pub trait Ord {
+    fn cmp(a: Self, b: Self) -> I64
+}
+
+impl Eq for I64 {
+    fn eq(a: I64, b: I64) -> Bool { a == b }
+}
+
+impl Eq for Bool {
+    fn eq(a: Bool, b: Bool) -> Bool { a == b }
+}
+
+impl Eq for Str {
+    fn eq(a: Str, b: Str) -> Bool { str_eq(a, b) }
+}
+
+impl Ord for I64 {
+    fn cmp(a: I64, b: I64) -> I64 {
+        if a < b { -1 } else if a > b { 1 } else { 0 }
+    }
+}
+
+// 按字节的字典序。
+impl Ord for Str {
+    fn cmp(a: Str, b: Str) -> I64 {
+        let n = str_len(a)
+        let m = str_len(b)
+        var i = 0
+        while i < n && i < m {
+            let x = str_byte(a, i)
+            let y = str_byte(b, i)
+            if x < y { return -1 }
+            if x > y { return 1 }
+            i = i + 1
+        }
+        if n < m { -1 } else if n > m { 1 } else { 0 }
+    }
+}
+
+pub fn min(a: I64, b: I64) -> I64 { if a < b { a } else { b } }
+
+pub fn max(a: I64, b: I64) -> I64 { if a > b { a } else { b } }
+
+// 最小的 I64 没有相反数，abs 会因为溢出而 panic。
+pub fn abs(n: I64) -> I64 { if n < 0 { -n } else { n } }
+
+pub fn sign(n: I64) -> I64 { if n < 0 { -1 } else if n > 0 { 1 } else { 0 } }
+
+// 把 x 限制在 [lo, hi] 里（要求 lo <= hi）。
+pub fn clamp(x: I64, lo: I64, hi: I64) -> I64 { max(lo, min(x, hi)) }
+
+// b 的 e 次方（e < 0 时是 1）；溢出时 panic。
+pub fn pow(b: I64, e: I64) -> I64 {
+    var r = 1
+    var i = 0
+    while i < e {
+        r = r * b
+        i = i + 1
+    }
+    r
+}
+
+// 两个值里较小的（相等时取第一个），另一个被析构。
+pub fn min_of<T: Ord>(sink a: T, sink b: T) -> T {
+    if cmp(a, b) <= 0 { a } else { b }
+}
+
+pub fn max_of<T: Ord>(sink a: T, sink b: T) -> T {
+    if cmp(a, b) >= 0 { a } else { b }
+}

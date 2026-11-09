@@ -3,7 +3,9 @@
    模块 m 里的函数、结构体、枚举、trait 加上前缀，名字变成 m.f、m.T（主文件不加前缀）。
    trait 的方法名不加前缀（方法跟着 trait 走，和 impl 一样是全局的）。
    改名只是名字的事，不改变任何检查规则，所以不需要新的 Lean 里程碑。
-   consume 只能在定义这个 linear 类型的文件里用（见 typeck.ml 的 consume），linear 类型的封装由此成立。 *)
+   consume 只能在定义这个 linear 类型的文件里用（见 typeck.ml 的 consume），linear 类型的封装由此成立。
+   标准库（C35）：use std.m 引入编进编译器的 std/m.sn（见 stdlib_src.ml，由 std/*.sn 生成），之后照样写 m.f(…)。
+   模块按最后一段名字区分：同一个程序里不能既有自己的 m.sn 又用 std.m。 *)
 open Ast
 
 let err pos fmt = Printf.ksprintf (fun m -> raise (Syntax (pos, m))) fmt
@@ -25,32 +27,42 @@ let item_pos = function
 
 let prefixed m x = if m = "" then x else m ^ "." ^ x
 
-(* 读一个文件：第 index 个文件的行号从 index * line_base + 1 开始。 *)
-let parse_file path index =
+(* use 写的名字 → 模块名：std.math 就是 math。 *)
+let alias m = match String.rindex_opt m '.' with Some i -> String.sub m (i + 1) (String.length m - i - 1) | None -> m
+
+(* 读一个文件（text 给出时读标准库里编进来的源码）：第 index 个文件的行号从 index * line_base + 1 开始。 *)
+let parse_file ?text path index =
   Lexer.depth := 0;
   let ic =
-    try open_in_bin path with Sys_error _ -> raise (Sys_error path)
+    match text with
+    | Some _ -> None
+    | None -> ( try Some (open_in_bin path) with Sys_error _ -> raise (Sys_error path))
   in
-  let lexbuf = Lexing.from_channel ic in
+  let close () = Option.iter close_in ic in
+  let lexbuf =
+    match ic, text with
+    | Some ic, _ -> Lexing.from_channel ic
+    | None, t -> Lexing.from_string (Option.value t ~default:"")
+  in
   Lexing.set_filename lexbuf path;
   lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_lnum = (index * line_base) + 1 };
   let src =
     try Parser.program Lexer.token lexbuf with
     | Parser.Error ->
-        close_in ic;
+        close ();
         let p = Lexing.lexeme_start_p lexbuf in
         raise
           (Syntax
              ( { line = p.pos_lnum; col = p.pos_cnum - p.pos_bol + 1 },
                Printf.sprintf "语法错误（在 '%s' 附近）" (Lexing.lexeme lexbuf) ))
-    | e -> close_in ic; raise e
+    | e -> close (); raise e
   in
-  close_in ic;
+  close ();
   src
 
 (* 改名：模块 me 里出现的名字换成合并后的名字。 *)
 let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
-  let imported = List.map (fun (m, _, _) -> m) me.src.uses in
+  let imported = List.map (fun (m, _, _) -> alias m) me.src.uses in
   (* 直接可见的名字 → 合并后的名字 *)
   let names : (string, string) Hashtbl.t = Hashtbl.create 16 in
   Hashtbl.iter (fun x () -> Hashtbl.replace names x (prefixed me.modname x)) me.defs;
@@ -65,7 +77,7 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
       List.iter
         (fun x ->
           if Hashtbl.mem me.defs x then err pos "引入的 %s 和本文件里的定义重名" x;
-          Hashtbl.replace names x (target pos m x))
+          Hashtbl.replace names x (target pos (alias m) x))
         (Option.value ns ~default:[]))
     me.src.uses;
   (* 名字：写成 m.X 的按模块找，其他的按直接可见的名字找；都不是（内建、类型参数等）就不变 *)
@@ -196,17 +208,21 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
 let load (main : string) : program =
   Hashtbl.reset type_file;
   let mods : (string, modinfo) Hashtbl.t = Hashtbl.create 8 in
+  let paths : (string, string) Hashtbl.t = Hashtbl.create 8 in   (* 模块名 → 从哪里读的 *)
   let order = ref [] in
   let file_list = ref [] in
-  let rec visit name path pos =
-    match Hashtbl.find_opt mods name with
-    | Some _ -> ()
+  (* text：标准库的源码（编进编译器的） *)
+  let rec visit name path text pos =
+    match Hashtbl.find_opt paths name with
+    | Some p ->
+        if p <> path then err pos "模块 %s 既是 %s 又是 %s，同一个程序里只能用其中一个" name p path
     | None ->
+        Hashtbl.replace paths name path;
         let index = List.length !file_list in
         file_list := !file_list @ [ path ];
         files := Array.of_list !file_list;
         let src =
-          try parse_file path index with Sys_error _ ->
+          try parse_file ?text path index with Sys_error _ ->
             if index = 0 then raise (Sys_error path)
             else err pos "找不到模块 %s（应当是文件 %s）" name path
         in
@@ -224,11 +240,21 @@ let load (main : string) : program =
         let dir = Filename.dirname path in
         List.iter
           (fun (m, _, upos) ->
-            if m = name then err upos "模块不能引入自己";
-            visit m (if dir = Filename.current_dir_name then m ^ ".sn" else Filename.concat dir (m ^ ".sn")) upos)
+            let a = alias m in
+            if a = name then err upos "模块不能引入自己";
+            if a <> m then begin
+              (* use std.m：标准库 *)
+              if String.sub m 0 (String.length m - String.length a - 1) <> "std" then
+                err upos "只有标准库的模块写成 std.m；自己的模块直接写 use %s" a;
+              match List.assoc_opt a Stdlib_src.files with
+              | Some src -> visit a ("std/" ^ a ^ ".sn") (Some src) upos
+              | None ->
+                  err upos "标准库里没有模块 %s（有：%s）" a (String.concat "、" (List.map fst Stdlib_src.files))
+            end
+            else visit m (if dir = Filename.current_dir_name then m ^ ".sn" else Filename.concat dir (m ^ ".sn")) None upos)
           src.uses;
         order := mi :: !order
   in
-  visit "" main { line = 1; col = 1 };
+  visit "" main None { line = 1; col = 1 };
   (* 被引入的模块排在前面，主文件最后 *)
   List.concat_map (rename mods) (List.rev !order)

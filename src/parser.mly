@@ -93,11 +93,14 @@ let ty_of_name = function
 program:
   | nls us = uses is = items EOF { { uses = us; items = is } }
 
-(* 文件开头的 use（C34）：use m 或 use m { a, B } *)
+(* 文件开头的 use（C34）：use m 或 use m { a, B }；标准库写 use std.m（C35） *)
 uses:
   | { [] }
   | USE m = IDENT nls us = uses { (m, None, p $startpos) :: us }
+  | USE s = IDENT DOT m = IDENT nls us = uses { (s ^ "." ^ m, None, p $startpos) :: us }
   | USE m = IDENT LBRACE nls ns = use_names RBRACE nls us = uses { (m, Some ns, p $startpos) :: us }
+  | USE s = IDENT DOT m = IDENT LBRACE nls ns = use_names RBRACE nls us = uses
+    { (s ^ "." ^ m, Some ns, p $startpos) :: us }
 
 use_names:
   | { [] }

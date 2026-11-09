@@ -1,0 +1,31 @@
+// std.result：Result<T, E> 的常用函数。T、E 不能是 ()（类型实参不能是 ()）。
+
+pub fn is_ok<T, E>(r: Result<T, E>) -> Bool {
+    match let r {
+        Ok(x) => true,
+        Err(e) => false
+    }
+}
+
+pub fn is_err<T, E>(r: Result<T, E>) -> Bool {
+    match let r {
+        Ok(x) => false,
+        Err(e) => true
+    }
+}
+
+// 成功时取出值（d 被析构），出错时用 d（错误值被析构）。
+pub fn unwrap_or<T, E>(sink r: Result<T, E>, sink d: T) -> T {
+    match r {
+        Ok(x) => x,
+        Err(e) => d
+    }
+}
+
+// 成功时是 .Some(值)，出错时是 .None（错误值被析构）。
+pub fn ok<T, E>(sink r: Result<T, E>) -> Option<T> {
+    match r {
+        Ok(x) => .Some(x),
+        Err(e) => .None
+    }
+}

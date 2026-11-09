@@ -5,3 +5,13 @@
 
 (menhir
  (modules parser))
+
+; 标准库的源码编进编译器（C35）
+(rule
+ (targets stdlib_src.ml)
+ (deps
+  (glob_files %{project_root}/std/*.sn))
+ (action
+  (with-stdout-to
+   stdlib_src.ml
+   (run %{exe:../gen/embed.exe} %{deps}))))

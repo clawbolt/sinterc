@@ -1,0 +1,50 @@
+// std.vec：Vec<T> 的常用函数。比较元素用 std.math 的 Eq。
+use std.math
+
+pub fn sum(v: Vec<I64>) -> I64 {
+    var s = 0
+    for x in v {
+        s = s + x
+    }
+    s
+}
+
+// 最大的元素；空的 Vec 是 .None。
+pub fn max(v: Vec<I64>) -> Option<I64> {
+    if vec_len(v) == 0 { return .None }
+    var m = vec_get(v, 0)
+    for x in v {
+        if x > m { m = x }
+    }
+    .Some(m)
+}
+
+pub fn contains<T: math.Eq>(v: Vec<T>, x: T) -> Bool {
+    for y in v {
+        if eq(y, x) { return true }
+    }
+    false
+}
+
+// 第一个等于 x 的元素的下标；没有时是 .None。
+pub fn index_of<T: math.Eq>(v: Vec<T>, x: T) -> Option<I64> {
+    var i = 0
+    for y in v {
+        if eq(y, x) { return .Some(i) }
+        i = i + 1
+    }
+    .None
+}
+
+// 原地反转：把元素依次 pop 进一个新的 Vec，再换回去。
+pub fn reverse<T>(inout v: Vec<T>) {
+    var out: Vec<T> = vec_new()
+    var go = true
+    while go {
+        match vec_pop(v) {
+            .Some(x) => vec_push(out, x),
+            .None => { go = false }
+        }
+    }
+    v = out
+}
