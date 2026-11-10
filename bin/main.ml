@@ -119,7 +119,7 @@ let usage () =
 (* 把生成的 C 交给系统的 C 编译器。 *)
 let cc c_file exe =
   let cc = Option.value (Sys.getenv_opt "CC") ~default:"cc" in
-  let cmd = Printf.sprintf "%s -std=gnu11 -O1 -w %s -o %s" cc (Filename.quote c_file) (Filename.quote exe) in
+  let cmd = Printf.sprintf "%s -std=gnu11 -O1 -w %s -o %s -lm" cc (Filename.quote c_file) (Filename.quote exe) in
   if Sys.command cmd <> 0 then begin
     prerr_endline
       (I18n.pick

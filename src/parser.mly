@@ -144,7 +144,7 @@ let for_inout pos x (v : expr) body =
       match a.e with
       | Var y when y = r -> mention a.pos
       | Var y when y = x -> (place a.pos).e
-      | Int _ | Bool _ | Unit | Str _ | Var _ -> a.e
+      | Int _ | Float _ | Bool _ | Unit | Str _ | Var _ -> a.e
       | Binop (o, b, c) -> Binop (o, ex b, ex c)
       | Unop (o, b) -> Unop (o, ex b)
       | Call (f, bs) -> Call (f, List.map ex bs)
@@ -166,7 +166,7 @@ let for_inout pos x (v : expr) body =
     let rec scan (a : expr) =
       match a.e with
       | Var y when y = r -> mention a.pos
-      | Int _ | Bool _ | Unit | Str _ | Var _ -> ()
+      | Int _ | Float _ | Bool _ | Unit | Str _ | Var _ -> ()
       | Binop (_, b, c) -> scan b; scan c
       | Unop (_, b) | Field (b, _) | Deref b | Try b | Lambda (_, b) -> scan b
       | Call (_, bs) -> List.iter scan bs
@@ -252,6 +252,7 @@ let tuple_ty pos ts =
 
 let ty_of_name = function
   | "I64" -> TI64
+  | "F64" -> TF64
   | "Bool" -> TBool
   | "Str" -> TStr
   | "Arena" -> TArena ""        (* 名字由参数名补上 *)
@@ -259,6 +260,7 @@ let ty_of_name = function
 %}
 
 %token <int64> INT
+%token <float> FLOAT
 %token <string> STRING
 %token <string> IDENT UIDENT
 %token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
@@ -430,6 +432,7 @@ stmt:
 
 expr:
   | n = INT { mk (Int n) $startpos }
+  | f = FLOAT { mk (Float f) $startpos }
   | s = STRING { mk (Str s) $startpos }
   | TRUE { mk (Bool true) $startpos }
   | FALSE { mk (Bool false) $startpos }

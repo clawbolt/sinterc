@@ -1,0 +1,50 @@
+use std.math
+
+fn area(r: F64) -> F64 {
+    math.pi() * r * r
+}
+
+fn mean(v: Vec<F64>) -> F64 {
+    var s = 0.0
+    for x in v {
+        s = s + x
+    }
+    s / to_f64(vec_len(v))
+}
+
+fn main() {
+    print_f64(0.1 + 0.2)
+    print_f64(2.0)
+    print_f64(1.5e3)
+    print_f64(-0.25)
+    print_f64(area(2.0))
+    var v: Vec<F64> = vec_new()
+    v.push(1.0)
+    v.push(2.5)
+    v.push(4.0)
+    print_f64(mean(v))
+    print_f64(math.sqrt(2.0))
+    print_i64(to_i64(3.99))
+    print_i64(to_i64(-3.99))
+    print_f64(math.round(2.5))
+    print_f64(math.floor(-1.5))
+    print_f64(math.powi(2.0, -3))
+    print_bool(0.1 + 0.2 == 0.3)
+    print_bool(1.0 < 2.0)
+    print(str_concat("x = ", str_from_f64(1.0 / 3.0)))
+    match "2.75".to_f64() {
+        .Some(x) => print_f64(x * 2.0),
+        .None => print("不是数")
+    }
+    match str_to_f64("abc") {
+        .Some(x) => print_f64(x),
+        .None => print("不是数")
+    }
+    // t.0.1 仍然是取嵌套元组的元素，不是浮点数 0.1
+    let t = ((1, 2), 3)
+    print_i64(t.0.1)
+    let z = 0.0
+    print_bool(math.is_nan(z / z))
+    print_f64(1.0 / z)
+    print_f64(1e20)
+}

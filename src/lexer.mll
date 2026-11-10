@@ -31,6 +31,19 @@ rule token = parse
   | "//" [^ '\n']*        { token lexbuf }
   | '\n'                  { Lexing.new_line lexbuf;
                             if !depth > 0 then token lexbuf else NL }
+  (* 浮点数（C47）：1.5、2.0e-3、1e9。紧跟在 . 后面时（t.0.1 取嵌套元组的元素）只读整数部分，
+     . 和后面的数字留给下一个记号 *)
+  | (digit+ '.' digit+ (['e' 'E'] ['+' '-']? digit+)? | digit+ ['e' 'E'] ['+' '-']? digit+) as s
+      { let st = lexbuf.Lexing.lex_start_pos in
+        if st > 0 && Bytes.get lexbuf.Lexing.lex_buffer (st - 1) = '.' && String.contains s '.' then begin
+          let k = String.index s '.' in
+          lexbuf.Lexing.lex_curr_pos <- st + k;
+          lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with pos_cnum = lexbuf.Lexing.lex_start_p.pos_cnum + k };
+          INT (Int64.of_string (String.sub s 0 k))
+        end
+        else match float_of_string_opt s with
+          | Some f when Float.is_finite f -> FLOAT f
+          | _ -> raise (Error (pos lexbuf, "浮点数超出 F64 范围：" ^ s)) }
   | digit+ as n           { match Int64.of_string_opt n with
                             | Some v -> INT v
                             | None -> raise (Error (pos lexbuf, "整数超出 I64 范围：" ^ n)) }

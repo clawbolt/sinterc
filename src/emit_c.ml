@@ -15,14 +15,51 @@ static void sn_panic(const char *m) { fflush(stdout); fprintf(stderr, "panic: %s
 /* 命令行参数（C36）：main 里记下来，args() 读。 */
 static int sn_argc = 0;
 static char **sn_argv = 0;
-static int64_t sn_add(int64_t a, int64_t b) { int64_t r; if (__builtin_add_overflow(a, b, &r)) sn_panic("整数溢出"); return r; }
-static int64_t sn_sub(int64_t a, int64_t b) { int64_t r; if (__builtin_sub_overflow(a, b, &r)) sn_panic("整数溢出"); return r; }
-static int64_t sn_mul(int64_t a, int64_t b) { int64_t r; if (__builtin_mul_overflow(a, b, &r)) sn_panic("整数溢出"); return r; }
-static int64_t sn_div(int64_t a, int64_t b) { if (b == 0) sn_panic("除以零"); if (a == INT64_MIN && b == -1) sn_panic("整数溢出"); return a / b; }
-static int64_t sn_rem(int64_t a, int64_t b) { if (b == 0) sn_panic("除以零"); if (a == INT64_MIN && b == -1) sn_panic("整数溢出"); return a % b; }
-static int64_t sn_neg(int64_t a) { if (a == INT64_MIN) sn_panic("整数溢出"); return -a; }
+static int64_t sn_i_add(int64_t a, int64_t b) { int64_t r; if (__builtin_add_overflow(a, b, &r)) sn_panic("整数溢出"); return r; }
+static int64_t sn_i_sub(int64_t a, int64_t b) { int64_t r; if (__builtin_sub_overflow(a, b, &r)) sn_panic("整数溢出"); return r; }
+static int64_t sn_i_mul(int64_t a, int64_t b) { int64_t r; if (__builtin_mul_overflow(a, b, &r)) sn_panic("整数溢出"); return r; }
+static int64_t sn_i_div(int64_t a, int64_t b) { if (b == 0) sn_panic("除以零"); if (a == INT64_MIN && b == -1) sn_panic("整数溢出"); return a / b; }
+static int64_t sn_i_rem(int64_t a, int64_t b) { if (b == 0) sn_panic("除以零"); if (a == INT64_MIN && b == -1) sn_panic("整数溢出"); return a % b; }
+static int64_t sn_i_neg(int64_t a) { if (a == INT64_MIN) sn_panic("整数溢出"); return -a; }
+/* F64（C47）：按 IEEE 754，不检查溢出（得到 inf）和除以零（得到 inf 或 NaN）。
+   运算符按操作数的 C 类型选整数或浮点数的版本（类型检查保证两边相同）。 */
+static double sn_f_add(double a, double b) { return a + b; }
+static double sn_f_sub(double a, double b) { return a - b; }
+static double sn_f_mul(double a, double b) { return a * b; }
+static double sn_f_div(double a, double b) { return a / b; }
+static double sn_f_neg(double a) { return -a; }
+#define sn_add(a, b) _Generic((a), double: sn_f_add, default: sn_i_add)(a, b)
+#define sn_sub(a, b) _Generic((a), double: sn_f_sub, default: sn_i_sub)(a, b)
+#define sn_mul(a, b) _Generic((a), double: sn_f_mul, default: sn_i_mul)(a, b)
+#define sn_div(a, b) _Generic((a), double: sn_f_div, default: sn_i_div)(a, b)
+#define sn_rem(a, b) sn_i_rem(a, b)
+#define sn_neg(a) _Generic((a), double: sn_f_neg, default: sn_i_neg)(a)
 static void u_print_i64(int64_t x) { printf("%lld\n", (long long)x); }
 static void u_print_bool(bool b) { puts(b ? "true" : "false"); }
+/* F64 的文字（C47）：能还原成同一个值的最短写法；1e-5 到 1e16 之间用定点写法（1500.0、0.1），
+   其余用指数写法（1e+20）；整数值带 .0。 */
+static int sn_fmt_f64(char *b, size_t n, double x) {
+  if (x != x) return snprintf(b, n, "NaN");
+  if (x > 1.7976931348623157e308) return snprintf(b, n, "inf");
+  if (x < -1.7976931348623157e308) return snprintf(b, n, "-inf");
+  double a = x < 0 ? -x : x;
+  int k = 0;
+  if (a == 0 || (a >= 1e-5 && a < 1e16)) {
+    for (int d = 0; d <= 30; d++) { k = snprintf(b, n, "%.*f", d, x); if (strtod(b, 0) == x) break; }
+  } else {
+    for (int p = 1; p <= 17; p++) { k = snprintf(b, n, "%.*g", p, x); if (strtod(b, 0) == x) break; }
+  }
+  if (!strpbrk(b, ".e")) { b[k++] = '.'; b[k++] = '0'; b[k] = 0; }
+  return k;
+}
+static void u_print_f64(double x) { char b[64]; sn_fmt_f64(b, sizeof b, x); puts(b); }
+static double u_to_f64(int64_t x) { return (double)x; }
+static int64_t u_to_i64(double x) { if (!(x >= -9223372036854775808.0 && x < 9223372036854775808.0)) sn_panic("F64 转换成 I64 时超出范围（或是 NaN）"); return (int64_t)x; }
+static double u_f64_sqrt(double x) { return __builtin_sqrt(x); }
+static double u_f64_floor(double x) { return __builtin_floor(x); }
+static double u_f64_ceil(double x) { return __builtin_ceil(x); }
+static double u_f64_round(double x) { return __builtin_round(x); }
+static bool u_f64_is_nan(double x) { return x != x; }
 /* 对照测试用：按 sn_seq 里的 0 / 1 依次返回假 / 真，用完之后一直返回假（循环因此一定结束）。 */
 static const char *sn_seq = "";
 static bool u_choose(void) { if (*sn_seq) return *sn_seq++ == '1'; return false; }
@@ -100,6 +137,7 @@ let fname n = cname "u_" n   (* 函数 *)
 (* Result<T, E> 的 C 名字由两个类型拼出来（每个用到的 Result 是一个具体的枚举）。 *)
 let rec mangle = function
   | TI64 -> "I64"
+  | TF64 -> "F64"
   | TBool -> "Bool"
   | TStr -> "Str"
   | TUnit -> "U"
@@ -113,6 +151,7 @@ let rec mangle = function
 
 let rec cty = function
   | TI64 -> "int64_t"
+  | TF64 -> "double"
   | TBool -> "bool"
   | TStr -> "sn_str"
   | TUnit -> "sn_unit"   (* 存值的地方（变量、字段、载荷、Vec 元素）占一个字节；函数返回 () 时仍是 void *)
@@ -133,7 +172,7 @@ let rec drop_code ty lv =
   | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
   | TStr -> Printf.sprintf "sn_free(%s.p); " lv
   | (TStruct _ | TResult _ | TVec _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
-  | TI64 | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ | TFn _ -> ""
+  | TI64 | TF64 | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ | TFn _ -> ""
 
 (* 析构函数的函数体：结构体逐个析构字段；枚举按运行时标签析构对应变体的载荷（Lean M8 的 dropOne）；
    Vec 逐个析构元素，再释放缓冲区（Lean M12）。 *)
@@ -213,7 +252,7 @@ let type_defs (p : program) (fs : Mir.func list) =
           (fun (f : field) -> Buffer.add_string defs (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname))
           fields;
         Buffer.add_string defs " };\n"
-    | (TI64 | TBool | TStr | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _), _ -> ()
+    | (TI64 | TF64 | TBool | TStr | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _), _ -> ()
   in
   List.iter
     (function
@@ -233,6 +272,8 @@ let type_defs (p : program) (fs : Mir.func list) =
     Typeck.vec_calls;
   (* read_line、str_to_i64 返回的 Option<Str>、Option<I64>（C32）：辅助函数总是生成，类型也总要有 *)
   let opt_str = Typeck.instantiate "Option" [ TStr ] and opt_i64 = Typeck.instantiate "Option" [ TI64 ] in
+  let opt_f64 = Typeck.instantiate "Option" [ TF64 ] in
+  visit opt_f64;
   visit opt_str;
   visit opt_i64;
   (* args、read_file、write_file 的返回类型（C36） *)
@@ -273,7 +314,19 @@ let type_defs (p : program) (fs : Mir.func list) =
     Typeck.vec_calls;
   (* 读一行：读到换行或文件末尾为止，去掉行尾的 \r；什么都没读到就到了末尾时返回 .None。
      解析整数：可以有一个正负号，后面全是数字；超出 I64 范围时返回 .None。 *)
-  let os = cty opt_str and oi = cty opt_i64 in
+  let os = cty opt_str and oi = cty opt_i64 and of64 = cty opt_f64 in
+  (* 解析浮点数（C47）：整个字符串都要是 strtod 认得的写法，不能有前后的空白 *)
+  Buffer.add_string helpers
+    (Printf.sprintf
+       "static %s u_str_to_f64(const sn_str *s) {\n\
+       \  if (s->len == 0 || s->len > 400 || s->p[0] == ' ' || s->p[0] == '\\t' || s->p[0] == '\\n') return (%s){ .tag = 1 };\n\
+       \  char b[401]; memcpy(b, s->p, (size_t)s->len); b[s->len] = 0; char *e;\n\
+       \  double x = strtod(b, &e);\n\
+       \  if (*e != 0) return (%s){ .tag = 1 };\n\
+       \  return (%s){ .tag = 0, .u.v0 = x };\n\
+        }\n\
+        static sn_str u_str_from_f64(double x) { char b[64]; int n = sn_fmt_f64(b, sizeof b, x); return sn_str_make(b, n); }\n"
+       of64 of64 of64 of64);
   Buffer.add_string helpers
     (Printf.sprintf
        "static %s u_read_line(void) {\n\
@@ -364,6 +417,7 @@ let place f (p : Mir.place) =
 
 let operand f = function
   | Mir.Const (Mir.CInt n) -> Printf.sprintf "INT64_C(%Ld)" n
+  | Mir.Const (Mir.CF64 x) -> Printf.sprintf "%h" x   (* 十六进制浮点数：和字面量的值完全相同 *)
   | Mir.Const (Mir.CBool b) -> if b then "true" else "false"
   | Mir.Const Mir.CUnit -> "0"
   | Mir.Const (Mir.CStr s) ->

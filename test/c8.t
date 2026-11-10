@@ -122,7 +122,7 @@ T: linear 的值必须交出去，即使只用 I64 实例化：
   > }
   > EOF
   $ sinterc ops.sn
-  ops.sn:2:5: 错误：只能比较 I64 和 Bool
+  ops.sn:2:5: 错误：只能比较 I64、F64 和 Bool
    2 |     a == b
      |     ^
   [1]

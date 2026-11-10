@@ -44,7 +44,7 @@ let table =
     ("字符串用 str_eq(a, b) 或 a.eq(b) 比较", "compare strings with str_eq(a, b) or a.eq(b)");
     ("for 只能遍历变量或字段里的 Vec，或者写成 a..b", "for can only iterate over a Vec in a variable or field, or a range a..b");
     ("%s 只能用在循环里", "{1} can only be used inside a loop");
-    ("只能比较 I64 和 Bool", "only I64 and Bool values can be compared");
+    ("只能比较 I64、F64 和 Bool", "only I64, F64 and Bool values can be compared");
     ("consume 只能用于 linear 结构体，%s 不是", "consume only works on linear structs; {1} is not one");
     ("unbox 的参数必须是 Box，%s 不是", "unbox needs a Box; {1} is not one");
     ("%s 需要 1 个参数", "{1} takes 1 argument");
@@ -216,6 +216,7 @@ let table =
     ("%s 正被投影 %s 借用（之后还会用到 %s），不能%s",
      "{1} is borrowed by projection {2} (which is used later), so it cannot be {4}");
     ("整数超出 I64 范围：%s", "integer literal out of I64 range: {1}");
+    ("浮点数超出 F64 范围：%s", "float literal out of F64 range: {1}");
     ("无法识别的字符 '%s'", "unrecognized character '{1}'");
     ("字符串里只能用 \\n、\\t、\\\\、\\\" 这几种转义", "only the escapes \\n, \\t, \\\\ and \\\" are allowed in strings");
     ("字符串没有结束（缺少右边的 \"，字符串不能跨行）", "unterminated string (missing the closing \"; strings cannot span lines)");
@@ -352,6 +353,7 @@ let runtime text =
         text
         [
           ("\"整数溢出\"", "\"integer overflow\""); ("\"除以零\"", "\"division by zero\"");
+          ("\"F64 转换成 I64 时超出范围（或是 NaN）\"", "\"F64 to I64 conversion out of range (or NaN)\"");
           ("\"内存不足\"", "\"out of memory\""); ("\"下标越界\"", "\"index out of bounds\"");
           ("个 Box 没有释放", "Box value(s) not freed");
         ]

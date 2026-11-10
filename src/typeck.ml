@@ -111,7 +111,7 @@ let rec is_linear = function
   | TResult (a, b) -> is_linear a || is_linear b
   | TBox t | TVec t -> is_linear t
   | TParam (_, l) -> l
-  | TI64 | TBool | TStr | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
+  | TI64 | TF64 | TBool | TStr | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
 
 (* 需要析构（或者是 linear）的类型：这些类型的值只能移动，不能复制。 *)
 let rec needs_drop = function
@@ -128,7 +128,7 @@ let rec needs_drop = function
           | None -> false))
   | TResult (a, b) -> needs_drop a || needs_drop b
   | TParam _ -> true            (* 类型参数按抽象类型检查：可能需要析构，只能移动（Lean M9） *)
-  | TI64 | TBool | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
+  | TI64 | TF64 | TBool | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
 
 (* 内建函数按值接收可复制的参数，记作 sink；字符串按 let（只读借用）或 inout 传入（C29）。 *)
 let builtins =
@@ -142,6 +142,19 @@ let builtins =
     "str_push", ([ (MInout, TStr); (MLet, TStr) ], TUnit);
     "str_clone", ([ (MLet, TStr) ], TStr);
     "str_from_i64", ([ (MSink, TI64) ], TStr);
+    (* C47：F64。print_f64 按能还原的最短写法打印（整数值带 .0）；to_f64 把 I64 换成 F64，
+       to_i64 向零取整（NaN 或超出 I64 范围时 panic）；str_to_f64 解析（格式不对时 .None）。
+       f64_* 是 std.math 里 sqrt 等函数用的内建函数 *)
+    "print_f64", ([ (MSink, TF64) ], TUnit);
+    "str_from_f64", ([ (MSink, TF64) ], TStr);
+    "str_to_f64", ([ (MLet, TStr) ], TApp ("Option", [ TF64 ]));
+    "to_f64", ([ (MSink, TI64) ], TF64);
+    "to_i64", ([ (MSink, TF64) ], TI64);
+    "f64_sqrt", ([ (MSink, TF64) ], TF64);
+    "f64_floor", ([ (MSink, TF64) ], TF64);
+    "f64_ceil", ([ (MSink, TF64) ], TF64);
+    "f64_round", ([ (MSink, TF64) ], TF64);
+    "f64_is_nan", ([ (MSink, TF64) ], TBool);
     (* C32：读一行（读到末尾时 .None，去掉行尾的换行）、解析整数（格式不对或超出范围时 .None）、
        第 i 个字节、[a, b) 的子串（新的 Str）；下标越界时 panic *)
     "read_line", ([], TApp ("Option", [ TStr ]));
@@ -157,7 +170,7 @@ let builtins =
   ]
 
 (* 字符串的方法调用：s.len() 就是 str_len(s)。 *)
-let str_methods = [ "len"; "eq"; "concat"; "push"; "clone"; "to_i64"; "byte"; "slice" ]
+let str_methods = [ "len"; "eq"; "concat"; "push"; "clone"; "to_i64"; "to_f64"; "byte"; "slice" ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
 let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "vec_swap"; "panic" ]
@@ -252,7 +265,7 @@ let rec mentions r = function
   | TBox t | TVec t -> mentions r t
   | TResult (a, b) -> mentions r a || mentions r b
   | TStruct n -> List.exists (mentions r) (inst_args n)
-  | TI64 | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> false   (* fn(…) 里不能有区域（check_ty） *)
+  | TI64 | TF64 | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> false   (* fn(…) 里不能有区域（check_ty） *)
 
 let rec region_names = function
   | TRef (t, x) -> x :: region_names t
@@ -260,7 +273,7 @@ let rec region_names = function
   | TBox t | TVec t -> region_names t
   | TResult (a, b) -> region_names a @ region_names b
   | TStruct n -> List.concat_map region_names (inst_args n)
-  | TI64 | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> []
+  | TI64 | TF64 | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> []
 
 let rec rename s = function
   | TRef (t, x) -> TRef (rename s t, Option.value (List.assoc_opt x s) ~default:x)
@@ -473,7 +486,7 @@ let rec params_of = function
   | TBox t | TVec t | TRef (t, _) -> params_of t
   | TResult (a, b) -> params_of a @ params_of b
   | TFn (ps, r) -> List.concat_map (fun (_, t) -> params_of t) ps @ params_of r
-  | TI64 | TBool | TStr | TUnit | TArena _ | TApp _ -> []
+  | TI64 | TF64 | TBool | TStr | TUnit | TArena _ | TApp _ -> []
 
 (* 协变（C24，Lean M16）：泛型结构体、枚举 g 的第 i 个类型参数只出现在只读的位置时，
    g<…外层…> 可以当作 g<…内层…> 用。只读的位置：字段、载荷直接是这个参数，
@@ -512,7 +525,7 @@ and only_cov p t =
             (List.mapi (fun i t -> (not (List.mem p (params_of t))) || (covariant g i && only_cov p t)) ts)
       | None -> true)
   | TBox _ | TVec _ | TRef _ | TFn _ -> not (List.mem p (params_of t))
-  | TI64 | TBool | TStr | TUnit | TArena _ | TApp _ -> true
+  | TI64 | TF64 | TBool | TStr | TUnit | TArena _ | TApp _ -> true
 
 let () = covariant_fwd := covariant
 
@@ -537,7 +550,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
   let rec ex (x : expr) =
     let e =
       match x.e with
-      | (Int _ | Bool _ | Unit | Str _ | Var _) as d -> d
+      | (Int _ | Float _ | Bool _ | Unit | Str _ | Var _) as d -> d
       | Binop (o, a, b) -> Binop (o, ex a, ex b)
       | Unop (o, a) -> Unop (o, ex a)
       | Call (f, args) -> (
@@ -605,6 +618,9 @@ let var_expr pos v t =
   { e = Var v; pos; id }
 
 (* 每个表达式的类型按 id 记下来，给降级用。 *)
+(* 算术的类型：左边是 F64 时按 F64，否则按 I64（右边、报错都跟着它）。 *)
+let num = function Ty TF64 -> TF64 | _ -> TI64
+
 let rec expr env (x : expr) : t =
   let t = expr1 env x in
   Hashtbl.replace types x.id t;
@@ -663,6 +679,7 @@ and expr1 env (x : expr) : t =
   match x.e with
   | Call (f, (r :: _ as args)) when is_method f -> expr1 env { x with e = Call (method_name env x f r, args) }
   | Int _ -> Ty TI64
+  | Float _ -> Ty TF64
   | Bool _ -> Ty TBool
   | Unit -> Ty TUnit
   | Str _ -> Ty TStr
@@ -678,19 +695,26 @@ and expr1 env (x : expr) : t =
       let ta = expr env a in
       let tb = expr env b in
       match op with
-      | Add | Sub | Mul | Div | Rem ->
-          expect a.pos TI64 ta; expect b.pos TI64 tb; Ty TI64
+      (* 算术和大小比较：两边都是 I64，或者都是 F64（C47，不做隐式转换，用 to_f64 / to_i64）；% 只用于 I64 *)
+      | Rem -> expect a.pos TI64 ta; expect b.pos TI64 tb; Ty TI64
+      | Add | Sub | Mul | Div ->
+          let t = num ta in
+          expect a.pos t ta; expect b.pos t tb; Ty t
       | Lt | Le | Gt | Ge ->
-          expect a.pos TI64 ta; expect b.pos TI64 tb; Ty TBool
+          let t = num ta in
+          expect a.pos t ta; expect b.pos t tb; Ty TBool
       | Eq | Ne -> (
           match ta, tb with
           | Ty TStr, _ | _, Ty TStr -> err pos "字符串用 str_eq(a, b) 或 a.eq(b) 比较"
           | Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _), _
           | _, Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _) ->
-              err pos "只能比较 I64 和 Bool"
+              err pos "只能比较 I64、F64 和 Bool"
           | _ -> ignore (join pos "比较" ta tb); Ty TBool)
       | And | Or -> expect a.pos TBool ta; expect b.pos TBool tb; Ty TBool)
-  | Unop (Neg, a) -> expect a.pos TI64 (expr env a); Ty TI64
+  | Unop (Neg, a) ->
+      let ta = expr env a in
+      let t = num ta in
+      expect a.pos t ta; Ty t
   | Unop (Not, a) -> expect a.pos TBool (expr env a); Ty TBool
   | Call ("panic", [ a ]) ->
       (* panic(msg)（C38，Lean M19）：说明按借用读；不会返回，类型是 Never（和 return 一样） *)
@@ -1401,7 +1425,7 @@ and errdefer env pos (e : expr) =
       List.iter
         (fun (a : expr) ->
           match a.e with
-          | Var _ | Field _ | Deref _ | Int _ | Bool _ | Unit -> ()
+          | Var _ | Field _ | Deref _ | Int _ | Float _ | Bool _ | Unit -> ()
           | _ -> err a.pos "errdefer 的实参只能是变量、字段或常量")
         args;
       let modes = if f = "consume" then [ MSink ] else List.map fst (fst (Hashtbl.find sigs f)) in

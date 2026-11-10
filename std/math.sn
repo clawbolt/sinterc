@@ -79,3 +79,35 @@ pub fn min_of<T: Ord>(sink a: T, sink b: T) -> T {
 pub fn max_of<T: Ord>(sink a: T, sink b: T) -> T {
     if cmp(a, b) >= 0 { a } else { b }
 }
+
+// F64（C47）。按 IEEE 754：溢出得到 inf，0.0 / 0.0 得到 NaN；NaN 和任何数比较（包括自己）都不相等。
+pub fn sqrt(x: F64) -> F64 { f64_sqrt(x) }
+
+pub fn floor(x: F64) -> F64 { f64_floor(x) }
+
+pub fn ceil(x: F64) -> F64 { f64_ceil(x) }
+
+// 四舍五入，正好在中间时远离 0（2.5 是 3.0，-2.5 是 -3.0）。
+pub fn round(x: F64) -> F64 { f64_round(x) }
+
+pub fn fabs(x: F64) -> F64 { if x < 0.0 { -x } else { x } }
+
+pub fn fmin(a: F64, b: F64) -> F64 { if a < b { a } else { b } }
+
+pub fn fmax(a: F64, b: F64) -> F64 { if a > b { a } else { b } }
+
+pub fn is_nan(x: F64) -> Bool { f64_is_nan(x) }
+
+pub fn pi() -> F64 { 3.141592653589793 }
+
+// b 的 e 次方（e 是整数，可以是负数）。
+pub fn powi(b: F64, e: I64) -> F64 {
+    var r = 1.0
+    var i = 0
+    let n = if e < 0 { -e } else { e }
+    while i < n {
+        r = r * b
+        i = i + 1
+    }
+    if e < 0 { 1.0 / r } else { r }
+}
