@@ -6,6 +6,9 @@
 
 **语言**
 - 嵌套模式：`.Some((0, s))`、`Ok(.None)`、`(0, _)`，可以 match 元组；检查穷尽（没覆盖时报一个例子）和永远匹配不到的分支（C55，Lean M24、M24b）。
+- trait：内建的 `ToStr`，字符串插值用它，可以给多种类型各写一个 `fn to_str`，泛型代码里写 `T: ToStr`；
+  默认方法（trait 里写了函数体的方法，impl 可以不写）；泛型 impl `impl<T: ToStr> ToStr for Vec<T>`，
+  重叠的 impl 被拒绝（C56，Lean M25）。`std.bigint` 的 BigInt 可以直接插值。
 
 **标准库**
 - `std.bigint`：任意大小的整数，加、减、乘、比较、除以小数、十进制转换，实现 `Eq`、`Ord`（C54，Lean S10）。

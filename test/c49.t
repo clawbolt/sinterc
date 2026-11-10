@@ -75,7 +75,7 @@ I64、F64、Char、Bool 和 Str 是内建的，别的类型调用户写的 to_st
   > }
   > EOF
   $ sinterc noshow.sn
-  noshow.sn:4:12: 错误：没有 to_str 函数：I64、F64、Char、Bool、Str 以外的值要在字符串里插值，先写 fn to_str(x: T) -> Str
+  noshow.sn:4:12: 错误：P 没有实现 ToStr，不能在字符串里插值或调用 to_str（先写 fn to_str(x: P) -> Str）
    4 |     print("{p}")
      |            ^
   [1]

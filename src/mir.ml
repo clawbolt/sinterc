@@ -295,11 +295,13 @@ let rec expr st env (x : expr) : operand option =
       let ty = match ty_of v with Some t -> t | None -> TI64 in
       value st x (Alloc (ty, pa, ov))
   | Call (f, args) ->
+      (* 泛型函数调用的是推出的类型实参对应的实例；内建类型的 to_str 直接是内建函数（C56），
+         这时实参按内建函数的签名传（I64 按值，不按 Self 的借用） *)
+      let g = match Hashtbl.find_opt Typeck.call_inst x.id with Some ts -> Typeck.inst_name f ts | None -> f in
+      let f, g = match Hashtbl.find_opt Typeck.aliases g with Some b -> (b, b) | None -> (f, g) in
       let modes = List.map fst (fst (Hashtbl.find Typeck.sigs f)) in
       let os = List.map2 (arg st env) modes args in
-      (* 泛型函数调用的是推出的类型实参对应的实例 *)
-      let f = match Hashtbl.find_opt Typeck.call_inst x.id with Some ts -> Typeck.inst_name f ts | None -> f in
-      value st x (Call (f, os))
+      value st x (Call (g, os))
   | StructLit (n, inits) ->
       let fs = List.map (fun (f, e) -> (f, Option.get (expr_v st env e))) inits in
       (* 泛型结构体：用实例的名字 *)

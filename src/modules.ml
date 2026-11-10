@@ -212,11 +212,23 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
             methods =
               List.map
                 (fun m ->
-                  { m with mparams = List.map (fun (md, x, ty') -> (md, x, ty m.mpos ty')) m.mparams; mret = ty m.mpos m.mret })
+                  {
+                    m with
+                    mparams = params m.mpos m.mparams;
+                    mret = ty m.mpos m.mret;
+                    mbody = Option.map blk m.mbody;
+                  })
                 t.methods;
           }
     | Impl i ->
-        Impl { i with trait = qual i.ipos i.trait; self = ty i.ipos i.self; fns = List.map (item ~top:false) i.fns }
+        Impl
+          {
+            i with
+            trait = qual i.ipos i.trait;
+            bounds = List.map (fun (t, tr) -> (t, qual i.ipos tr)) i.bounds;
+            self = ty i.ipos i.self;
+            fns = List.map (item ~top:false) i.fns;
+          }
   in
   List.map (fun (_, it) -> item ~top:true it) me.src.items
 

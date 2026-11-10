@@ -366,13 +366,29 @@ let gparams : (string, (string * bool) list) Hashtbl.t = Hashtbl.create 16
 let gfns : (string, item) Hashtbl.t = Hashtbl.create 16
 
 (* trait（Lean M10）：每个方法当作带一个类型参数 Self 的泛型函数，Self 换成实现的类型。
-   traits：trait → 方法名；methods：方法名 → trait；impls：(trait, 类型) 有 impl；
+   traits：trait → 方法名；methods：方法名 → trait；impls：trait → 它的每个 impl；
    gbounds：泛型函数（和方法）的类型参数要满足的 trait 约束。
-   impl 里的方法是普通的具体函数，名字记作 方法<类型>（和泛型函数的实例同一种写法），单态化时直接调用它。 *)
+   impl 里的方法是普通的具体函数，名字记作 方法<类型>（和泛型函数的实例同一种写法），单态化时直接调用它。
+   C56（Lean M25）：impl 可以是泛型的（头部 Vec<T>，约束 T: ToStr），它的方法是以 impl 的类型参数为类型参数的泛型函数，
+   名字是 方法<头部>；trait 的方法可以有默认的函数体（defaults），它是泛型函数 方法（类型参数 Self）。 *)
+type impl_info = {
+  head : ty;   (* 实现的类型，impl 的类型参数是 TParam *)
+  itps : string list;   (* impl 的类型参数 *)
+  ibounds : (string * string) list;
+  defined : string list;   (* impl 里写了的方法 *)
+}
+
 let traits : (string, string list) Hashtbl.t = Hashtbl.create 16
 let methods : (string, string) Hashtbl.t = Hashtbl.create 16
-let impls : (string * string, unit) Hashtbl.t = Hashtbl.create 16
+let impls : (string, impl_info) Hashtbl.t = Hashtbl.create 16
 let gbounds : (string, (string * string) list) Hashtbl.t = Hashtbl.create 16
+let defaults : (string, unit) Hashtbl.t = Hashtbl.create 16
+
+(* 泛型 impl 的方法的实例（C56）：实例名 方法<具体类型> → (泛型函数 方法<头部>, impl 的类型实参)。 *)
+let minst : (string, string * ty list) Hashtbl.t = Hashtbl.create 16
+
+(* 内建类型的 ToStr（C56）：实例名 to_str<I64> 等直接调用内建函数，降级时换名。 *)
+let aliases : (string, string) Hashtbl.t = Hashtbl.create 16
 
 (* 每个泛型调用（按调用表达式的 id）推出的类型实参，给降级时找实例的名字用。 *)
 let call_inst : (int, ty list) Hashtbl.t = Hashtbl.create 16
@@ -508,6 +524,73 @@ let rec params_of = function
   | TFn (ps, r) -> List.concat_map (fun (_, t) -> params_of t) ps @ params_of r
   | TI64 | TF64 | TChar | TBool | TStr | TUnit | TArena _ | TApp _ -> []
 
+(* ---- impl 的查找（C56，Lean M25） ---- *)
+
+(* 泛型类型的实例 Pair<I64> 记作名字，这里拆回 (Pair, [I64])；元组也一样。 *)
+let app_of n = Hashtbl.find_opt inst_tbl n
+
+(* 头部 p 对类型 t 的匹配（M25 的 mtch）：vs 是 impl 的类型参数，s 是已经匹配出的类型实参。
+   t 里的类型参数（当前泛型函数的）当作普通的类型。 *)
+let rec tmatch vs p t s =
+  match p, t with
+  | TParam (n, _), _ when List.mem n vs -> (
+      match List.assoc_opt n s with Some u -> if u = t then Some s else None | None -> Some ((n, t) :: s))
+  | TStruct a, TStruct b -> (
+      match app_of a, app_of b with
+      | Some (g, ps), Some (h, ts) when g = h && List.length ps = List.length ts -> tmatch_list vs ps ts s
+      | None, None when a = b -> Some s
+      | _ -> None)
+  | TBox p, TBox t | TVec p, TVec t -> tmatch vs p t s
+  | TResult (a, b), TResult (c, d) -> tmatch_list vs [ a; b ] [ c; d ] s
+  | _ -> if p = t then Some s else None
+
+and tmatch_list vs ps ts s =
+  match ps, ts with
+  | [], [] -> Some s
+  | p :: ps, t :: ts -> Option.bind (tmatch vs p t s) (tmatch_list vs ps ts)
+  | _ -> None
+
+(* 两个头部可能有共同的实例（M25 的 compat，保守：类型参数和什么都相容）。 *)
+let rec compat p q =
+  match p, q with
+  | TParam _, _ | _, TParam _ -> true
+  | TStruct a, TStruct b -> (
+      match app_of a, app_of b with
+      | Some (g, ps), Some (h, qs) -> g = h && List.length ps = List.length qs && List.for_all2 compat ps qs
+      | None, None -> a = b
+      | _ -> false)
+  | TBox p, TBox q | TVec p, TVec q -> compat p q
+  | TResult (a, b), TResult (c, d) -> compat a c && compat b d
+  | _ -> p = q
+
+(* 头部能匹配 t 的 tr 的 impl（Coherent 保证至多一个），和匹配出的类型实参。 *)
+let find_impl tr t =
+  List.find_map
+    (fun i -> Option.map (fun s -> (i, s)) (tmatch i.itps i.head t []))
+    (Hashtbl.find_all impls tr)
+
+(* t: tr 成立吗（M25 的 solve）：类型参数查当前函数的约束 tb，否则找 impl，再查它的约束。
+   impl 的头部不是单独的类型参数，约束里的类型都是 t 的真子项，所以递归一定会停。 *)
+let rec has_impl tb tr t =
+  match t with
+  | TParam (m, _) -> List.mem (m, tr) tb
+  | _ -> (
+      match find_impl tr t with
+      | Some (i, s) -> List.for_all (fun (n, tr') -> has_impl tb tr' (List.assoc n s)) i.ibounds
+      | None -> false)
+
+(* t: tr 不成立时，找出最里面不成立的那个约束（报错用）。 *)
+let rec why_not tb tr t =
+  match t with
+  | TParam _ -> (tr, t)
+  | _ -> (
+      match find_impl tr t with
+      | Some (i, s) -> (
+          match List.find_opt (fun (n, tr') -> not (has_impl tb tr' (List.assoc n s))) i.ibounds with
+          | Some (n, tr') -> why_not tb tr' (List.assoc n s)
+          | None -> (tr, t))
+      | None -> (tr, t))
+
 (* 协变（C24，Lean M16）：泛型结构体、枚举 g 的第 i 个类型参数只出现在只读的位置时，
    g<…外层…> 可以当作 g<…内层…> 用。只读的位置：字段、载荷直接是这个参数，
    或者在 Result 里，或者是另一个实例里能协变的类型实参。
@@ -618,15 +701,18 @@ let vec_inst (x : expr) b t =
   Hashtbl.replace call_inst x.id [ t ];
   if params_of t = [] then Hashtbl.replace vec_calls (inst_name ("vec_" ^ b) [ t ]) (b, t)
 
-(* 泛型函数 f 按类型实参 ts 的实例：复制函数体（表达式换新的 id），类型参数换成具体类型。 *)
+(* 泛型函数 f 按类型实参 ts 的实例：复制函数体（表达式换新的 id），类型参数换成具体类型。
+   泛型 impl 的方法（C56）：方法<具体类型> 是 方法<头部> 按匹配出的类型实参的实例。 *)
 let instance (f, ts) =
+  let name = inst_name f ts in
+  let f, ts = Option.value (Hashtbl.find_opt minst name) ~default:(f, ts) in
   match Hashtbl.find gfns f with
   | Fn g ->
       let s = List.combine (List.map fst g.tparams) ts in
       Fn
         {
           g with
-          name = inst_name f ts;
+          name;
           tparams = [];
           bounds = [];
           params = List.map (fun (m, x, t) -> (m, x, subst s t)) g.params;
@@ -634,6 +720,25 @@ let instance (f, ts) =
           body = map_body ~fresh:true (fun _ -> subst s) g.body;
         }
   | it -> it
+
+(* trait 的方法 f 对具体类型 t 第一次被调用（C56）：impl 里写了的就是函数 f<t>；
+   内建类型的 to_str 换成内建函数；否则生成实例（泛型 impl 的方法，或者默认方法）。 *)
+let method_inst f t =
+  let name = inst_name f [ t ] in
+  if not (Hashtbl.mem sigs name) then
+    match f, t with
+    | "to_str", TI64 -> Hashtbl.replace aliases name "str_from_i64"
+    | "to_str", TF64 -> Hashtbl.replace aliases name "str_from_f64"
+    | "to_str", TChar -> Hashtbl.replace aliases name "str_from_char"
+    | "to_str", TBool -> Hashtbl.replace aliases name "str_from_bool"
+    | "to_str", TStr -> Hashtbl.replace aliases name "str_clone"
+    | _ -> (
+        match find_impl (Hashtbl.find methods f) t with
+        | Some (i, s) when List.mem f i.defined ->
+            Hashtbl.replace minst name (inst_name f [ i.head ], List.map (fun n -> List.assoc n s) i.itps);
+            Queue.add (f, [ t ]) pending
+        | Some _ -> Queue.add (f, [ t ]) pending
+        | None -> ())
 
 (* 改写调用时新加的实参：变量 v（类型是 t），类型直接记下（C40）。 *)
 let var_expr pos v t =
@@ -1256,9 +1361,6 @@ and call_named env want (x : expr) f args : t =
         | Some (ps, r) ->
             (* 内建函数签名里的 Option<…> 在这里换成实例（C32） *)
             (List.map (fun (m, t) -> (m, resolve [] pos t)) ps, resolve [] pos r)
-        | None when f = "to_str" ->
-            (* 插值 "{p}"、p.to_str() 落到这里：p 的类型不是内建的那几种，用户也没写 to_str（C49） *)
-            err pos "没有 to_str 函数：I64、F64、Char、Bool、Str 以外的值要在字符串里插值，先写 fn to_str(x: T) -> Str"
         | None -> err pos "未定义的函数 %s" f)
   in
   if List.length ps <> List.length args then
@@ -1315,18 +1417,25 @@ and call_named env want (x : expr) f args : t =
                   t)
             tps
         in
-        (* trait 约束：类型参数要在当前函数里写了同样的约束，具体类型要有 impl（Lean M10 的 RespectsT） *)
+        (* trait 约束：类型参数要在当前函数里写了同样的约束，具体类型要有 impl（Lean M10 的 RespectsT；
+           泛型 impl 按 M25 递归地查） *)
         let named = List.combine (List.map fst tps) ts in
         List.iter
           (fun (n, tr) ->
             let t = List.assoc n named in
-            let ok =
-              match t with
-              | TParam (m, _) -> List.mem (m, tr) env.tbounds
-              | t -> Hashtbl.mem impls (tr, string_of_ty t)
-            in
-            if not ok then
+            if not (has_impl env.tbounds tr t) then
+              let tr0, t0 = why_not env.tbounds tr t in
               match Hashtbl.mem methods f, t with
+              | _ when t0 <> t -> (
+                  (* 泛型 impl 的约束不满足：报最里面那个（C56） *)
+                  match t0 with
+                  | TParam (m, _) ->
+                      err pos "%s 没有写约束 %s，而 %s 的 %s 要用到它（要写 %s: %s）" m tr0 (string_of_ty t) tr m tr0
+                  | _ -> err pos "%s 没有实现 %s，而 %s 的 %s 要用到它" (string_of_ty t0) tr0 (string_of_ty t) tr)
+              | true, _ when tr = "ToStr" && params_of t = [] ->
+                  (* 插值 "{p}"、p.to_str() 落到这里：p 的类型不是内建的那几种，也没有写 to_str（C49） *)
+                  err pos "%s 没有实现 ToStr，不能在字符串里插值或调用 to_str（先写 fn to_str(x: %s) -> Str）"
+                    (string_of_ty t) (string_of_ty t)
               | true, TParam (m, _) -> err pos "%s 没有写约束 %s，不能调用 %s（要写 %s: %s）" m tr f m tr
               | true, _ -> err pos "%s 没有实现 %s，不能调用 %s" (string_of_ty t) tr f
               | false, TParam (m, _) -> err pos "%s 要求 %s: %s，但 %s 没有写约束 %s" f n tr m tr
@@ -1345,14 +1454,14 @@ and call_named env want (x : expr) f args : t =
         in
         let ts = List.map (rename (List.mapi (fun i r -> (r, "'" ^ string_of_int i)) rs)) ts in
         Hashtbl.replace call_inst x.id ts;
-        (* 方法调用直接用 impl 里的函数，不用生成实例；带 fn(…) 参数的函数生成的是特化 *)
+        (* 方法调用直接用 impl 里的函数；impl 没写、用默认方法的，或者 impl 是泛型的，生成实例（C56）；
+           带 fn(…) 参数的函数生成的是特化 *)
         if List.for_all (fun t -> params_of t = []) ts
-           && (not (Hashtbl.mem methods f))
            && (not has_fn)
            && not (Hashtbl.mem requested (inst_name f ts))
         then begin
           Hashtbl.replace requested (inst_name f ts) ();
-          Queue.add (f, ts) pending
+          if Hashtbl.mem methods f then method_inst f (List.hd ts) else Queue.add (f, ts) pending
         end;
         let s = List.combine (List.map fst tps) ts in
         (List.map (fun (m, p) -> (m, subst s p)) ps, subst s r)
@@ -1782,6 +1891,18 @@ let prepare (p : program) =
   Hashtbl.reset methods;
   Hashtbl.reset impls;
   Hashtbl.reset gbounds;
+  Hashtbl.reset defaults;
+  Hashtbl.reset minst;
+  Hashtbl.reset aliases;
+  (* 内建的 trait ToStr（C56）：fn to_str(x: Self) -> Str，字符串插值 "{x}" 用它；I64、F64、Char、Bool、Str 已经实现 *)
+  Hashtbl.add traits "ToStr" [ "to_str" ];
+  Hashtbl.replace methods "to_str" "ToStr";
+  Hashtbl.replace fns "to_str" ([ (MLet, TParam ("Self", true)) ], TStr);
+  Hashtbl.replace gparams "to_str" [ ("Self", true) ];
+  Hashtbl.replace gbounds "to_str" [ ("Self", "ToStr") ];
+  List.iter
+    (fun t -> Hashtbl.add impls "ToStr" { head = t; itps = []; ibounds = []; defined = [ "to_str" ] })
+    [ TI64; TF64; TChar; TBool; TStr ];
   Hashtbl.reset vec_calls;
   Hashtbl.reset method_res;
   Hashtbl.reset skip_lower;
@@ -1843,6 +1964,7 @@ let prepare (p : program) =
               if List.exists (fun (n : msig) -> n.mname = m.mname) (List.filteri (fun j _ -> j < i) ms) then
                 err m.mpos "trait %s 的方法 %s 重复" name m.mname)
             ms;
+          List.iter (fun (m : msig) -> if m.mbody <> None then Hashtbl.replace defaults m.mname ()) ms;
           Hashtbl.add traits name (List.map (fun (m : msig) -> m.mname) ms)
       | Impl _ -> ())
     p;
@@ -1925,22 +2047,56 @@ let prepare (p : program) =
               Hashtbl.replace gbounds m.mname [ ("Self", name) ];
               Hashtbl.replace methods m.mname name)
             ms
-      | Impl { trait = tr; self; fns = ms; ipos } ->
+      | Impl { trait = tr; tparams; bounds; self; fns = ms; ipos } ->
           if not (Hashtbl.mem traits tr) then err ipos "未知 trait %s" tr;
-          let st = resolve [] ipos self in
+          tparams_ok "" ipos tparams;
+          List.iter
+            (fun (t, _) ->
+              if defined t then err ipos "类型参数 %s 和已有的类型同名" t;
+              if t = "Self" then err ipos "Self 不能用作类型参数的名字")
+            tparams;
+          List.iter (fun (_, b) -> if not (Hashtbl.mem traits b) then err ipos "未知 trait %s" b) bounds;
+          let tsc = List.map (fun (t, lin) -> (t, TParam (t, lin))) tparams in
+          let st = resolve tsc ipos self in
           type_arg ipos st;
           if region_names st <> [] then err ipos "暂不支持为含引用的类型 %s 实现 trait" (string_of_ty st);
-          (match st with TArena _ -> err ipos "不能为 Arena 实现 trait" | _ -> ());
-          if Hashtbl.mem impls (tr, string_of_ty st) then err ipos "%s 已经实现过 %s" (string_of_ty st) tr;
-          Hashtbl.replace impls (tr, string_of_ty st) ();
+          (match st with
+          | TArena _ -> err ipos "不能为 Arena 实现 trait"
+          | TFn _ -> err ipos "不能为函数类型实现 trait"
+          | TParam (t, _) -> err ipos "不能为类型参数 %s 本身实现 trait（impl<%s> … for %s 会和所有的 impl 重叠）" t t t
+          | _ -> ());
+          (* M25 的 WF：impl 的类型参数都要出现在头部里（实例的类型实参由匹配得到） *)
+          List.iter
+            (fun (t, _) ->
+              if not (List.mem t (params_of st)) then
+                err ipos "impl 的类型参数 %s 没有出现在 %s 里" t (string_of_ty st))
+            tparams;
+          (* M25 的 Coherent：同一个 trait 的两个 impl 不能有共同的实例 *)
+          List.iter
+            (fun i ->
+              if compat i.head st then
+                if params_of i.head = [] && params_of st = [] then
+                  err ipos "%s 已经实现过 %s" (string_of_ty st) tr
+                else
+                  err ipos "impl %s for %s 和已有的 impl %s for %s 重叠（有的类型两个都能匹配）" tr (string_of_ty st) tr
+                    (string_of_ty i.head))
+            (Hashtbl.find_all impls tr);
+          let defined = List.filter_map (function Fn f -> Some f.name | _ -> None) ms in
+          Hashtbl.add impls tr { head = st; itps = List.map fst tparams; ibounds = bounds; defined };
           List.iter
             (function
-              | Fn { name; tparams; params; ret; ipos; _ } ->
-                  if tparams <> [] then err ipos "impl 里的方法暂不能有类型参数";
+              | Fn { name; tparams = ftps; params; ret; ipos; _ } ->
+                  if ftps <> [] then err ipos "impl 里的方法暂不能有类型参数";
                   if List.exists (fun (_, _, t) -> is_fn t) params then err ipos "impl 里的方法暂不能有 fn(…) 参数";
-                  let sc = [ ("Self", st) ] in
-                  Hashtbl.replace fns (inst_name name [ st ])
-                    (List.map (fun (md, _, t) -> (md, resolve sc ipos t)) params, resolve sc ipos ret)
+                  let sc = ("Self", st) :: tsc in
+                  let key = inst_name name [ st ] in
+                  Hashtbl.replace fns key
+                    (List.map (fun (md, _, t) -> (md, resolve sc ipos t)) params, resolve sc ipos ret);
+                  (* 泛型 impl 的方法是泛型函数 方法<头部>，类型参数和约束是 impl 的 *)
+                  if tparams <> [] then begin
+                    Hashtbl.replace gparams key tparams;
+                    if bounds <> [] then Hashtbl.replace gbounds key bounds
+                  end
               | Struct _ | Enum _ | Trait _ | Impl _ -> ())
             ms)
     p;
@@ -1976,9 +2132,9 @@ let prepare (p : program) =
                   if t = TUnit then err ipos "%s 的变体 %s：没有载荷请直接写 %s" name v v;
                   if is_linear t then err ipos "%s 的变体 %s：载荷暂不能是 linear 值" name v)
             (Hashtbl.find enum_tbl (abstract name tparams))
-      | Impl { trait = tr; self; fns = ms; ipos } ->
+      | Impl { trait = tr; tparams; self; fns = ms; ipos; _ } ->
           (* impl 和 trait 一致：方法一样，每个方法的参数约定和类型相同（Self 换成实现的类型，Lean M10 的 Conforms） *)
-          let st = resolve [] ipos self in
+          let st = resolve (List.map (fun (t, lin) -> (t, TParam (t, lin))) tparams) ipos self in
           check_ty env0 ipos st;
           let what = Printf.sprintf "impl %s for %s" tr (string_of_ty st) in
           let names = Hashtbl.find traits tr in
@@ -1988,7 +2144,9 @@ let prepare (p : program) =
               if List.mem_assoc n (List.filteri (fun j _ -> j < i) got) then err at "%s 里的方法 %s 重复" what n;
               if not (List.mem n names) then err at "trait %s 没有方法 %s" tr n)
             got;
-          List.iter (fun n -> if not (List.mem_assoc n got) then err ipos "%s 缺少方法 %s" what n) names;
+          List.iter
+            (fun n -> if not (List.mem_assoc n got || Hashtbl.mem defaults n) then err ipos "%s 缺少方法 %s" what n)
+            names;
           let s = [ ("Self", st) ] in
           List.iter
             (fun (n, at) ->
@@ -2040,28 +2198,52 @@ let resolve_item = function
   | it -> it
 
 (* 整个程序的条目逐个解析：impl 换成它的方法（普通函数，名字是 方法<类型>，Self 换成实现的类型）；
-   trait 只有签名，已经登记过，不再留在程序里。 *)
+   泛型 impl 的方法是泛型函数，类型参数和约束是 impl 的（C56）。
+   trait 的签名已经登记过，不再留在程序里；默认方法是泛型函数 方法，类型参数 Self、约束 Self: trait（C56）。 *)
 let resolve_items = function
   | Fn _ as it -> [ resolve_item it ]
-  | Impl { self; fns; ipos; _ } ->
-      let st = resolve [] ipos self in
+  | Impl { tparams; bounds; self; fns; ipos; _ } ->
+      let tsc = List.map (fun (t, lin) -> (t, TParam (t, lin))) tparams in
+      let st = resolve tsc ipos self in
       List.filter_map
         (function
           | Fn f ->
               let name = inst_name f.name [ st ] in
               let ps, ret = Hashtbl.find sigs name in
-              Some
-                (Fn
-                   {
-                     f with
-                     name;
-                     params = List.map2 (fun (m, x, _) (_, t) -> (m, x, t)) f.params ps;
-                     ret;
-                     body = map_body ~fresh:false (resolve [ ("Self", st) ]) f.body;
-                   })
+              let it =
+                Fn
+                  {
+                    f with
+                    name;
+                    tparams;
+                    bounds;
+                    params = List.map2 (fun (m, x, _) (_, t) -> (m, x, t)) f.params ps;
+                    ret;
+                    body = map_body ~fresh:false (resolve (("Self", st) :: tsc)) f.body;
+                  }
+              in
+              if tparams <> [] then Hashtbl.replace gfns name it;
+              Some it
           | Struct _ | Enum _ | Trait _ | Impl _ -> None)
         fns
-  | Trait _ -> []
+  | Trait { name = tr; methods = ms; _ } ->
+      List.filter_map
+        (fun (m : msig) ->
+          Option.map
+            (fun body ->
+              resolve_item
+                (Fn
+                   {
+                     name = m.mname;
+                     tparams = [ ("Self", true) ];
+                     bounds = [ ("Self", tr) ];
+                     params = m.mparams;
+                     ret = m.mret;
+                     body;
+                     ipos = m.mpos;
+                   }))
+            m.mbody)
+        ms
   | (Struct _ | Enum _) as it -> [ it ]
 
 (* 检查一个函数。特化（C40）：clos 是 fn(…) 参数绑定的闭包，fvars 是这些参数（已经从参数里去掉，函数体里仍按名字用）。
@@ -2097,11 +2279,35 @@ let check_main env0 =
   | Some _ -> err { line = 1; col = 1 } "main 必须是 fn main()，没有参数、没有返回值、没有类型参数"
   | None -> err { line = 1; col = 1 } "缺少 fn main()"
 
+(* fn to_str(x: P) -> Str 是 impl ToStr for P { … } 的简写（C49 的写法；C56 起可以给多种类型各写一个），
+   fn to_str<T: ToStr>(v: Vec<T>) -> Str 是泛型 impl 的简写。
+   模块里的 m.to_str(x: P) -> Str 照常是函数，另外为 P 实现 ToStr（调用它），"{x}" 也就能用了。 *)
+let sugar_to_str (p : program) =
+  let suffix = ".to_str" in
+  let qualified n =
+    let k = String.length n and l = String.length suffix in
+    k > l && String.sub n (k - l) l = suffix
+  in
+  List.concat_map
+    (function
+      | Fn ({ name = "to_str"; tparams; bounds; params; ret; ipos; _ } as f) -> (
+          match params, ret with
+          | [ (MLet, _, self) ], TStr ->
+              [ Impl { trait = "ToStr"; tparams; bounds; self; fns = [ Fn { f with tparams = []; bounds = [] } ]; ipos } ]
+          | _ -> err ipos "to_str 是 trait ToStr 的方法，要写成 fn to_str(x: T) -> Str")
+      | Fn ({ name; tparams = []; params = [ (MLet, x, self) ]; ret = TStr; ipos; _ } as f) as it when qualified name ->
+          let call = { e = Call (name, [ { e = Var x; pos = ipos; id = fresh_id () } ]); pos = ipos; id = fresh_id () } in
+          let body = { stmts = []; tail = Some call } in
+          [ it; Impl { trait = "ToStr"; tparams = []; bounds = []; self; fns = [ Fn { f with name = "to_str"; body } ]; ipos } ]
+      | it -> [ it ])
+    p
+
 (* 检查整个程序。返回解析过类型的程序（impl 换成它的方法），后面接上用到的泛型函数实例（单态化），每个实例照常检查。
    方法调用在检查之后换成解析出的函数名；实例是从检查过的泛型函数复制的，复制时已经换好。
    闭包（C40）：提升出的闭包和特化也接在后面、照常检查；调用的改写在全部检查完之后换上。
    带 fn(…) 参数的函数本身不输出（只输出它的特化），函数体里有闭包的泛型函数不在定义处降级。 *)
 let program (p : program) : program =
+  let p = sugar_to_str p in
   let env0 = prepare p in
   let p = List.concat_map resolve_items p in
   List.iter (function Fn f as it -> Hashtbl.replace fn_items f.name it | _ -> ()) p;

@@ -1,0 +1,37 @@
+// C56：内建的 ToStr、泛型 impl、默认方法（Lean M25）。
+
+struct Point { x: I64, y: I64 }
+
+fn to_str(p: Point) -> Str { "({p.x}, {p.y})" }
+
+impl<T: ToStr> ToStr for Vec<T> {
+    fn to_str(v: Vec<T>) -> Str {
+        var s = "["
+        for i in 0..v.len() {
+            if i > 0 { s.push(", ") }
+            s.push(v[i].to_str())
+        }
+        s.push("]")
+        s
+    }
+}
+
+trait Shape {
+    fn area(s: Self) -> I64
+    fn name(s: Self) -> Str { "shape" }
+}
+
+struct Square { side: I64 }
+
+impl Shape for Square {
+    fn area(s: Square) -> I64 { s.side * s.side }
+}
+
+fn report<T: Shape>(x: T) { print("{x.name()}: {x.area()}") }
+
+fn main() {
+    var ps: Vec<Point> = vec_new()
+    ps.push(Point { x: 1, y: 2 })
+    print("{ps}")
+    report(Square { side: 3 })
+}

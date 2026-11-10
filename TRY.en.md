@@ -76,7 +76,8 @@ The C compiler is taken from `$CC` (default: `cc`).
   The compiler checks that every case is covered (or reports an example that isn't) and that no arm is
   unreachable. `match let x { … }` binds by borrowing; so does matching on a `let` parameter.
 - **Generics and traits**: `fn same<T: math.Eq>(a: T, b: T) -> Bool`, monomorphised, statically dispatched.
-  Method syntax `v.push(x)` means `push(v, x)`.
+  Method syntax `v.push(x)` means `push(v, x)`. A trait method with a body is a default method that an impl may
+  omit; impls can be generic: `impl<T: ToStr> ToStr for Vec<T> { … }`.
 - **Closures**: a parameter of type `fn(T) -> U` takes a closure `|x| e`. Closures can only be passed as arguments
   (not stored or returned); they can read outer variables and modify outer `var`s.
 - **References only come from arenas**: `arena |a| { let r = alloc(a, 1) … }`; a reference cannot outlive its arena.
@@ -84,8 +85,9 @@ The C compiler is taken from `$CC` (default: `cc`).
   accesses its `pub` items.
 - **Strings**: `Str` holds UTF-8 bytes. `s.len()` counts bytes, `s.chars()` decodes `Char`s, `s.char_count()`
   counts characters; `s.push(t)`, `s.push_char(c)`, `s.slice(a, b)`, `s.to_i64()`, `s.to_f64()`.
-  Interpolation: `"x = {x}, sum = {a + b}"`, with `{{` and `}}` for literal braces; types other than I64, F64,
-  Char, Bool and Str need a `fn to_str(x: T) -> Str`. Escapes are `\n`, `\r`, `\t`, `\\`, `\"`; character
+  Interpolation: `"x = {x}, sum = {a + b}"`, with `{{` and `}}` for literal braces. It uses the built-in trait
+  `ToStr`: I64, F64, Char, Bool and Str implement it; for other types write `fn to_str(x: T) -> Str` (one per type
+  is fine), and generic code needs the bound `T: ToStr`. Escapes are `\n`, `\r`, `\t`, `\\`, `\"`; character
   literals look like `'a'`, `'中'`, `'\n'`.
 - **I/O**: `print(s)`, `print_i64`, `print_f64`, `print_char` (all add a newline); `print_str(s)` does not, and
   `print_byte(b)` writes one raw byte (0–255); `read_line()`, `args()`, `read_file`, `write_file`.
@@ -123,7 +125,6 @@ programs that run and programs that must be rejected.
 
 - Closures cannot be stored in variables or data structures, or returned; closures cannot be nested.
 - There are no struct patterns yet (`P { x, y }` only works in `let`); patterns cannot look inside a `Box`.
-- `to_str` cannot be overloaded by type, so only one user type per program can be interpolated (traits will fix this).
 - `std.char` and case conversion only know ASCII; `sort` is not stable.
 - Type arguments of `Box` and `Vec` are invariant, which is stricter than Rust: some programs Rust accepts are rejected here.
 - The generated C needs GCC or Clang (it uses GNU C extensions). There is no editor plugin or language server yet.

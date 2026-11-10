@@ -384,19 +384,22 @@ item:
   | f = fn_item { f }
   | TRAIT n = UIDENT LBRACE nls ms = msigs RBRACE
     { Trait { name = n; methods = ms; ipos = p $startpos } }
-  | IMPL t = UIDENT FOR s = ty LBRACE nls fs = impl_fns RBRACE
-    { Impl { trait = t; self = s; fns = fs; ipos = p $startpos } }
+  | IMPL tp = tparams t = UIDENT FOR s = ty LBRACE nls fs = impl_fns RBRACE
+    { let tp, bs = split_tparams tp in
+      Impl { trait = t; tparams = tp; bounds = bs; self = s; fns = fs; ipos = p $startpos } }
 
 fn_item:
   | FN n = IDENT tp = tparams LPAREN ps = separated_list(COMMA, param) RPAREN r = ret b = block
     { let tp, bs = split_tparams tp in
       Fn { name = n; tparams = tp; bounds = bs; params = ps; ret = r; body = b; ipos = p $startpos } }
 
-(* trait 里的方法签名，没有函数体 *)
+(* trait 里的方法签名；写了函数体的是默认方法（C56） *)
 msigs:
   | { [] }
   | FN n = IDENT LPAREN ps = separated_list(COMMA, param) RPAREN r = ret nls ms = msigs
-    { { mname = n; mparams = ps; mret = r; mpos = p $startpos } :: ms }
+    { { mname = n; mparams = ps; mret = r; mbody = None; mpos = p $startpos } :: ms }
+  | FN n = IDENT LPAREN ps = separated_list(COMMA, param) RPAREN r = ret b = block nls ms = msigs
+    { { mname = n; mparams = ps; mret = r; mbody = Some b; mpos = p $startpos } :: ms }
 
 impl_fns:
   | { [] }

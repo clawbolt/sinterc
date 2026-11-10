@@ -1,10 +1,10 @@
-# sinterc：Sinter 编译器（C55，含 C28、C33）
+# sinterc：Sinter 编译器（C56，含 C28、C33）
 
 版本 0.2.0-pre（预发布）。上手看 [TRY.md](TRY.md)（[English](TRY.en.md)），改动看 [CHANGELOG.md](CHANGELOG.md)。
 证明在单独的仓库 [sinter-formal](https://github.com/clawbolt/sinter-formal)：克隆到本仓库旁边的 `lean` 目录后，
 `sh validate.sh`（翻译验证）和 `sh diff.sh`（三方对照）才能运行。
 
-附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变；C25 试用版命令行（run、build）和上手文档 TRY.md（英文版 TRY.en.md）；C26 用 print 输出文字；C27 英文错误信息（--lang=en）；C29 字符串类型 Str（Lean M17）；C30 for 循环（a..b 和 Vec）；C31 break 和 continue；C32 读取输入（read_line）和字符串的字节、子串、整数解析；C34 模块（use、pub）；C35 标准库第一版（std.math、std.option、std.result、std.vec、std.str）；C36 文件与参数（args、read_file、write_file）；C37 () 作类型实参；C28 一次报多个错误（每个函数报它的第一个，最多 20 个）；C33 for x in inout v（Lean M18：循环体里改元素本身，不能用 v）；C38 panic（Lean M19），std 的 unwrap、expect；C39 std.map（Lean S4）和 vec_swap（Lean M20）；C40 闭包（Lean M21），std.vec 的 map、filter 等；C41 闭包捕获引用（Lean M22）；C42 std.map 的二分查找（Lean S5）；C43 std.treemap（AVL 树，Lean S6），闭包体里的换行重新分隔语句；C44 对照测试加上移动、调用、闭包、泛型（42000 个程序）；C45 元组；C46 match 的 _ 分支和字面量分支（Lean M23）；T1 报错显示源码行和 ^；C47 浮点数 F64；C48 字符 Char 和 UTF-8（Lean S7），std.char，for 遍历函数返回的 Vec；C49 字符串插值；C50 排序 sort、sort_by（Lean S8）；C51 哈希表 std.hashmap（Lean S9）；C52 常用函数和 std.io；C53 下标 v[i] 和按下标赋值（Lean M18），print_str、print_byte；C54 大整数 std.bigint（Lean S10）；C55 嵌套模式（Lean M24、M24b）；T2 sinterc fmt；T4 CI、文档和 0.2.0-pre。
+附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变；C25 试用版命令行（run、build）和上手文档 TRY.md（英文版 TRY.en.md）；C26 用 print 输出文字；C27 英文错误信息（--lang=en）；C29 字符串类型 Str（Lean M17）；C30 for 循环（a..b 和 Vec）；C31 break 和 continue；C32 读取输入（read_line）和字符串的字节、子串、整数解析；C34 模块（use、pub）；C35 标准库第一版（std.math、std.option、std.result、std.vec、std.str）；C36 文件与参数（args、read_file、write_file）；C37 () 作类型实参；C28 一次报多个错误（每个函数报它的第一个，最多 20 个）；C33 for x in inout v（Lean M18：循环体里改元素本身，不能用 v）；C38 panic（Lean M19），std 的 unwrap、expect；C39 std.map（Lean S4）和 vec_swap（Lean M20）；C40 闭包（Lean M21），std.vec 的 map、filter 等；C41 闭包捕获引用（Lean M22）；C42 std.map 的二分查找（Lean S5）；C43 std.treemap（AVL 树，Lean S6），闭包体里的换行重新分隔语句；C44 对照测试加上移动、调用、闭包、泛型（42000 个程序）；C45 元组；C46 match 的 _ 分支和字面量分支（Lean M23）；T1 报错显示源码行和 ^；C47 浮点数 F64；C48 字符 Char 和 UTF-8（Lean S7），std.char，for 遍历函数返回的 Vec；C49 字符串插值；C50 排序 sort、sort_by（Lean S8）；C51 哈希表 std.hashmap（Lean S9）；C52 常用函数和 std.io；C53 下标 v[i] 和按下标赋值（Lean M18），print_str、print_byte；C54 大整数 std.bigint（Lean S10）；C55 嵌套模式（Lean M24、M24b）；C56 内建的 ToStr、默认方法、泛型 impl（Lean M25）；T2 sinterc fmt；T4 CI、文档和 0.2.0-pre。
 下面是各个里程碑的约定细节；语言的完整一览（包括 `F64`、`Char`、`Str`、`Vec`、元组、闭包、模块、标准库）见 [TRY.md](TRY.md)。
 支持 `I64`、`Bool`、`()`、结构体、`Box<T>`、函数、`let` / `var` / 赋值、`if`（可作表达式）、`while`、`return`，
 以及内置的 `print`、`print_i64`、`print_bool`、字符串的 `str_len` / `str_eq` / `str_concat` / `str_push` / `str_clone` / `str_from_i64` / `str_to_i64` / `str_byte` / `str_slice`、`read_line`、`box(e)`、解引用 `*b`、`unbox(b)`（取出 Box 里的值并释放），拆开结构体 `let Node { v, next } = n`。
@@ -14,7 +14,7 @@
 泛型：`fn f<T, U: linear>(…)`、`struct Pair<A, B> { … }`、`enum E<T> { … }`，类型实参从实参和期望的类型推出来；内置 `Option<T>`。
 trait：`trait Show { fn show(x: Self) -> I64 }`、`impl Show for I64 { … }`、约束 `T: Show + Eq + linear`，静态派发。
 递归类型：经过 `Box` 的链表、树，例如 `struct Node { v: I64, next: Box<List> }`、`enum List { Cons(Node), Nil }`。
-还没有 `inout` 投影、多个载荷的变体、结构体模式、关联类型、默认方法、trait 对象、泛型 impl、显式的类型实参（`f::<T>()`）、区域类型（`Expr<in a>`）、`Mut`、区域里存放引用等（按 Lean 模型逐项加入）。
+还没有 `inout` 投影、多个载荷的变体、结构体模式、关联类型、trait 对象、显式的类型实参（`f::<T>()`）、区域类型（`Expr<in a>`）、`Mut`、区域里存放引用等（按 Lean 模型逐项加入）。
 
 ## 依赖
 
@@ -61,7 +61,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   字面量分支 `0 =>`、`-1 =>`、`true =>`、`"add" =>` 展开成 if 链（字符串用 str_eq），最后必须有 `_`；不能和变体分支混用，模式不能是变量。
 - 浮点数 `F64`（C47）：字面量 `1.5`、`2e-3`；`+ - * /` 和比较要求两边类型相同（不做隐式转换，用 `to_f64`、`to_i64`，后者向零取整，超出范围或 NaN 时 panic）；`%` 只用于 I64。
 - 字符 `Char`（C48，Lean S7）：一个 Unicode 标量值，可以复制；字面量 `'a'`、`'中'`、`'😀'`，转义 `'\n'`、`'\t'`、`'\\'`、`'\''`、`'\0'`；按码点比较。`Str` 仍存 UTF-8 字节：`s.chars()` 逐个解码（不合法的字节解成 U+FFFD，只吃一个字节），`s.char_count()` 是字符数，`s.push_char(c)`、`str_from_char(c)` 按 UTF-8 写入；`c.code()`、`char_from(n)`（代理区、超出范围时是 `.None`）在码点和字符间转换。`std.char` 提供 ASCII 的 `is_digit`、`is_alpha`、`to_upper`、`to_digit` 等。`for x in e` 的 `e` 不是变量或字段时（`for c in s.chars()`），先放进隐藏变量再遍历，循环结束后析构。
-- 字符串插值（C49）：`"x = {x}, 和 = {a + b}"`，花括号里是任意表达式（可以嵌套字符串），`{{`、`}}` 是花括号本身。值按类型转成字符串（也可以直接写 `x.to_str()`）：I64、F64、Char、Bool、Str 是内建的，别的类型调用户写的 `fn to_str(x: T) -> Str`（按借用传入，不移走）。展开成 `{ var #s = …; str_push(#s, …); #s }`，不需要新的推理。已知限制：`to_str` 还不能按类型重载，一个程序里只能给一种自定义类型写（以后由 `Show` trait 解决）。
+- 字符串插值（C49）：`"x = {x}, 和 = {a + b}"`，花括号里是任意表达式（可以嵌套字符串），`{{`、`}}` 是花括号本身。值按类型转成字符串（也可以直接写 `x.to_str()`）：I64、F64、Char、Bool、Str 是内建的，别的类型要实现内建的 trait `ToStr`：写 `fn to_str(x: T) -> Str`（按借用传入，不移走；是 `impl ToStr for T` 的简写，C56）。展开成 `{ var #s = …; str_push(#s, …); #s }`，不需要新的推理。C56 起可以给多种类型各写一个 `to_str`，泛型代码里插值要写约束 `T: ToStr`。
 - 排序（C50，Lean S8）：`std.vec` 的 `sort(v)`（元素实现 `Ord`）和 `sort_by(v, |a, b| a < b)`（`less` 要是严格弱序），都是 `inout` 原地排序。堆排序，只用 `vec_swap` 交换元素，O(n log n)，不稳定（相等的元素先后可能变）。
 - 哈希表 `std.hashmap`（C51，Lean S9）：`HashMap<K, V>`，键实现 `math.Eq` 和 `hashmap.Hash`（I64、Str 已实现）；`new`、`len`、`contains`、`get(m, k, |v| …)`、`insert`（已有键时返回旧值）、`remove`（返回值）、`for_each`（按插入顺序，删除会把最后一个元素换到被删的位置）。键值紧凑地存在两个 Vec 里，另有槽位表存下标；开放寻址、线性探测不绕回（槽位表长 2 倍容量，元素超过 3/4 容量时翻倍）、删除时后移回填，不需要墓碑。平均 O(1)。
 - 常用函数（C52）：`std.str` 的 `to_upper`、`to_lower`（ASCII）、`replace`、`lines`（去掉行尾的 `\r`）；`std.vec` 的 `range`、`min`、`sum_f64`、`binary_search`（排好序的 Vec，返回第一个匹配的下标）、`dedup`（原地去掉相邻重复）；`std.math` 的 `gcd`、`lcm`；新模块 `std.io` 的 `read_lines`、`write_lines`、`input_lines`。字符串加了 `\r` 转义。
@@ -123,7 +123,10 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   方法可以写成 `eq(x, y)` 或 `x.eq(y)`，接收者就是第一个实参；`Self` 从实参类型推出来，方法名全局唯一（暂不支持重载）。
   约束写 `fn f<T: Eq + Show + linear>(…)`：泛型代码里只能调用约束里写了的 trait 的方法；调用处每个约束都要有 `impl`
   （类型实参本身是类型参数时，要在当前函数里写了同样的约束）。单态化时方法调用直接换成那个 `impl` 里的函数，没有虚表。
-  暂不支持：关联类型、默认方法、trait 对象、泛型 `impl`（`impl<T> Show for Option<T>`）、结构体和枚举的类型参数写约束。
+  C56（Lean M25）：trait 里写了函数体的方法是默认方法，impl 可以不写；泛型 impl `impl<T: ToStr> ToStr for Vec<T> { … }`，
+  查找时递归地查约束。头部不能是单独的类型参数，impl 的类型参数要出现在头部里，同一个 trait 的两个 impl 不能重叠。
+  内建的 trait `ToStr`（`fn to_str(x: Self) -> Str`）：I64、F64、Char、Bool、Str 已经实现，字符串插值用它。
+  暂不支持：关联类型、trait 对象、结构体和枚举的类型参数写约束。
 - 错误信息格式：`文件:行:列: 错误：…`，下面两行是出错的那一行和标出列的 `^`（T1；中文字符占 2 格，和整个程序有关的错误不显示源码），退出码 1。
 
 ## 编译流程

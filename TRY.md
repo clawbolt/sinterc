@@ -63,13 +63,15 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
   编译器检查每种情况都有分支（没覆盖时报一个例子），也检查有没有永远匹配不到的分支。
   `match let x { … }` 按借用绑定；对 `let` 参数 match 时也按借用。
 - **泛型和 trait**：`fn same<T: math.Eq>(a: T, b: T) -> Bool`，单态化、静态派发。方法调用 `v.push(x)` 等同于 `push(v, x)`。
+  trait 里写了函数体的方法是默认方法，impl 可以不写；impl 可以是泛型的：`impl<T: ToStr> ToStr for Vec<T> { … }`。
 - **闭包**：参数类型写 `fn(T) -> U`，实参写 `|x| e`。闭包只能当实参传（不能存、不能返回），
   可以读外面的变量，也可以改外面的 `var`。
 - **引用只能来自 arena**：`arena |a| { let r = alloc(a, 1) … }`，引用不能活过它的 arena。
 - **模块**：一个文件一个模块，`use geom` 引入同目录的 `geom.sn`，用 `geom.area(…)` 访问标了 `pub` 的条目。
 - **字符串**：`Str` 存 UTF-8 字节。`s.len()` 是字节数，`s.chars()` 逐个解出 `Char`，`s.char_count()` 是字符数，
   `s.push(t)`、`s.push_char(c)`、`s.slice(a, b)`、`s.to_i64()`、`s.to_f64()`。
-  插值：`"x = {x}, 和 = {a + b}"`，`{{`、`}}` 是花括号本身；I64、F64、Char、Bool、Str 以外的类型要写 `fn to_str(x: T) -> Str`。
+  插值：`"x = {x}, 和 = {a + b}"`，`{{`、`}}` 是花括号本身。插值用内建的 trait `ToStr`：I64、F64、Char、Bool、Str 已经实现，
+  别的类型写 `fn to_str(x: T) -> Str`（可以给多种类型各写一个），泛型代码里要写约束 `T: ToStr`。
   转义有 `\n`、`\r`、`\t`、`\\`、`\"`；字符字面量 `'a'`、`'中'`、`'\n'`。
 - **输入输出**：`print(s)`、`print_i64`、`print_f64`、`print_char`（都会换行）；`print_str(s)` 不换行，
   `print_byte(b)` 写一个原始字节（0–255）；`read_line()`、`args()`、`read_file`、`write_file`。
@@ -105,7 +107,6 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 
 - 闭包不能存进变量或数据结构，也不能作返回值；不能嵌套定义闭包。
 - 还没有结构体模式（`P { x, y }` 只能用在 `let` 里）；模式不能看进 `Box` 里面。
-- `to_str` 不能按类型重载，一个程序里只能给一种自定义类型写（以后由 trait 解决）。
 - `std.char` 和大小写转换只认 ASCII；`sort` 不稳定（相等的元素先后可能变）。
 - `Box`、`Vec` 里的类型参数在实例之间算不变，比 Rust 严：有些 Rust 能写的程序这里会被拒绝。
 - 生成的 C 需要 GCC 或 Clang（用到了 GNU C 扩展）。还没有编辑器插件和语言服务器。

@@ -72,8 +72,6 @@ let table =
      "? can only be used in a function that returns Result (this one returns {1})");
     ("%s 不是 Result，不能用 ?", "{1} is not a Result; cannot use ?");
     ("未定义的函数 %s", "undefined function {1}");
-    ("没有 to_str 函数：I64、F64、Char、Bool、Str 以外的值要在字符串里插值，先写 fn to_str(x: T) -> Str",
-     "no to_str function: to interpolate a value other than I64, F64, Char, Bool or Str, first write fn to_str(x: T) -> Str");
     ("无法推断 %s 的类型参数 %s（可以给返回值或实参写类型标注）",
      "cannot infer type parameter {2} of {1} (add a type annotation on the result or an argument)");
     ("%s 的类型参数 %s 没有标 linear，不能是 linear 类型 %s（要写 %s: linear）",
@@ -254,6 +252,20 @@ let table =
     (* C53 *)
     ("只能给变量、字段或 Vec 的元素（v[i]）赋值",
      "only a variable, a field or an element of a Vec (v[i]) can be assigned to");
+    (* C56 trait：ToStr、默认方法、泛型 impl *)
+    ("%s 没有实现 ToStr，不能在字符串里插值或调用 to_str（先写 fn to_str(x: %s) -> Str）",
+     "{1} does not implement ToStr, so it cannot be interpolated or passed to to_str (write fn to_str(x: {2}) -> Str first)");
+    ("%s 没有写约束 %s，而 %s 的 %s 要用到它（要写 %s: %s）",
+     "{1} has no bound {2}, which the {4} of {3} needs (write {5}: {6})");
+    ("%s 没有实现 %s，而 %s 的 %s 要用到它", "{1} does not implement {2}, which the {4} of {3} needs");
+    ("to_str 是 trait ToStr 的方法，要写成 fn to_str(x: T) -> Str",
+     "to_str is the method of the trait ToStr; write it as fn to_str(x: T) -> Str");
+    ("不能为函数类型实现 trait", "a trait cannot be implemented for a function type");
+    ("不能为类型参数 %s 本身实现 trait（impl<%s> … for %s 会和所有的 impl 重叠）",
+     "a trait cannot be implemented for the type parameter {1} itself (impl<{2}> … for {3} would overlap every impl)");
+    ("impl 的类型参数 %s 没有出现在 %s 里", "the impl type parameter {1} does not appear in {2}");
+    ("impl %s for %s 和已有的 impl %s for %s 重叠（有的类型两个都能匹配）",
+     "impl {1} for {2} overlaps the existing impl {3} for {4} (some type matches both)");
     (* C55 嵌套模式 *)
     ("模式 %s 的类型是 %s，这里的值是 %s", "the pattern {1} has type {2}, but the value here is {3}");
     ("%s 不是枚举，不能用变体模式 %s", "{1} is not an enum; the variant pattern {2} cannot be used");

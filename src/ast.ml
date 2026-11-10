@@ -106,9 +106,17 @@ type item =
       ipos : pos;
     }
   | Trait of { name : string; methods : msig list; ipos : pos }   (* 方法签名里可以用 Self *)
-  | Impl of { trait : string; self : ty; fns : item list; ipos : pos }   (* fns 都是 Fn *)
+  | Impl of {
+      trait : string;
+      tparams : (string * bool) list;   (* 泛型 impl（C56）：impl<T: ToStr> ToStr for Vec<T> *)
+      bounds : (string * string) list;
+      self : ty;
+      fns : item list;
+      ipos : pos;
+    }   (* fns 都是 Fn *)
 
-and msig = { mname : string; mparams : (mode * string * ty) list; mret : ty; mpos : pos }
+(* mbody：默认方法的函数体（C56），impl 没写这个方法时用它 *)
+and msig = { mname : string; mparams : (mode * string * ty) list; mret : ty; mbody : block option; mpos : pos }
 
 type program = item list
 
