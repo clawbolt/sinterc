@@ -135,3 +135,7 @@ The most useful reports:
 - programs you think should be rejected but are accepted, or crash or leak at run time — these are the most
   serious problems, please do tell us;
 - error messages you cannot understand.
+
+## License
+
+MIT or Apache-2.0, at your option ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).

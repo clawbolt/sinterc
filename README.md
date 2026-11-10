@@ -177,3 +177,12 @@ sinterc 接受的生成 C，每个按所有长度不超过 3 的选择序列（`
 - 闭包可以用含引用的变量和区域本身（C41，Lean M22）：提升出的函数里这些区域换成区域参数 `'c00`、`'c01`…，按闭包所在位置的嵌套顺序编号，
   只保留那里真实成立的先后关系（外层 arena 比内层的活得久；函数自己的区域参数之间没有顺序）。闭包里同样不能把内层区域的引用放进外层区域的 Vec。
 - 暂不支持：闭包里再写闭包；闭包用函数参数；`fn(…)` 里有引用；trait / impl 的方法有 `fn(…)` 参数；`errdefer` 调用函数参数。
+
+
+## 许可证 / License
+
+MIT 或 Apache-2.0，任选其一（[LICENSE-MIT](LICENSE-MIT)、[LICENSE-APACHE](LICENSE-APACHE)）。
+除非另有说明，你提交的贡献按同样的双许可发布。
+
+Licensed under either of MIT or Apache-2.0 at your option. Unless you state otherwise, any contribution you
+submit is dual licensed in the same way.
