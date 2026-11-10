@@ -55,10 +55,12 @@ static int sn_fmt_f64(char *b, size_t n, double x) {
 static void u_print_f64(double x) { char b[64]; sn_fmt_f64(b, sizeof b, x); puts(b); }
 static double u_to_f64(int64_t x) { return (double)x; }
 static int64_t u_to_i64(double x) { if (!(x >= -9223372036854775808.0 && x < 9223372036854775808.0)) sn_panic("F64 转换成 I64 时超出范围（或是 NaN）"); return (int64_t)x; }
-static double u_f64_sqrt(double x) { return __builtin_sqrt(x); }
-static double u_f64_floor(double x) { return __builtin_floor(x); }
-static double u_f64_ceil(double x) { return __builtin_ceil(x); }
-static double u_f64_round(double x) { return __builtin_round(x); }
+/* 用到 libm（Linux 上要 -lm，sinterc build / run 会加）。写成 static inline：没用到时 C 编译器不生成它们，
+   不用浮点函数的程序就不依赖 libm，直接用 cc 编译也能链接。 */
+static inline double u_f64_sqrt(double x) { return __builtin_sqrt(x); }
+static inline double u_f64_floor(double x) { return __builtin_floor(x); }
+static inline double u_f64_ceil(double x) { return __builtin_ceil(x); }
+static inline double u_f64_round(double x) { return __builtin_round(x); }
 static bool u_f64_is_nan(double x) { return x != x; }
 /* 对照测试用：按 sn_seq 里的 0 / 1 依次返回假 / 真，用完之后一直返回假（循环因此一定结束）。 */
 static const char *sn_seq = "";
