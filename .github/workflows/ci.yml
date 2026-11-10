@@ -1,0 +1,59 @@
+# CI（T4）：
+# - test：在 Linux 和 macOS 上构建 sinterc、跑全部测试和格式检查；
+# - verify：把证明仓库 clawbolt/sinter-formal 取到旁边的 lean/ 目录（和本地一样的布局），
+#   检查证明，再做翻译验证（validate.sh）和三方对照（diff.sh）。
+# sinter-formal 是私有仓库时，要在本仓库的 Secrets 里放一个能读它的 token（FORMAL_TOKEN）。
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.2"
+      - run: opam install -y dune menhir
+      - run: opam exec -- dune build
+      - run: opam exec -- dune test
+      - run: opam exec -- sh fmtcheck.sh
+      - run: opam exec -- dune exec sinterc -- --version
+
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: compiler
+      - uses: actions/checkout@v4
+        with:
+          repository: clawbolt/sinter-formal
+          path: lean
+          token: ${{ secrets.FORMAL_TOKEN || github.token }}
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.2"
+          dune-cache: true
+      - run: opam install -y dune menhir
+        working-directory: compiler
+      - name: 安装 Lean（版本见 lean/lean-toolchain）
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: 证明
+        working-directory: lean
+        run: lake build
+      - name: 翻译验证
+        working-directory: compiler
+        run: opam exec -- sh validate.sh
+      - name: 三方对照
+        working-directory: compiler
+        run: opam exec -- sh diff.sh
