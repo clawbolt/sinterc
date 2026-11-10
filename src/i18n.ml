@@ -101,6 +101,12 @@ let table =
     ("%s 没有载荷，分支要写 %s => …", "{1} has no payload; write {2} => …");
     ("match 没有覆盖 %s（枚举的 match 必须穷尽）", "match does not cover {1} (a match on an enum must be exhaustive)");
     ("match 有两个 %s 分支", "match has two {1} arms");
+    ("_ 分支只能放在最后", "the _ arm must be the last one");
+    ("所有变体都已经写到了，_ 分支是多余的", "all variants are already covered; the _ arm is redundant");
+    ("分支 %s 写了两次", "the arm {1} appears twice");
+    ("字面量分支和变体分支不能写在同一个 match 里", "literal arms and variant arms cannot be mixed in one match");
+    ("按字面量 match 时最后要有 _ 分支（字面量写不全）", "a match on literals needs a final _ arm (literals cannot be exhaustive)");
+    ("分支的模式不能是变量 %s（要匹配所有其余情况时写 _）", "an arm pattern cannot be the variable {1} (write _ to match everything else)");
     ("空枚举不能 match", "cannot match on an empty enum");
     ("C0 不支持 () 类型的变量 %s", "variable {1} cannot have type ()");
     ("区域不能存进变量", "a region cannot be stored in a variable");

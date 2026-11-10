@@ -12,6 +12,67 @@ let mk_block ss =
   | { s = Expr e; _ } :: rest -> { stmts = List.rev rest; tail = Some e }
   | _ -> { stmts = ss; tail = None }
 
+(* match 的分支（C46）：变体分支 .V(x) => e；通配 _ => e（Lean M23）；字面量 0 => e、-1 => e、true => e、"add" => e。 *)
+type parm =
+  | PV of string * string * expr
+  | PW of Lexing.position * expr
+  | PL of Lexing.position * expr * expr
+
+(* 字面量分支展开成 if 链：{ let m# = s; if m# == 0 { … } else if … else { _ 分支 } }（字符串用 str_eq）。
+   s 是变量或字段时直接比较它（不移走，也不复制字符串）。字面量的值都可以复制，不涉及所有权。
+   _ 必须在最后（字面量写不全），同一个字面量不能写两次，不能和变体分支混用。 *)
+let lit_key (l : expr) =
+  match l.e with
+  | Int n -> "i" ^ Int64.to_string n
+  | Unop (Neg, { e = Int n; _ }) -> "i" ^ Int64.to_string (Int64.neg n)
+  | Bool b -> "b" ^ string_of_bool b
+  | Str s -> "s" ^ s
+  | _ -> ""
+
+let lit_show (l : expr) =
+  match l.e with
+  | Int n -> Int64.to_string n
+  | Unop (Neg, { e = Int n; _ }) -> "-" ^ Int64.to_string n
+  | Bool b -> string_of_bool b
+  | Str s -> "\"" ^ s ^ "\""
+  | _ -> "?"
+
+let build_match pos borrow (s : expr) arms =
+  if not (List.exists (function PL _ -> true | _ -> false) arms) then
+    mk (Match (borrow, s, List.map (function PV (n, x, e) -> (n, x, e) | PW (_, e) -> ("_", "", e) | PL _ -> assert false) arms)) pos
+  else begin
+    let rec split seen = function
+      | [ PW (_, e) ] -> ([], e)
+      | PL (lp, l, e) :: r ->
+          let k = lit_key l in
+          if List.mem k seen then raise (Syntax (p lp, Printf.sprintf "分支 %s 写了两次" (lit_show l)));
+          let ls, w = split (k :: seen) r in
+          ((l, e) :: ls, w)
+      | PW (wp, _) :: _ -> raise (Syntax (p wp, "_ 分支只能放在最后"))
+      | PV (_, _, e) :: _ -> raise (Syntax (e.pos, "字面量分支和变体分支不能写在同一个 match 里"))
+      | [] -> raise (Syntax (p pos, "按字面量 match 时最后要有 _ 分支（字面量写不全）"))
+    in
+    let ls, w = split [] arms in
+    let rec is_place (e : expr) = match e.e with Var _ -> true | Field (a, _) -> is_place a | _ -> false in
+    let rec copy (e : expr) =
+      match e.e with Var v -> mk (Var v) pos | Field (a, f) -> mk (Field (copy a, f)) pos | _ -> e
+    in
+    let subj, pre =
+      if is_place s then ((fun () -> copy s), []) else ((fun () -> mk (Var "m#") pos), [ mks (Let (false, "m#", None, s)) pos ])
+    in
+    let test (l : expr) =
+      match l.e with
+      | Str _ -> mk (Call ("str_eq", [ subj (); l ])) pos
+      | _ -> mk (Binop (Eq, subj (), l)) pos
+    in
+    let rec chain = function
+      | [] -> w
+      | (l, (e : expr)) :: r ->
+          mk (If (test l, { stmts = []; tail = Some e }, Some { stmts = []; tail = Some (chain r) })) pos
+    in
+    mk (Block { stmts = pre; tail = Some (chain ls) }) pos
+  end
+
 (* 参数 a: Arena 引入名为 a 的区域。 *)
 let arena_param n = function TArena _ -> TArena n | t -> t
 
@@ -393,8 +454,8 @@ expr:
     { match n with
       | "Ok" | "Err" -> mk (Variant (n, Some a)) $startpos
       | _ -> mk (Call (n, [ a ])) $startpos }
-  | MATCH s = expr LBRACE nls a = arms RBRACE { mk (Match (false, s, a)) $startpos }
-  | MATCH LET s = expr LBRACE nls a = arms RBRACE { mk (Match (true, s, a)) $startpos }
+  | MATCH s = expr LBRACE nls a = arms RBRACE { build_match $startpos false s a }
+  | MATCH LET s = expr LBRACE nls a = arms RBRACE { build_match $startpos true s a }
   | DOT n = UIDENT { mk (Variant (n, None)) $startpos }
   | DOT n = UIDENT LPAREN a = expr RPAREN { mk (Variant (n, Some a)) $startpos }
   | a = expr o = binop b = expr { mk (Binop (o, a, b)) $startpos }
@@ -414,9 +475,17 @@ if_expr:
     { mk (If (c, b, Some { stmts = []; tail = Some i })) $startpos }
 
 arm:
-  | n = UIDENT LPAREN x = IDENT RPAREN FATARROW e = expr { (n, x, e) }
-  | DOT n = UIDENT LPAREN x = IDENT RPAREN FATARROW e = expr { (n, x, e) }
-  | DOT n = UIDENT FATARROW e = expr { (n, "", e) }
+  | n = UIDENT LPAREN x = IDENT RPAREN FATARROW e = expr { PV (n, x, e) }
+  | DOT n = UIDENT LPAREN x = IDENT RPAREN FATARROW e = expr { PV (n, x, e) }
+  | DOT n = UIDENT FATARROW e = expr { PV (n, "", e) }
+  | x = IDENT FATARROW e = expr
+    { if x <> "_" then raise (Syntax (p $startpos, Printf.sprintf "分支的模式不能是变量 %s（要匹配所有其余情况时写 _）" x));
+      PW ($startpos, e) }
+  | n = INT FATARROW e = expr { PL ($startpos, mk (Int n) $startpos, e) }
+  | MINUS n = INT FATARROW e = expr { PL ($startpos, mk (Unop (Neg, mk (Int n) $startpos)) $startpos, e) }
+  | TRUE FATARROW e = expr { PL ($startpos, mk (Bool true) $startpos, e) }
+  | FALSE FATARROW e = expr { PL ($startpos, mk (Bool false) $startpos, e) }
+  | s = STRING FATARROW e = expr { PL ($startpos, mk (Str s) $startpos, e) }
 
 arms:
   | { [] }

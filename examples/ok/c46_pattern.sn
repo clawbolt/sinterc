@@ -1,0 +1,63 @@
+enum Shape { Circle(I64), Square(I64), Tri(Box<I64>), Dot }
+
+// 按借用匹配（let 参数）：_ 不绑定任何东西
+fn radius(s: Shape) -> I64 {
+    match s {
+        .Circle(r) => r,
+        _ => 0
+    }
+}
+
+// 按移动匹配：.Tri 落进 _ 分支时，它的 Box 在分支结束时析构
+fn is_dot(sink s: Shape) -> Bool {
+    match s {
+        .Dot => true,
+        _ => false
+    }
+}
+
+fn name(n: I64) -> Str {
+    match n {
+        0 => "zero",
+        1 => "one",
+        -1 => "minus one",
+        _ => "many"
+    }
+}
+
+fn op(s: Str) -> I64 {
+    match s {
+        "add" => 1,
+        "sub" => 2,
+        _ => 0
+    }
+}
+
+fn main() {
+    let c: Shape = .Circle(5)
+    let t: Shape = .Tri(box(3))
+    print_i64(radius(c))
+    print_i64(radius(t))
+    print_bool(is_dot(t))
+    print_bool(is_dot(.Dot))
+    for i in -1..3 {
+        print(name(i))
+    }
+    print_i64(op("sub"))
+    print_i64(op(str_concat("a", "dd")))
+    print_i64(op("mul"))
+    let flag = 3 > 2
+    match flag {
+        true => print("是"),
+        _ => print("否")
+    }
+    match str_concat("s", "ub") {
+        "sub" => print("减"),
+        _ => print("别的")
+    }
+    let o: Option<Str> = .Some("x")
+    match o {
+        .None => print("空"),
+        _ => print("有值")
+    }
+}

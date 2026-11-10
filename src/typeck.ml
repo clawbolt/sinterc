@@ -91,6 +91,20 @@ let variant ty v =
 (* 报错时变体的写法：Ok / Err 不带点。 *)
 let vname v = if v = "Ok" || v = "Err" then v else "." ^ v
 
+(* match 的分支（C46）：第 v 个变体用写了它的分支，没写的用 _ 分支（Lean M23 的 expand）。
+   返回 (载荷绑定的变量, 分支体)；_ 分支在带载荷（不是 ()）的变体上把载荷绑到 _#（用户写不出这个名字），
+   分支结束时随作用域析构。 *)
+let wild_var = "_#"
+
+let arm_for arms (v, pty) =
+  match List.find_opt (fun (w, _, _) -> w = v) arms with
+  | Some (_, x, e) -> Some (x, e)
+  | None -> (
+      match List.find_opt (fun (w, _, _) -> w = "_") arms with
+      | Some (_, _, e) -> Some ((match pty with Some t when t <> TUnit -> wild_var | _ -> ""), e)
+      | None -> None)
+
+
 (* linear 值必须被显式消费，不能在作用域结束时自动析构。 *)
 let rec is_linear = function
   | TStruct n -> Hashtbl.mem linear_tbl n
@@ -1177,8 +1191,16 @@ and match_ env want pos borrow (s : expr) arms : t =
 and enum_match env want pos ty vs arms : t =
   List.iter
     (fun (v, _, (a : expr)) ->
-      if not (List.mem_assoc v vs) then err a.pos "%s 没有变体 %s" (string_of_ty ty) (vname v))
+      if v <> "_" && not (List.mem_assoc v vs) then err a.pos "%s 没有变体 %s" (string_of_ty ty) (vname v))
     arms;
+  (* 通配分支 _（C46，Lean M23 的 covers）：最多一个，只能在最后，而且确实还有没写到的变体 *)
+  (match List.filter (fun (v, _, _) -> v = "_") arms with
+  | _ :: (_, _, (a : expr)) :: _ -> err a.pos "match 有两个 _ 分支"
+  | [ (_, _, (a : expr)) ] ->
+      (match List.rev arms with (v, _, _) :: _ when v = "_" -> () | _ -> err a.pos "_ 分支只能放在最后");
+      if List.for_all (fun (v, _) -> List.exists (fun (u, _, _) -> u = v) arms) vs then
+        err a.pos "所有变体都已经写到了，_ 分支是多余的"
+  | [] -> ());
   let bodies =
     List.map
       (fun (v, pty) ->
@@ -1195,7 +1217,12 @@ and enum_match env want pos ty vs arms : t =
             | None ->
                 if x <> "" then err a.pos "%s 没有载荷，分支要写 %s => …" w w;
                 (env, a))
-        | [] -> err pos "match 没有覆盖 %s（枚举的 match 必须穷尽）" w
+        | [] -> (
+            (* 没写到的变体用 _ 分支：载荷绑到看不见的变量 _#，分支结束时析构 *)
+            match arm_for arms (v, pty) with
+            | Some (x, a) when x <> "" -> ({ env with vars = (x, (Option.get pty, false)) :: env.vars }, a)
+            | Some (_, a) -> (env, a)
+            | None -> err pos "match 没有覆盖 %s（枚举的 match 必须穷尽）" w)
         | _ -> err pos "match 有两个 %s 分支" w)
       vs
   in

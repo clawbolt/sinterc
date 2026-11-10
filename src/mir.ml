@@ -417,7 +417,7 @@ and enum_match st env (x : expr) explicit (s : expr) sty arms =
   List.iteri
     (fun i ((v, pty), b) ->
       st.cur <- b;
-      let _, bind, (e : expr) = List.find (fun (w, _, _) -> w = v) arms in
+      let bind, (e : expr) = Option.get (Typeck.arm_for arms (v, pty)) in
       st.scopes <- [] :: st.scopes;
       let env' =
         let pay = { p with proj = p.proj @ [ PVar i ] } in
