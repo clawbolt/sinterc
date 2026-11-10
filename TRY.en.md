@@ -61,6 +61,9 @@ The C compiler is taken from `$CC` (default: `cc`).
 - **Loops**: `while c { … }`; `for i in 0..n { … }`; `for x in v { … }` borrows each element of a `Vec`
   (`v` is locked during the loop), `for x in inout v` can modify them; `v` may also be a call (`for c in s.chars()`);
   `break`, `continue`.
+- **Indexing**: `v[i]` is the i-th element (the same as `vec_get(v, i)`). You can read it, borrow it, assign a field
+  (`v[i].x = 1`) or replace it with `v[i] = x` (the old value is dropped first); out of bounds panics. Elements
+  cannot be moved out directly; use `v.pop()` to take one.
 - **Parameter modes**: `let` by default (read-only borrow; the argument is still usable afterwards);
   `inout` (modifies the caller's variable or field); `sink` (takes ownership).
 - **Ownership**: `Box`, `Vec`, `Str` and values containing them are moved and dropped automatically at the end
@@ -82,7 +85,8 @@ The C compiler is taken from `$CC` (default: `cc`).
   Interpolation: `"x = {x}, sum = {a + b}"`, with `{{` and `}}` for literal braces; types other than I64, F64,
   Char, Bool and Str need a `fn to_str(x: T) -> Str`. Escapes are `\n`, `\r`, `\t`, `\\`, `\"`; character
   literals look like `'a'`, `'中'`, `'\n'`.
-- **I/O**: `print(s)`, `print_i64`, `print_f64`, `print_char`, `read_line()`, `args()`, `read_file`, `write_file`.
+- **I/O**: `print(s)`, `print_i64`, `print_f64`, `print_char` (all add a newline); `print_str(s)` does not, and
+  `print_byte(b)` writes one raw byte (0–255); `read_line()`, `args()`, `read_file`, `write_file`.
 
 ## Standard library
 
@@ -120,6 +124,9 @@ programs that run and programs that must be rejected.
 - `std.char` and case conversion only know ASCII; `sort` is not stable.
 - Type arguments of `Box` and `Vec` are invariant, which is stricter than Rust: some programs Rust accepts are rejected here.
 - The generated C needs GCC or Clang (it uses GNU C extensions). There is no editor plugin or language server yet.
+- Not there yet: trait objects (dynamic dispatch), big integers, regular expressions, threads and networking,
+  directory listing and starting processes, a package manager. `Str` must be valid UTF-8; binary data can only be
+  written to standard output with `print_byte` for now, not to files.
 
 ## Feedback
 

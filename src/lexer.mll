@@ -120,6 +120,8 @@ rule token = parse
   | '!'   { BANG }
   | '('   { incr depth; LPAREN }
   | ')'   { decr depth; RPAREN }
+  | '['   { incr depth; LBRACKET }
+  | ']'   { decr depth; RBRACKET }
   | '{'   { saved := !depth :: !saved; depth := 0; LBRACE }
   | '}'   { (match !saved with d :: ds -> depth := d; saved := ds | [] -> ()); RBRACE }
   | ','   { COMMA }  | ':'  { COLON }

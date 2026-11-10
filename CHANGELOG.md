@@ -15,7 +15,8 @@
 - 浮点数 `F64`（C47）；字符 `Char` 和 UTF-8 字符串操作（C48，Lean S7）。
 - 字符串插值 `"x = {x}"`、`x.to_str()`（C49）；字符串转义 `\r`（C52）。
 - `for x in e` 可以遍历函数的返回值（C48）。
-- 命令行参数和文件读写：`args()`、`read_file`、`write_file`（C36，Lean S3）。
+- 下标 `v[i]`，按下标赋值 `v[i] = x`（先析构旧值，越界时 panic；C53，Lean M18）。
+- 命令行参数和文件读写：`args()`、`read_file`、`write_file`（C36，Lean S3）；不换行的输出 `print_str`、原始字节 `print_byte`（C53）。
 
 **标准库**（`std/`，用 Sinter 写）
 - `std.math`、`std.option`、`std.result`、`std.vec`、`std.str`（C35）；`std.char`（C48）；`std.io`（C52）。

@@ -136,6 +136,10 @@ let builtins =
     "print_i64", ([ (MSink, TI64) ], TUnit);
     "print_bool", ([ (MSink, TBool) ], TUnit);
     "print", ([ (MLet, TStr) ], TUnit);
+    (* C53：不换行的输出。print_str 原样写出字符串的字节；print_byte 写一个原始字节（0 到 255，否则 panic）。
+       输出经过 C 的缓冲，read_line 之前、panic 和程序结束时都会刷新 *)
+    "print_str", ([ (MLet, TStr) ], TUnit);
+    "print_byte", ([ (MSink, TI64) ], TUnit);
     "str_len", ([ (MLet, TStr) ], TI64);
     "str_eq", ([ (MLet, TStr); (MLet, TStr) ], TBool);
     "str_concat", ([ (MLet, TStr); (MLet, TStr) ], TStr);

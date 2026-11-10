@@ -1,0 +1,33 @@
+// C53：下标 v[i]、按下标赋值、不换行的输出。埃拉托斯特尼筛法：按下标把合数标成 false。
+
+fn sieve(n: I64) -> Vec<Bool> {
+    var s: Vec<Bool> = vec_new()
+    for i in 0..n + 1 { s.push(true) }
+    s[0] = false
+    s[1] = false
+    var i = 2
+    while i * i <= n {
+        if s[i] {
+            var j = i * i
+            while j <= n {
+                s[j] = false
+                j = j + i
+            }
+        }
+        i = i + 1
+    }
+    s
+}
+
+fn main() {
+    let s = sieve(50)
+    for i in 0..51 {
+        if s[i] { print_str("{i} ") }
+    }
+    print_byte(10)
+    var names: Vec<Str> = vec_new()
+    names.push("a")
+    names.push("b")
+    names[1] = "B"
+    print_str("{names[0]}{names[1]}\n")
+}

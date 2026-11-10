@@ -75,6 +75,8 @@ typedef struct { char *p; int64_t len; } sn_str;
 static sn_str sn_str_make(const char *s, int64_t n) { sn_str r; r.p = sn_alloc((size_t)n + 1); memcpy(r.p, s, (size_t)n); r.p[n] = 0; r.len = n; return r; }
 static sn_str u_str_lit(const char *s) { return sn_str_make(s, (int64_t)strlen(s)); }
 static void u_print(const sn_str *s) { fwrite(s->p, 1, (size_t)s->len, stdout); putchar('\n'); }
+static void u_print_str(const sn_str *s) { fwrite(s->p, 1, (size_t)s->len, stdout); }
+static void u_print_byte(int64_t b) { if (b < 0 || b > 255) sn_panic("print_byte 的参数不在 0 到 255 之间"); putchar((int)b); }
 /* panic(msg)（C38，Lean M19）：打印说明后结束进程，不析构任何值。 */
 static void u_panic(const sn_str *m) { sn_panic(m->p); }
 static int64_t u_str_len(const sn_str *s) { return s->len; }

@@ -51,6 +51,8 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 - **变量**：`let` 不可重新赋值，`var` 可以。
 - **循环**：`while c { … }`；`for i in 0..n { … }`；`for x in v { … }` 按借用遍历 `Vec`（循环中 `v` 被锁住），
   `for x in inout v` 可以改元素；`v` 也可以是函数的返回值（`for c in s.chars()`）；`break`、`continue`。
+- **下标**：`v[i]` 是第 i 个元素（就是 `vec_get(v, i)`），可以读、借用、改字段（`v[i].x = 1`），也可以整体赋值
+  `v[i] = x`（旧值先析构）；越界时 panic。元素不能直接移走，要拿走用 `v.pop()`。
 - **参数约定**：默认 `let`（只读借用，调用后实参还能用）；`inout`（修改调用方的变量或字段）；`sink`（拿走所有权）。
 - **所有权**：`Box`、`Vec`、`Str` 和含有它们的值会被移动，作用域结束时自动析构；移走之后再用是编译错误。
   可以只移走结构体的某个字段，之后再放回。
@@ -66,7 +68,8 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
   `s.push(t)`、`s.push_char(c)`、`s.slice(a, b)`、`s.to_i64()`、`s.to_f64()`。
   插值：`"x = {x}, 和 = {a + b}"`，`{{`、`}}` 是花括号本身；I64、F64、Char、Bool、Str 以外的类型要写 `fn to_str(x: T) -> Str`。
   转义有 `\n`、`\r`、`\t`、`\\`、`\"`；字符字面量 `'a'`、`'中'`、`'\n'`。
-- **输入输出**：`print(s)`、`print_i64`、`print_f64`、`print_char`、`read_line()`、`args()`、`read_file`、`write_file`。
+- **输入输出**：`print(s)`、`print_i64`、`print_f64`、`print_char`（都会换行）；`print_str(s)` 不换行，
+  `print_byte(b)` 写一个原始字节（0–255）；`read_line()`、`args()`、`read_file`、`write_file`。
 
 ## 标准库
 
@@ -102,6 +105,8 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 - `std.char` 和大小写转换只认 ASCII；`sort` 不稳定（相等的元素先后可能变）。
 - `Box`、`Vec` 里的类型参数在实例之间算不变，比 Rust 严：有些 Rust 能写的程序这里会被拒绝。
 - 生成的 C 需要 GCC 或 Clang（用到了 GNU C 扩展）。还没有编辑器插件和语言服务器。
+- 还没有：trait 对象（动态派发）、大整数、正则、线程和网络、目录遍历和启动子进程、包管理。
+  `Str` 必须是合法的 UTF-8，二进制数据目前只能用 `print_byte` 写到标准输出，还不能写进文件。
 
 ## 反馈
 

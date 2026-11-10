@@ -6,6 +6,15 @@ let p (pos : Lexing.position) = { line = pos.pos_lnum; col = pos.pos_cnum - pos.
 let mk e pos = { e; pos = p pos; id = fresh_id () }
 let mks s pos = { s; spos = p pos }
 
+(* 赋值 a = e：a 是变量、字段，或者 Vec 的元素（C53：v[i]、vec_get(v, i)、v.get(i)；
+   和 for x in inout v 里的 x = e 一样是 SetPlace，先算右边，再查下标、析构旧值、放进新值，Lean M18（二）） *)
+let assign pos (a : expr) e =
+  match a.e with
+  | Var x -> mks (Assign (x, e)) pos
+  | Field (b, f) -> mks (SetField (b, f, e)) pos
+  | Call (("vec_get" | ".get"), [ _; _ ]) -> mks (SetPlace (a, e)) pos
+  | _ -> raise (Syntax (a.pos, "只能给变量、字段或 Vec 的元素（v[i]）赋值"))
+
 (* 没有分号：块的最后一条若是表达式语句，就是块的值。 *)
 let mk_block ss =
   match List.rev ss with
@@ -287,7 +296,7 @@ let ty_of_name = function
 %token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM TRAIT IMPL FOR BREAK CONTINUE USE PUB
 %token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ DOTDOT
 %token PLUS MINUS STAR SLASH PERCENT BANG
-%token LPAREN RPAREN LBRACE RBRACE COMMA COLON DOT NL EOF
+%token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET COMMA COLON DOT NL EOF
 
 %nonassoc LAMBDA   (* 闭包的函数体尽量往后延伸：|x| x + 1 是 |x| (x + 1) *)
 %left OROR
@@ -296,7 +305,7 @@ let ty_of_name = function
 %left PLUS MINUS
 %left STAR SLASH PERCENT
 %nonassoc UNARY
-%left DOT QUESTION
+%left DOT QUESTION LBRACKET
 
 %start <Ast.source> program
 %%
@@ -431,9 +440,7 @@ stmt:
   | LET x = IDENT t = option(preceded(COLON, ty)) EQ e = expr { mks (Let (false, x, t, e)) $startpos }
   | VAR x = IDENT t = option(preceded(COLON, ty)) EQ e = expr { mks (Let (true, x, t, e)) $startpos }
   | VAR x = IDENT COLON t = ty { mks (Decl (x, t)) $startpos }
-  | x = IDENT EQ e = expr { mks (Assign (x, e)) $startpos }
-  | a = expr DOT f = IDENT EQ e = expr { mks (SetField (a, f, e)) $startpos }
-  | a = expr DOT n = INT EQ e = expr { mks (SetField (a, Int64.to_string n, e)) $startpos }
+  | a = expr EQ e = expr { assign $startpos a e }
   | WHILE c = expr b = block { mks (While (c, b)) $startpos }
   | FOR x = IDENT IN a = expr DOTDOT b = expr bl = block { for_loop $startpos x (`Range (a, b)) bl }
   | FOR x = IDENT IN INOUT v = expr bl = block { for_inout $startpos x v bl }
@@ -471,6 +478,8 @@ expr:
   | n = UIDENT LBRACE nls fs = inits RBRACE { mk (StructLit (n, fs)) $startpos }
   | e = expr DOT f = IDENT { mk (Field (e, f)) $startpos }
   | e = expr DOT n = INT { mk (Field (e, Int64.to_string n)) $startpos }
+  (* 下标（C53）：v[i] 就是 vec_get(v, i)，是一个位置：可以读、借用，也可以整体赋值 v[i] = x *)
+  | e = expr LBRACKET i = expr RBRACKET { mk (Call ("vec_get", [ e; i ])) $startpos($2) }
   (* 方法调用 e.f(…)：就是 f(e, …)，函数名由类型检查按 e 的类型确定（"." 开头表示还没确定） *)
   | e = expr DOT f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN
     { mk (Call ("." ^ f, e :: args)) $startpos(f) }

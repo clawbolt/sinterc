@@ -251,6 +251,9 @@ let table =
      "the body of for {1} in inout {2} cannot use {3} ({4} is lent to the loop: no push, pop, read or reborrow)");
     ("%s 不可修改，不能给它的元素赋值（需要 var 变量或 inout / sink 参数）",
      "{1} is not mutable, cannot assign to its element (needs a var variable or an inout / sink parameter)");
+    (* C53 *)
+    ("只能给变量、字段或 Vec 的元素（v[i]）赋值",
+     "only a variable, a field or an element of a Vec (v[i]) can be assigned to");
     (* C40 闭包 *)
     ("函数类型 fn(…) 只能作为函数参数的类型（闭包不能存进变量、字段、Vec，也不能返回）",
      "a function type fn(…) can only be the type of a function parameter (closures cannot be stored in variables, fields or Vecs, or returned)");
