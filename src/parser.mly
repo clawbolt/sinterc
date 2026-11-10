@@ -39,6 +39,17 @@ let lit_show (l : expr) =
   | Char c -> "'" ^ Buffer.contents (let b = Buffer.create 4 in Buffer.add_utf_8_uchar b (Uchar.of_int c); b) ^ "'"
   | _ -> "?"
 
+
+(* 字符串插值（C49）：词法分析把 "x = {x}!" 拆成 #fmt("x = ", (x).to_str(), "!")，这里展开成
+     { var #s: Str = "x = "; str_push(#s, x.to_str()); str_push(#s, "!"); #s }
+   to_str 由类型检查按类型选 str_from_i64、str_from_f64、str_from_char、str_from_bool、str_clone，
+   别的类型调用户写的 to_str 函数。只是已有调用的组合，不需要新的推理。 *)
+let interp pos args =
+  let e d = mk d pos and s d = mks d pos in
+  let init, rest = match args with ({ e = Str _; _ } as a) :: r -> (a, r) | _ -> (e (Str ""), args) in
+  let push a = s (Expr (e (Call ("str_push", [ e (Var "#s"); a ])))) in
+  e (Block { stmts = s (Let (true, "#s", Some TStr, init)) :: List.map push rest; tail = Some (e (Var "#s")) })
+
 let build_match pos borrow (s : expr) arms =
   if not (List.exists (function PL _ -> true | _ -> false) arms) then
     mk (Match (borrow, s, List.map (function PV (n, x, e) -> (n, x, e) | PW (_, e) -> ("_", "", e) | PL _ -> assert false) arms)) pos
@@ -455,7 +466,8 @@ expr:
       ignore (tuple_ty $startpos (List.map (fun _ -> TUnit) es));
       mk (StructLit (tuple_name (List.length es), List.mapi (fun i e -> (string_of_int i, e)) es)) $startpos }
   | ARENA BAR r = IDENT BAR b = block { mk (Arena (r, b)) $startpos }
-  | f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN { mk (Call (f, args)) $startpos }
+  | f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN
+    { if f = "#fmt" then interp $startpos args else mk (Call (f, args)) $startpos }
   | n = UIDENT LBRACE nls fs = inits RBRACE { mk (StructLit (n, fs)) $startpos }
   | e = expr DOT f = IDENT { mk (Field (e, f)) $startpos }
   | e = expr DOT n = INT { mk (Field (e, Int64.to_string n)) $startpos }

@@ -87,6 +87,7 @@ static void u_str_push(sn_str *s, const sn_str *t) {
   memcpy(s->p + s->len, t->p, (size_t)t->len); s->len += t->len; s->p[s->len] = 0;
 }
 static sn_str u_str_from_i64(int64_t x) { char b[24]; int n = snprintf(b, sizeof b, "%lld", (long long)x); return sn_str_make(b, n); }
+static sn_str u_str_from_bool(bool b) { return b ? sn_str_make("true", 4) : sn_str_make("false", 5); }
 /* UTF-8（C48，Lean S7）：sn_utf8_put 是 S7 的 encode，sn_utf8_get 是 decode1——解出一个字符，*k 是吃掉的字节数；
    不合法的字节（多余的续字节、过长的编码、代理区、超出范围、截断）解成 U+FFFD，只吃一个字节。 */
 static int sn_utf8_put(char *b, uint32_t c) {

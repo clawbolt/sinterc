@@ -142,6 +142,7 @@ let builtins =
     "str_push", ([ (MInout, TStr); (MLet, TStr) ], TUnit);
     "str_clone", ([ (MLet, TStr) ], TStr);
     "str_from_i64", ([ (MSink, TI64) ], TStr);
+    "str_from_bool", ([ (MSink, TBool) ], TStr);
     (* C47：F64。print_f64 按能还原的最短写法打印（整数值带 .0）；to_f64 把 I64 换成 F64，
        to_i64 向零取整（NaN 或超出 I64 范围时 panic）；str_to_f64 解析（格式不对时 .None）。
        f64_* 是 std.math 里 sqrt 等函数用的内建函数 *)
@@ -852,6 +853,12 @@ and method_name env (x : expr) f (r : expr) =
     | Ty (TVec _), ("push" | "pop" | "len" | "get" | "swap") -> "vec_" ^ m
     | Ty TStr, m when List.mem m str_methods -> "str_" ^ m
     | Ty TChar, "code" -> "char_code"
+    (* x.to_str()，也是字符串插值 "{x}" 用的（C49） *)
+    | Ty TI64, "to_str" -> "str_from_i64"
+    | Ty TF64, "to_str" -> "str_from_f64"
+    | Ty TChar, "to_str" -> "str_from_char"
+    | Ty TBool, "to_str" -> "str_from_bool"
+    | Ty TStr, "to_str" -> "str_clone"
     | _ -> m
   in
   Hashtbl.replace method_res x.id g;
@@ -1005,6 +1012,9 @@ and call_named env want (x : expr) f args : t =
         | Some (ps, r) ->
             (* 内建函数签名里的 Option<…> 在这里换成实例（C32） *)
             (List.map (fun (m, t) -> (m, resolve [] pos t)) ps, resolve [] pos r)
+        | None when f = "to_str" ->
+            (* 插值 "{p}"、p.to_str() 落到这里：p 的类型不是内建的那几种，用户也没写 to_str（C49） *)
+            err pos "没有 to_str 函数：I64、F64、Char、Bool、Str 以外的值要在字符串里插值，先写 fn to_str(x: T) -> Str"
         | None -> err pos "未定义的函数 %s" f)
   in
   if List.length ps <> List.length args then

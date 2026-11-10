@@ -72,6 +72,8 @@ let table =
      "? can only be used in a function that returns Result (this one returns {1})");
     ("%s 不是 Result，不能用 ?", "{1} is not a Result; cannot use ?");
     ("未定义的函数 %s", "undefined function {1}");
+    ("没有 to_str 函数：I64、F64、Char、Bool、Str 以外的值要在字符串里插值，先写 fn to_str(x: T) -> Str",
+     "no to_str function: to interpolate a value other than I64, F64, Char, Bool or Str, first write fn to_str(x: T) -> Str");
     ("无法推断 %s 的类型参数 %s（可以给返回值或实参写类型标注）",
      "cannot infer type parameter {2} of {1} (add a type annotation on the result or an argument)");
     ("%s 的类型参数 %s 没有标 linear，不能是 linear 类型 %s（要写 %s: linear）",
@@ -223,6 +225,9 @@ let table =
     ("无法识别的字符 '%s'", "unrecognized character '{1}'");
     ("字符串里只能用 \\n、\\t、\\\\、\\\" 这几种转义", "only the escapes \\n, \\t, \\\\ and \\\" are allowed in strings");
     ("字符串没有结束（缺少右边的 \"，字符串不能跨行）", "unterminated string (missing the closing \"; strings cannot span lines)");
+    ("字符串里的 } 要写成 }}", "a } in a string must be written as }}");
+    ("字符串里的 { 没有对应的 }（要写 { 本身请用 {{）", "the { in this string has no matching } (write {{ for a literal {)");
+    ("字符串里的 {} 中间要写一个表达式", "the {} in a string must contain an expression");
     ("语法错误（在 '%s' 附近）", "syntax error near '{1}'");
     ("结构体和枚举的类型参数暂不能写 trait 约束", "type parameters of structs and enums cannot have trait bounds yet");
     (* 模块（C34） *)

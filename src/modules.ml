@@ -34,6 +34,7 @@ let alias m = match String.rindex_opt m '.' with Some i -> String.sub m (i + 1) 
 let parse_file ?text path index =
   Lexer.depth := 0;
   Lexer.saved := [];
+  Lexer.pending := [];
   let ic =
     match text with
     | Some _ -> None
@@ -48,7 +49,7 @@ let parse_file ?text path index =
   Lexing.set_filename lexbuf path;
   lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_lnum = (index * line_base) + 1 };
   let src =
-    try Parser.program Lexer.token lexbuf with
+    try Parser.program Lexer.next lexbuf with
     | Parser.Error ->
         close ();
         let p = Lexing.lexeme_start_p lexbuf in
