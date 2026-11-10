@@ -1,5 +1,7 @@
 // std.str：字符串的常用函数。按字节处理（没有 Unicode 的字符边界）；返回的新字符串都是新分配的。
 
+use std.char
+
 pub fn starts_with(s: Str, p: Str) -> Bool {
     if str_len(p) > str_len(s) { return false }
     str_eq(str_slice(s, 0, str_len(p)), p)
@@ -82,5 +84,66 @@ pub fn repeat(s: Str, n: I64) -> Str {
         str_push(out, s)
         i = i + 1
     }
+    out
+}
+
+// 大小写转换（C52）：只转换 ASCII 字母，别的字符原样保留。
+pub fn to_upper(s: Str) -> Str {
+    var r = ""
+    for c in s.chars() {
+        r.push_char(char.to_upper(c))
+    }
+    r
+}
+
+pub fn to_lower(s: Str) -> Str {
+    var r = ""
+    for c in s.chars() {
+        r.push_char(char.to_lower(c))
+    }
+    r
+}
+
+// 从左到右把不重叠的 from 换成 to；from 是空串时原样返回。
+pub fn replace(s: Str, from: Str, to: Str) -> Str {
+    let n = str_len(s)
+    let m = str_len(from)
+    if m == 0 { return str_clone(s) }
+    var out = ""
+    var start = 0
+    var i = 0
+    while i + m <= n {
+        if str_eq(str_slice(s, i, i + m), from) {
+            str_push(out, str_slice(s, start, i))
+            str_push(out, to)
+            i = i + m
+            start = i
+        } else {
+            i = i + 1
+        }
+    }
+    str_push(out, str_slice(s, start, n))
+    out
+}
+
+// [a, b) 去掉末尾的 \r。
+fn line_at(s: Str, a: I64, b: I64) -> Str {
+    if b > a && str_byte(s, b - 1) == 13 { str_slice(s, a, b - 1) } else { str_slice(s, a, b) }
+}
+
+// 按换行切开，每行去掉末尾的 \r（Windows 换行）；最后的换行后面不再算一行。
+pub fn lines(s: Str) -> Vec<Str> {
+    var out: Vec<Str> = vec_new()
+    let n = str_len(s)
+    var start = 0
+    var i = 0
+    while i < n {
+        if str_byte(s, i) == 10 {
+            out.push(line_at(s, start, i))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start < n { out.push(line_at(s, start, n)) }
     out
 }

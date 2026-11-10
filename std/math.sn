@@ -111,3 +111,20 @@ pub fn powi(b: F64, e: I64) -> F64 {
     }
     if e < 0 { 1.0 / r } else { r }
 }
+
+// 最大公约数（C52）：总是非负，gcd(0, 0) == 0。
+pub fn gcd(a: I64, b: I64) -> I64 {
+    var x = abs(a)
+    var y = abs(b)
+    while y != 0 {
+        let t = x % y
+        x = y
+        y = t
+    }
+    x
+}
+
+// 最小公倍数：总是非负，有一个是 0 时是 0。
+pub fn lcm(a: I64, b: I64) -> I64 {
+    if a == 0 || b == 0 { 0 } else { abs(a / gcd(a, b) * b) }
+}

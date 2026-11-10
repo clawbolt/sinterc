@@ -146,7 +146,7 @@ rule token = parse
   | eof   { EOF }
   | _ as c { raise (Error (pos lexbuf, Printf.sprintf "无法识别的字符 '%c'" c)) }
 
-(* 字符串字面量（C26）：转义只有换行、制表符、反斜杠和双引号四种；不能跨行。 *)
+(* 字符串字面量（C26）：转义有换行、回车（C52）、制表符、反斜杠和双引号；不能跨行。 *)
 (* C49：{ 表达式 } 是插值，{{ 和 }} 是 { 和 } 本身。 *)
 and str p buf parts = parse
   | '"'         { List.rev (flush buf parts) }
@@ -159,9 +159,10 @@ and str p buf parts = parse
   | '}'         { raise (Error (pos lexbuf, "字符串里的 } 要写成 }}")) }
   | "\\n"       { Buffer.add_char buf '\n'; str p buf parts lexbuf }
   | "\\t"       { Buffer.add_char buf '\t'; str p buf parts lexbuf }
+  | "\\r"       { Buffer.add_char buf '\r'; str p buf parts lexbuf }   (* C52：Windows 换行 \r\n *)
   | "\\\\"      { Buffer.add_char buf '\\'; str p buf parts lexbuf }
   | "\\\""      { Buffer.add_char buf '"'; str p buf parts lexbuf }
-  | '\\' _      { raise (Error (pos lexbuf, "字符串里只能用 \\n、\\t、\\\\、\\\" 这几种转义")) }
+  | '\\' _      { raise (Error (pos lexbuf, "字符串里只能用 \\n、\\r、\\t、\\\\、\\\" 这几种转义")) }
   | '\n' | eof  { raise (Error (p, "字符串没有结束（缺少右边的 \"，字符串不能跨行）")) }
   | _ as c      { Buffer.add_char buf c; str p buf parts lexbuf }
 

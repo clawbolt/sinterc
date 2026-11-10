@@ -1,0 +1,32 @@
+// std.io：按行读写文件和标准输入（C52）。
+
+use std.str
+
+// 读整个文件，按行切开（见 str.lines）。
+pub fn read_lines(path: Str) -> Result<Vec<Str>, Str> {
+    let text = read_file(path)?
+    Ok(str.lines(text))
+}
+
+// 每行后面加一个换行，写进文件（写到临时文件再改名，见 write_file）。
+pub fn write_lines(path: Str, ls: Vec<Str>) -> Result<(), Str> {
+    var s = ""
+    for l in ls {
+        str_push(s, l)
+        str_push(s, "\n")
+    }
+    write_file(path, s)
+}
+
+// 读标准输入直到结束，每行一个元素（去掉换行）。
+pub fn input_lines() -> Vec<Str> {
+    var out: Vec<Str> = vec_new()
+    var go = true
+    while go {
+        match read_line() {
+            .Some(l) => out.push(l),
+            .None => { go = false }
+        }
+    }
+    out
+}

@@ -223,7 +223,7 @@ let table =
     ("字符字面量的引号里要正好是一个字符（转义只有 \\n、\\t、\\\\、\\'、\\0）",
      "a character literal must contain exactly one character between the quotes (escapes: \\n, \\t, \\\\, \\', \\0)");
     ("无法识别的字符 '%s'", "unrecognized character '{1}'");
-    ("字符串里只能用 \\n、\\t、\\\\、\\\" 这几种转义", "only the escapes \\n, \\t, \\\\ and \\\" are allowed in strings");
+    ("字符串里只能用 \\n、\\r、\\t、\\\\、\\\" 这几种转义", "only the escapes \\n, \\r, \\t, \\\\ and \\\" are allowed in strings");
     ("字符串没有结束（缺少右边的 \"，字符串不能跨行）", "unterminated string (missing the closing \"; strings cannot span lines)");
     ("字符串里的 } 要写成 }}", "a } in a string must be written as }}");
     ("字符串里的 { 没有对应的 }（要写 { 本身请用 {{）", "the { in this string has no matching } (write {{ for a literal {)");
