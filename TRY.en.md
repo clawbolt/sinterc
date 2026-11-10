@@ -103,8 +103,9 @@ Import a module with `use std.name` and call it as `name.function(…)`. The sou
 | `std.map` | ordered map (two sorted Vecs, binary search) |
 | `std.treemap` | ordered map (AVL tree, logarithmic insert and remove) |
 | `std.hashmap` | hash map (open addressing; keys implement `Eq` and `hashmap.Hash`; I64 and Str already do) |
+| `std.bigint` | arbitrary-size integers: `from_i64`, `parse`, `to_str`, `add`, `sub`, `mul`, `pow`, `divmod_small` (division by a number up to 10^9); implements `Eq` and `Ord` |
 
-The core algorithms of sorting, binary search and the three maps are proved in Lean (S4–S9 in the sinter-formal README).
+The core algorithms of sorting, binary search, the three maps and big integers are proved in Lean (S4–S10 in the sinter-formal README).
 
 ## Tools
 
@@ -124,7 +125,7 @@ programs that run and programs that must be rejected.
 - `std.char` and case conversion only know ASCII; `sort` is not stable.
 - Type arguments of `Box` and `Vec` are invariant, which is stricter than Rust: some programs Rust accepts are rejected here.
 - The generated C needs GCC or Clang (it uses GNU C extensions). There is no editor plugin or language server yet.
-- Not there yet: trait objects (dynamic dispatch), big integers, regular expressions, threads and networking,
+- Not there yet: trait objects (dynamic dispatch), dividing a big integer by a big integer, regular expressions, threads and networking,
   directory listing and starting processes, a package manager. `Str` must be valid UTF-8; binary data can only be
   written to standard output with `print_byte` for now, not to files.
 

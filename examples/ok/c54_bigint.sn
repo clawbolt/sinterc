@@ -1,0 +1,26 @@
+// C54：std.bigint（Lean S10）。30 的阶乘、2 的 100 次方、第 100 个斐波那契数。
+
+use std.bigint
+
+fn fact(n: I64) -> bigint.BigInt {
+    var r = bigint.from_i64(1)
+    for i in 1..n + 1 {
+        r = bigint.mul(r, bigint.from_i64(i))
+    }
+    r
+}
+
+fn main() {
+    print(bigint.to_str(fact(30)))
+    print(bigint.to_str(bigint.pow(bigint.from_i64(2), 100)))
+    var a = bigint.zero()
+    var b = bigint.from_i64(1)
+    for i in 0..100 {
+        let c = bigint.add(a, b)
+        a = b
+        b = c
+    }
+    print(bigint.to_str(a))
+    let (q, r) = bigint.divmod_small(a, 1000)
+    print("{bigint.to_str(q)} {r}")
+}

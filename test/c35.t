@@ -82,7 +82,7 @@ std.str（starts_with、ends_with、find、contains、trim、split、join、repe
   > }
   > EOF
   $ sinterc nostd.sn
-  nostd.sn:1:1: 错误：标准库里没有模块 nothing（有：char、hashmap、io、map、math、option、result、str、treemap、vec）
+  nostd.sn:1:1: 错误：标准库里没有模块 nothing（有：bigint、char、hashmap、io、map、math、option、result、str、treemap、vec）
    1 | use std.nothing
      | ^
   [1]

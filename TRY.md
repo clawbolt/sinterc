@@ -86,8 +86,9 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 | `std.map` | 有序映射（按键排好的两个 Vec，二分查找） |
 | `std.treemap` | 有序映射（AVL 树，对数时间的插入和删除） |
 | `std.hashmap` | 哈希表（开放寻址；键实现 `Eq` 和 `hashmap.Hash`，I64 和 Str 已实现） |
+| `std.bigint` | 任意大小的整数：`from_i64`、`parse`、`to_str`、`add`、`sub`、`mul`、`pow`、`divmod_small`（除以不超过 10^9 的数），实现了 `Eq`、`Ord` |
 
-排序、二分查找、三种映射的核心算法都在 Lean 里证明过（sinter-formal 仓库 README 的 S4–S9）。
+排序、二分查找、三种映射和大整数的核心算法都在 Lean 里证明过（sinter-formal 仓库 README 的 S4–S10）。
 
 ## 工具
 
@@ -105,7 +106,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 - `std.char` 和大小写转换只认 ASCII；`sort` 不稳定（相等的元素先后可能变）。
 - `Box`、`Vec` 里的类型参数在实例之间算不变，比 Rust 严：有些 Rust 能写的程序这里会被拒绝。
 - 生成的 C 需要 GCC 或 Clang（用到了 GNU C 扩展）。还没有编辑器插件和语言服务器。
-- 还没有：trait 对象（动态派发）、大整数、正则、线程和网络、目录遍历和启动子进程、包管理。
+- 还没有：trait 对象（动态派发）、大整数除以大整数、正则、线程和网络、目录遍历和启动子进程、包管理。
   `Str` 必须是合法的 UTF-8，二进制数据目前只能用 `print_byte` 写到标准输出，还不能写进文件。
 
 ## 反馈

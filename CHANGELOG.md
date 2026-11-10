@@ -2,6 +2,11 @@
 
 证明在单独的仓库 [sinter-formal](https://github.com/clawbolt/sinter-formal)，和编译器的版本一起更新。
 
+## 未发布（0.3 计划中）
+
+**标准库**
+- `std.bigint`：任意大小的整数，加、减、乘、比较、除以小数、十进制转换，实现 `Eq`、`Ord`（C54，Lean S10）。
+
 ## 0.2.0-pre（2026-11）
 
 第一个公开的预发布版本，按 MIT 或 Apache-2.0 双许可发布。和 0.1.0 相比：
