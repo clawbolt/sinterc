@@ -100,6 +100,7 @@ let help () =
      \  sinterc run 源文件.sn [参数…]     编译并运行\n\
      \  sinterc build 源文件.sn [-o 程序]  编译成可执行文件\n\
      \  sinterc 源文件.sn [-o 输出.c]      只生成 C\n\
+     \  sinterc fmt [--check | -w] 文件…  格式化（默认打印结果，-w 写回，--check 只检查）\n\
      \  sinterc --version | --help\n\n\
       build 和 run 用环境变量 CC 指定的 C 编译器（默认 cc）。\n\
       --lang=en 或 SINTER_LANG=en：英文的错误信息。\n")
@@ -108,6 +109,7 @@ let help () =
      \  sinterc run FILE.sn [ARGS…]     compile and run\n\
      \  sinterc build FILE.sn [-o EXE]  compile to an executable\n\
      \  sinterc FILE.sn [-o OUT.c]      emit C only\n\
+     \  sinterc fmt [--check | -w] FILE…  format (print; -w writes back; --check only checks)\n\
      \  sinterc --version | --help\n\n\
       build and run use the C compiler named by $CC (default: cc).\n\
       --lang=zh or SINTER_LANG=zh: error messages in Chinese.\n")
@@ -127,6 +129,51 @@ let cc c_file exe =
          (Printf.sprintf "error: the C compiler (%s) failed; set CC to another one (GCC or Clang is required)" cc));
     exit 1
   end
+
+(* sinterc fmt [--check | -w] 文件…（T2）：默认把格式化的结果打印出来；-w 写回文件；
+   --check 只列出需要格式化的文件，有的话退出码是 1。 *)
+let fmt_main argv =
+  let check = List.mem "--check" argv and write = List.mem "-w" argv in
+  let files = List.filter (fun a -> a <> "--check" && a <> "-w") argv in
+  if files = [] || (check && write) || List.exists (fun f -> String.length f > 0 && f.[0] = '-') files then usage ();
+  let changed = ref 0 in
+  List.iter
+    (fun f ->
+      let src =
+        try
+          let ic = open_in_bin f in
+          let s = really_input_string ic (in_channel_length ic) in
+          close_in ic;
+          s
+        with Sys_error _ ->
+          prerr_endline (I18n.pick ("错误：打不开文件 " ^ f) ("error: cannot open file " ^ f));
+          exit 1
+      in
+      if not (Fmt.check src) then begin
+        prerr_endline
+          (I18n.pick
+             ("内部错误：格式化 " ^ f ^ " 会改变记号或者不稳定，没有改动文件")
+             ("internal error: formatting " ^ f ^ " would change its tokens or is not stable; the file was left unchanged"));
+        exit 3
+      end;
+      let out = Fmt.format src in
+      if check then begin
+        if out <> src then begin
+          incr changed;
+          print_endline f
+        end
+      end
+      else if write then begin
+        if out <> src then begin
+          let oc = open_out_bin f in
+          output_string oc out;
+          close_out oc
+        end
+      end
+      else print_string out)
+    files;
+  if check && !changed > 0 then exit 1;
+  exit 0
 
 type mode = Emit | Build | Run
 
@@ -149,6 +196,7 @@ let () =
     match argv with
     | "run" :: rest -> (Run, rest)
     | "build" :: rest -> (Build, rest)
+    | "fmt" :: rest -> fmt_main rest
     | ("--version" | "-v") :: _ -> print_endline ("sinterc " ^ version); exit 0
     | ("--help" | "-h") :: _ -> print_string (help ()); exit 0
     | _ -> (Emit, argv)

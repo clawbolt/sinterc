@@ -62,7 +62,7 @@ fn main() {
     for i in 0..10000 {
         match hashmap.get(big, i * 1024, |v| v) {
             .Some(v) => { sum = sum + v },
-            .None => { }
+            .None => {}
         }
     }
     print_i64(sum)

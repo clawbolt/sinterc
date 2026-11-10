@@ -13,7 +13,7 @@ fn check(v: I64) -> Result<(), I64> {
 fn commit(sink t: Tx) { consume(t) }
 
 fn rollback(sink t: Tx) { consume(t) }
-fn main() { }
+fn main() {}
 fn f(id: I64) -> Result<(), I64> {
     let tx = begin(id)?
     errdefer rollback(tx)

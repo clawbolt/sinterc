@@ -66,7 +66,7 @@ S9 证明了查找、插入、删除（后移回填）保持不变式，查找�
   >     for i in 0..10000 {
   >         match hashmap.get(big, i * 1024, |v| v) {
   >             .Some(v) => { sum = sum + v },
-  >             .None => { }
+  >             .None => {}
   >         }
   >     }
   >     print_i64(sum)

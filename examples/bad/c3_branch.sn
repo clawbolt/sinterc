@@ -13,7 +13,7 @@ fn check(v: I64) -> Result<(), I64> {
 fn commit(sink t: Tx) { consume(t) }
 
 fn rollback(sink t: Tx) { consume(t) }
-fn main() { }
+fn main() {}
 fn f(c: Bool) {
     let tx = Tx { id: 1 }
     if c { commit(tx) }
