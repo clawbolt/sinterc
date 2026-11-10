@@ -46,7 +46,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 
 ## 语言一览
 
-- **类型**：`I64`、`F64`、`Bool`、`Char`、`Str`、`()`、结构体、枚举、元组 `(A, B)`、`Box<T>`、`Vec<T>`、
+- **类型**：`I64`、`F64`、`Bool`、`Char`、`Str`、`Bytes`、`()`、结构体、枚举、元组 `(A, B)`、`Box<T>`、`Vec<T>`、
   `Result<T, E>`、`Option<T>`、引用 `&T in a`。数字之间不做隐式转换（`to_f64`、`to_i64`）；整数溢出、除以零会 panic。
 - **变量**：`let` 不可重新赋值，`var` 可以。
 - **循环**：`while c { … }`；`for i in 0..n { … }`；`for x in v { … }` 按借用遍历 `Vec`（循环中 `v` 被锁住），
@@ -75,6 +75,9 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
   转义有 `\n`、`\r`、`\t`、`\\`、`\"`；字符字面量 `'a'`、`'中'`、`'\n'`。
 - **输入输出**：`print(s)`、`print_i64`、`print_f64`、`print_char`（都会换行）；`print_str(s)` 不换行，
   `print_byte(b)` 写一个原始字节（0–255）；`read_line()`、`args()`、`read_file`、`write_file`。
+- **字节串 `Bytes`**：任意字节（0–255 的 I64），所有权和 `Str` 一样。`bytes_new()`、`b.len()`、`b.get(i)`、`b.set(i, x)`、
+  `b.push(x)`、`b.append(c)`、`b.slice(a, b)`、`b.clone()`、`b.eq(c)`；`read_bytes`、`write_bytes` 读写二进制文件，
+  `print_bytes(b)` 原样输出；`s.to_bytes()` 复制字符串的字节，`str_from_utf8(b)` 只在合法的 UTF-8 时得到 `.Some(s)`。
 
 ## 标准库
 
@@ -93,7 +96,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 | `std.hashmap` | 哈希表（开放寻址；键实现 `Eq` 和 `hashmap.Hash`，I64 和 Str 已实现） |
 | `std.bigint` | 任意大小的整数：`from_i64`、`parse`、`to_str`、`add`、`sub`、`mul`、`pow`、`divmod_small`（除以不超过 10^9 的数），实现了 `Eq`、`Ord` |
 
-排序、二分查找、三种映射和大整数的核心算法都在 Lean 里证明过（sinter-formal 仓库 README 的 S4–S10）。
+排序、二分查找、三种映射和大整数的核心算法都在 Lean 里证明过（sinter-formal 仓库 README 的 S4–S11）。
 
 ## 工具
 
@@ -111,7 +114,8 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 - `Box`、`Vec` 里的类型参数在实例之间算不变，比 Rust 严：有些 Rust 能写的程序这里会被拒绝。
 - 生成的 C 需要 GCC 或 Clang（用到了 GNU C 扩展）。还没有编辑器插件和语言服务器。
 - 还没有：trait 对象（动态派发）、大整数除以大整数、正则、线程和网络、目录遍历和启动子进程、包管理。
-  `Str` 必须是合法的 UTF-8，二进制数据目前只能用 `print_byte` 写到标准输出，还不能写进文件。
+  `read_file` 不检查 UTF-8（不合法的字节按字符遍历时是 U+FFFD）；要检查就用 `read_bytes` 加 `str_from_utf8`。
+  `Bytes` 还不能写 `b[i]`，也不能 `for x in b`（用 `b.get(i)` 和 `0..b.len()`）。
 
 ## 反馈
 

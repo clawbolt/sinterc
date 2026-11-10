@@ -252,6 +252,8 @@ let table =
     (* C53 *)
     ("只能给变量、字段或 Vec 的元素（v[i]）赋值",
      "only a variable, a field or an element of a Vec (v[i]) can be assigned to");
+    (* C57 字节串 *)
+    ("字节串用 a.eq(b) 比较", "compare byte strings with a.eq(b)");
     (* C56 trait：ToStr、默认方法、泛型 impl *)
     ("%s 没有实现 ToStr，不能在字符串里插值或调用 to_str（先写 fn to_str(x: %s) -> Str）",
      "{1} does not implement ToStr, so it cannot be interpolated or passed to to_str (write fn to_str(x: {2}) -> Str first)");
@@ -390,5 +392,7 @@ let runtime text =
           ("\"整数溢出\"", "\"integer overflow\""); ("\"除以零\"", "\"division by zero\"");
           ("\"F64 转换成 I64 时超出范围（或是 NaN）\"", "\"F64 to I64 conversion out of range (or NaN)\"");
           ("\"内存不足\"", "\"out of memory\""); ("\"下标越界\"", "\"index out of bounds\"");
+          ("\"字节不在 0 到 255 之间\"", "\"byte not between 0 and 255\"");
+          ("\"print_byte 的参数不在 0 到 255 之间\"", "\"the argument of print_byte is not between 0 and 255\"");
           ("个 Box 没有释放", "Box value(s) not freed");
         ]

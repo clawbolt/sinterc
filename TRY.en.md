@@ -54,7 +54,7 @@ The C compiler is taken from `$CC` (default: `cc`).
 
 ## The language at a glance
 
-- **Types**: `I64`, `F64`, `Bool`, `Char`, `Str`, `()`, structs, enums, tuples `(A, B)`, `Box<T>`, `Vec<T>`,
+- **Types**: `I64`, `F64`, `Bool`, `Char`, `Str`, `Bytes`, `()`, structs, enums, tuples `(A, B)`, `Box<T>`, `Vec<T>`,
   `Result<T, E>`, `Option<T>`, references `&T in a`. No implicit numeric conversions (use `to_f64`, `to_i64`);
   integer overflow and division by zero panic.
 - **Variables**: `let` cannot be reassigned, `var` can.
@@ -91,6 +91,10 @@ The C compiler is taken from `$CC` (default: `cc`).
   literals look like `'a'`, `'中'`, `'\n'`.
 - **I/O**: `print(s)`, `print_i64`, `print_f64`, `print_char` (all add a newline); `print_str(s)` does not, and
   `print_byte(b)` writes one raw byte (0–255); `read_line()`, `args()`, `read_file`, `write_file`.
+- **Byte strings `Bytes`**: arbitrary bytes (I64 values 0–255), owned like `Str`. `bytes_new()`, `b.len()`, `b.get(i)`,
+  `b.set(i, x)`, `b.push(x)`, `b.append(c)`, `b.slice(a, b)`, `b.clone()`, `b.eq(c)`; `read_bytes` and `write_bytes`
+  read and write binary files, `print_bytes(b)` writes them as they are; `s.to_bytes()` copies the bytes of a string,
+  and `str_from_utf8(b)` gives `.Some(s)` only for valid UTF-8.
 
 ## Standard library
 
@@ -109,7 +113,7 @@ Import a module with `use std.name` and call it as `name.function(…)`. The sou
 | `std.hashmap` | hash map (open addressing; keys implement `Eq` and `hashmap.Hash`; I64 and Str already do) |
 | `std.bigint` | arbitrary-size integers: `from_i64`, `parse`, `to_str`, `add`, `sub`, `mul`, `pow`, `divmod_small` (division by a number up to 10^9); implements `Eq` and `Ord` |
 
-The core algorithms of sorting, binary search, the three maps and big integers are proved in Lean (S4–S10 in the sinter-formal README).
+The core algorithms of sorting, binary search, the three maps and big integers are proved in Lean (S4–S11 in the sinter-formal README).
 
 ## Tools
 
@@ -129,8 +133,9 @@ programs that run and programs that must be rejected.
 - Type arguments of `Box` and `Vec` are invariant, which is stricter than Rust: some programs Rust accepts are rejected here.
 - The generated C needs GCC or Clang (it uses GNU C extensions). There is no editor plugin or language server yet.
 - Not there yet: trait objects (dynamic dispatch), dividing a big integer by a big integer, regular expressions, threads and networking,
-  directory listing and starting processes, a package manager. `Str` must be valid UTF-8; binary data can only be
-  written to standard output with `print_byte` for now, not to files.
+  directory listing and starting processes, a package manager. `read_file` does not check UTF-8 (invalid bytes
+  come out as U+FFFD when iterating characters); use `read_bytes` with `str_from_utf8` to check. `Bytes` has no
+  `b[i]` and no `for x in b` yet (use `b.get(i)` and `0..b.len()`).
 
 ## Feedback
 

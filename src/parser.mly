@@ -317,6 +317,7 @@ let ty_of_name = function
   | "Char" -> TChar
   | "Bool" -> TBool
   | "Str" -> TStr
+  | "Bytes" -> TBytes
   | "Arena" -> TArena ""        (* 名字由参数名补上 *)
   | n -> TStruct n
 %}

@@ -147,6 +147,33 @@ static sn_str u_str_slice(const sn_str *s, int64_t a, int64_t b) {
   if (a < 0 || b < a || b > s->len) sn_panic("下标越界");
   return sn_str_make(s->p + a, b - a);
 }
+/* 字节串（C57）：和字符串的表示相同（末尾也多一个 0），内容可以是任意字节。字节是 0 到 255 的 I64。 */
+static int64_t sn_byte(int64_t x) { if (x < 0 || x > 255) sn_panic("字节不在 0 到 255 之间"); return x; }
+static sn_str u_bytes_new(void) { return sn_str_make("", 0); }
+static int64_t u_bytes_len(const sn_str *b) { return b->len; }
+static int64_t u_bytes_get(const sn_str *b, int64_t i) { return (unsigned char)b->p[sn_idx(b->len, i)]; }
+static void u_bytes_set(sn_str *b, int64_t i, int64_t x) { int64_t k = sn_idx(b->len, i); b->p[k] = (char)sn_byte(x); }
+static void u_bytes_push(sn_str *b, int64_t x) {
+  char c = (char)sn_byte(x);
+  b->p = sn_realloc(b->p, (size_t)b->len + 2); b->p[b->len++] = c; b->p[b->len] = 0;
+}
+static void u_bytes_append(sn_str *b, const sn_str *c) { u_str_push(b, c); }
+static sn_str u_bytes_slice(const sn_str *b, int64_t x, int64_t y) { return u_str_slice(b, x, y); }
+static sn_str u_bytes_clone(const sn_str *b) { return u_str_clone(b); }
+static bool u_bytes_eq(const sn_str *a, const sn_str *b) { return u_str_eq(a, b); }
+static sn_str u_str_to_bytes(const sn_str *s) { return u_str_clone(s); }
+static void u_print_bytes(const sn_str *b) { fwrite(b->p, 1, (size_t)b->len, stdout); }
+/* 合法的 UTF-8（Lean S11 的 valid）：每一轮解出一个字符，编码回去要正好是吃掉的那几个字节。 */
+static bool sn_utf8_valid(const unsigned char *p, int64_t n) {
+  int64_t i = 0, k; char e[4];
+  while (i < n) {
+    uint32_t c = sn_utf8_get(p + i, n - i, &k);
+    int m = sn_utf8_put(e, c);
+    if (m != k || memcmp(e, p + i, (size_t)k) != 0) return false;
+    i += k;
+  }
+  return true;
+}
 /* 区域：一串内存块，分配时往当前块后面追加，离开 arena 块时整块释放。内存块也计入泄漏检查。 */
 typedef struct sn_chunk { struct sn_chunk *next; size_t used, cap; _Alignas(16) char data[]; } sn_chunk;
 typedef struct { sn_chunk *head; } sn_arena;
@@ -193,6 +220,7 @@ let rec mangle = function
   | TChar -> "Char"
   | TBool -> "Bool"
   | TStr -> "Str"
+  | TBytes -> "Bytes"
   | TUnit -> "U"
   | TStruct n -> if is_ident n then n else sname n
   | TBox t -> "B" ^ mangle t
@@ -208,6 +236,7 @@ let rec cty = function
   | TChar -> "uint32_t"
   | TBool -> "bool"
   | TStr -> "sn_str"
+  | TBytes -> "sn_str"   (* 字节串（C57）和字符串的表示相同 *)
   | TUnit -> "sn_unit"   (* 存值的地方（变量、字段、载荷、Vec 元素）占一个字节；函数返回 () 时仍是 void *)
   | TStruct n -> sname n
   | TBox t -> cty t ^ "*"
@@ -224,7 +253,7 @@ let drop_fn t = "sn_drop_" ^ cty t
 let rec drop_code ty lv =
   match ty with
   | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
-  | TStr -> Printf.sprintf "sn_free(%s.p); " lv
+  | TStr | TBytes -> Printf.sprintf "sn_free(%s.p); " lv
   | (TStruct _ | TResult _ | TVec _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
   | TI64 | TF64 | TChar | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ | TFn _ -> ""
 
@@ -306,7 +335,7 @@ let type_defs (p : program) (fs : Mir.func list) =
           (fun (f : field) -> Buffer.add_string defs (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname))
           fields;
         Buffer.add_string defs " };\n"
-    | (TI64 | TF64 | TChar | TBool | TStr | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _), _ -> ()
+    | (TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _), _ -> ()
   in
   List.iter
     (function
@@ -339,6 +368,9 @@ let type_defs (p : program) (fs : Mir.func list) =
   visit vstr;
   visit rstr;
   visit runit;
+  (* read_bytes 的返回类型（C57） *)
+  let rbytes = TResult (TBytes, TStr) in
+  visit rbytes;
   while not (Queue.is_empty later) do
     visit (Queue.pop later)
   done;
@@ -473,6 +505,22 @@ let type_defs (p : program) (fs : Mir.func list) =
        \  return (%s){ .tag = 0 };\n\
         }\n"
        vs vs rs rs rs rs ru ru ru ru ru);
+  (* 字节串（C57）：read_bytes 就是 read_file 换一个结果类型（表示相同），write_bytes 就是 write_file；
+     str_from_utf8 检查过（Lean S11）才复制成字符串 *)
+  let rb = cty rbytes in
+  Buffer.add_string helpers
+    (Printf.sprintf
+       "static %s u_read_bytes(const sn_str *path) {\n\
+       \  %s r = u_read_file(path); %s o; o.tag = r.tag;\n\
+       \  if (r.tag == 0) o.u.v0 = r.u.v0; else o.u.v1 = r.u.v1;\n\
+       \  return o;\n\
+        }\n\
+        static %s u_write_bytes(const sn_str *path, const sn_str *b) { return u_write_file(path, b); }\n\
+        static %s u_str_from_utf8(const sn_str *b) {\n\
+       \  if (!sn_utf8_valid((const unsigned char *)b->p, b->len)) return (%s){ .tag = 1 };\n\
+       \  return (%s){ .tag = 0, .u.v0 = u_str_clone(b) };\n\
+        }\n"
+       rb rs rb ru os os os);
   Buffer.contents fwd ^ Buffer.contents defs ^ Buffer.contents protos ^ Buffer.contents bodies
   ^ Buffer.contents helpers
 

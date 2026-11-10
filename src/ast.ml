@@ -11,6 +11,7 @@ type ty =
   | TChar               (* 一个 Unicode 标量值（C48，Lean S7）：可以复制 *)
   | TBool
   | TStr                (* 字符串：拥有一块堆内存（字节），需要析构，只能移动（C29，Lean M17） *)
+  | TBytes              (* 字节串（C57）：任意字节，和 Str 一样拥有一块堆内存、需要析构、只能移动 *)
   | TUnit
   | TStruct of string   (* 用户定义的结构体或枚举，按名字区分 *)
   | TBox of ty          (* 拥有一块堆内存 *)
@@ -157,6 +158,7 @@ let rec string_of_ty = function
   | TChar -> "Char"
   | TBool -> "Bool"
   | TStr -> "Str"
+  | TBytes -> "Bytes"
   | TUnit -> "()"
   | TStruct n -> n
   | TBox t -> "Box<" ^ string_of_ty t ^ ">"

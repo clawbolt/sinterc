@@ -111,11 +111,11 @@ let rec is_linear = function
   | TResult (a, b) -> is_linear a || is_linear b
   | TBox t | TVec t -> is_linear t
   | TParam (_, l) -> l
-  | TI64 | TF64 | TChar | TBool | TStr | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
 
 (* 需要析构（或者是 linear）的类型：这些类型的值只能移动，不能复制。 *)
 let rec needs_drop = function
-  | TBox _ | TVec _ | TStr -> true
+  | TBox _ | TVec _ | TStr | TBytes -> true
   | TStruct n -> (
       Hashtbl.mem linear_tbl n
       ||
@@ -181,10 +181,31 @@ let builtins =
     "args", ([], TVec TStr);
     "read_file", ([ (MLet, TStr) ], TResult (TStr, TStr));
     "write_file", ([ (MLet, TStr); (MLet, TStr) ], TResult (TUnit, TStr));
+    (* C57：字节串 Bytes（任意字节）。get、set、push 的字节是 0 到 255 的 I64（push、set 超出时 panic），
+       下标越界时 panic；str_to_bytes 复制字符串的字节；str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean S11）；
+       read_bytes、write_bytes 和 read_file、write_file 一样（write_bytes 也是先写临时文件再 rename）；print_bytes 原样输出 *)
+    "bytes_new", ([], TBytes);
+    "bytes_len", ([ (MLet, TBytes) ], TI64);
+    "bytes_get", ([ (MLet, TBytes); (MSink, TI64) ], TI64);
+    "bytes_set", ([ (MInout, TBytes); (MSink, TI64); (MSink, TI64) ], TUnit);
+    "bytes_push", ([ (MInout, TBytes); (MSink, TI64) ], TUnit);
+    "bytes_append", ([ (MInout, TBytes); (MLet, TBytes) ], TUnit);
+    "bytes_slice", ([ (MLet, TBytes); (MSink, TI64); (MSink, TI64) ], TBytes);
+    "bytes_clone", ([ (MLet, TBytes) ], TBytes);
+    "bytes_eq", ([ (MLet, TBytes); (MLet, TBytes) ], TBool);
+    "str_to_bytes", ([ (MLet, TStr) ], TBytes);
+    "str_from_utf8", ([ (MLet, TBytes) ], TApp ("Option", [ TStr ]));
+    "read_bytes", ([ (MLet, TStr) ], TResult (TBytes, TStr));
+    "write_bytes", ([ (MLet, TStr); (MLet, TBytes) ], TResult (TUnit, TStr));
+    "print_bytes", ([ (MLet, TBytes) ], TUnit);
   ]
 
 (* 字符串的方法调用：s.len() 就是 str_len(s)。 *)
-let str_methods = [ "len"; "eq"; "concat"; "push"; "clone"; "to_i64"; "to_f64"; "byte"; "slice"; "chars"; "char_count"; "push_char" ]
+let str_methods =
+  [ "len"; "eq"; "concat"; "push"; "clone"; "to_i64"; "to_f64"; "byte"; "slice"; "chars"; "char_count"; "push_char"; "to_bytes" ]
+
+(* 字节串的方法调用（C57）：b.get(i) 就是 bytes_get(b, i)。 *)
+let bytes_methods = [ "len"; "get"; "set"; "push"; "append"; "slice"; "clone"; "eq" ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
 let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "vec_swap"; "panic" ]
@@ -279,7 +300,7 @@ let rec mentions r = function
   | TBox t | TVec t -> mentions r t
   | TResult (a, b) -> mentions r a || mentions r b
   | TStruct n -> List.exists (mentions r) (inst_args n)
-  | TI64 | TF64 | TChar | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> false   (* fn(…) 里不能有区域（check_ty） *)
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TApp _ | TParam _ | TFn _ -> false   (* fn(…) 里不能有区域（check_ty） *)
 
 let rec region_names = function
   | TRef (t, x) -> x :: region_names t
@@ -287,7 +308,7 @@ let rec region_names = function
   | TBox t | TVec t -> region_names t
   | TResult (a, b) -> region_names a @ region_names b
   | TStruct n -> List.concat_map region_names (inst_args n)
-  | TI64 | TF64 | TChar | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> []
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TApp _ | TParam _ | TFn _ -> []
 
 let rec rename s = function
   | TRef (t, x) -> TRef (rename s t, Option.value (List.assoc_opt x s) ~default:x)
@@ -522,7 +543,7 @@ let rec params_of = function
   | TBox t | TVec t | TRef (t, _) -> params_of t
   | TResult (a, b) -> params_of a @ params_of b
   | TFn (ps, r) -> List.concat_map (fun (_, t) -> params_of t) ps @ params_of r
-  | TI64 | TF64 | TChar | TBool | TStr | TUnit | TArena _ | TApp _ -> []
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TArena _ | TApp _ -> []
 
 (* ---- impl 的查找（C56，Lean M25） ---- *)
 
@@ -628,7 +649,7 @@ and only_cov p t =
             (List.mapi (fun i t -> (not (List.mem p (params_of t))) || (covariant g i && only_cov p t)) ts)
       | None -> true)
   | TBox _ | TVec _ | TRef _ | TFn _ -> not (List.mem p (params_of t))
-  | TI64 | TF64 | TChar | TBool | TStr | TUnit | TArena _ | TApp _ -> true
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TArena _ | TApp _ -> true
 
 let () = covariant_fwd := covariant
 
@@ -1065,6 +1086,7 @@ and expr1 env (x : expr) : t =
       | Eq | Ne -> (
           match ta, tb with
           | Ty TStr, _ | _, Ty TStr -> err pos "字符串用 str_eq(a, b) 或 a.eq(b) 比较"
+          | Ty TBytes, _ | _, Ty TBytes -> err pos "字节串用 a.eq(b) 比较"
           | Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _), _
           | _, Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _) ->
               err pos "只能比较 I64、F64 和 Bool"
@@ -1201,6 +1223,7 @@ and method_name env (x : expr) f (r : expr) =
     match expr env r, m with
     | Ty (TVec _), ("push" | "pop" | "len" | "get" | "swap") -> "vec_" ^ m
     | Ty TStr, m when List.mem m str_methods -> "str_" ^ m
+    | Ty TBytes, m when List.mem m bytes_methods -> "bytes_" ^ m
     | Ty TChar, "code" -> "char_code"
     (* x.to_str()，也是字符串插值 "{x}" 用的（C49） *)
     | Ty TI64, "to_str" -> "str_from_i64"

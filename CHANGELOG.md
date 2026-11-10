@@ -9,6 +9,8 @@
 - trait：内建的 `ToStr`，字符串插值用它，可以给多种类型各写一个 `fn to_str`，泛型代码里写 `T: ToStr`；
   默认方法（trait 里写了函数体的方法，impl 可以不写）；泛型 impl `impl<T: ToStr> ToStr for Vec<T>`，
   重叠的 impl 被拒绝（C56，Lean M25）。`std.bigint` 的 BigInt 可以直接插值。
+- 字节串 `Bytes`：任意字节，`get`、`set`、`push`、`append`、`slice` 等；`read_bytes`、`write_bytes` 读写二进制文件，
+  `print_bytes` 原样输出；`s.to_bytes()`、`str_from_utf8(b)`（只在合法的 UTF-8 时得到 `.Some`，C57，Lean S11）。
 
 **标准库**
 - `std.bigint`：任意大小的整数，加、减、乘、比较、除以小数、十进制转换，实现 `Eq`、`Ord`（C54，Lean S10）。
