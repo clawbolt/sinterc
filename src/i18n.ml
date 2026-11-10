@@ -254,6 +254,18 @@ let table =
     (* C53 *)
     ("只能给变量、字段或 Vec 的元素（v[i]）赋值",
      "only a variable, a field or an element of a Vec (v[i]) can be assigned to");
+    (* C55 嵌套模式 *)
+    ("模式 %s 的类型是 %s，这里的值是 %s", "the pattern {1} has type {2}, but the value here is {3}");
+    ("%s 不是枚举，不能用变体模式 %s", "{1} is not an enum; the variant pattern {2} cannot be used");
+    ("%s 没有载荷，不能写 %s(…)", "{1} has no payload; {2}(…) cannot be written");
+    ("%s 带一个 %s 类型的载荷，要写 %s(…)", "{1} carries a payload of type {2}; write {3}(…)");
+    ("%s 不是 %d 个元素的元组，不能用元组模式", "{1} is not a tuple of {2} elements; the tuple pattern cannot be used");
+    ("变量 %s 在同一个模式里出现了两次", "the variable {1} appears twice in the same pattern");
+    ("match 的模式太复杂（要检查的情况超过 100000 种），请拆成几层 match",
+     "the match patterns are too complex (more than 100000 cases to check); split it into several matches");
+    ("match 没有覆盖所有情况，例如 %s", "the match does not cover every case, for example {1}");
+    ("这个分支永远匹配不到（前面的分支已经覆盖了它能匹配的值）",
+     "this arm can never match (the arms before it already cover every value it matches)");
     (* C40 闭包 *)
     ("函数类型 fn(…) 只能作为函数参数的类型（闭包不能存进变量、字段、Vec，也不能返回）",
      "a function type fn(…) can only be the type of a function parameter (closures cannot be stored in variables, fields or Vecs, or returned)");

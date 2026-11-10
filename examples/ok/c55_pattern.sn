@@ -1,0 +1,36 @@
+// C55：嵌套模式（Lean M24、M24b）。展开成按借用的测试和只对选中分支的拆开。
+
+enum Shape { Circle(I64), Rect((I64, I64)), Dot }
+
+fn area(s: Shape) -> I64 {
+    match s {
+        .Circle(r) => 3 * r * r,
+        .Rect((w, 0)) => 0,
+        .Rect((w, h)) => w * h,
+        .Dot => 0
+    }
+}
+
+fn take(sink s: Str) -> Str { s }
+
+fn first(sink p: Option<(Str, Str)>) -> Str {
+    match p {
+        .Some((a, b)) => take(a),
+        .None => "-"
+    }
+}
+
+fn fizz(n: I64) -> Str {
+    match (n % 3, n % 5) {
+        (0, 0) => "FizzBuzz",
+        (0, _) => "Fizz",
+        (_, 0) => "Buzz",
+        _ => n.to_str()
+    }
+}
+
+fn main() {
+    print_i64(area(.Rect((3, 4))))
+    print(first(.Some(("x", "y"))))
+    for i in 1..16 { print(fizz(i)) }
+}

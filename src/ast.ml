@@ -54,6 +54,19 @@ and expr_desc =
   | If of expr * block * block option
   | Block of block
   | Lambda of string list * expr   (* |x, y| e：闭包，只能写在类型是 fn(…) 的参数的实参位置（C40） *)
+  | PMatch of bool * expr * (pat * expr) list
+      (* 带嵌套模式的 match（C55，Lean M24、M24b）：类型检查时检查覆盖性，再展开成 Match、If、Destruct，
+         之后的阶段看不到它。true：match let *)
+
+(* 模式（C55）：_、变量、字面量、变体 .V / .V(p)、元组 (p, q, …) *)
+and pat = { p : pat_desc; ppos : pos }
+
+and pat_desc =
+  | PWild
+  | PBind of string
+  | PLit of expr
+  | PVariant of string * pat option
+  | PTuple of pat list
 
 and stmt = { s : stmt_desc; spos : pos }
 

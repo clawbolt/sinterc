@@ -72,7 +72,9 @@ The C compiler is taken from `$CC` (default: `cc`).
 - **`linear struct`**: must be `consume`d explicitly; forgetting is a compile error. Combine with `Result`, `?`
   and `errdefer` for error paths. `panic(msg)` ends the program immediately (exit code 101).
 - **Enums and `match`**: `.Some(x)`, `.None`; a `_` arm; literal arms for integers, characters, strings and
-  `true`/`false` (they need a final `_`).
+  `true`/`false`. Patterns nest: `.Some((0, s))`, `Ok(.None)`, `(0, _)`; `match (a, b) { … }` matches tuples.
+  The compiler checks that every case is covered (or reports an example that isn't) and that no arm is
+  unreachable. `match let x { … }` binds by borrowing; so does matching on a `let` parameter.
 - **Generics and traits**: `fn same<T: math.Eq>(a: T, b: T) -> Bool`, monomorphised, statically dispatched.
   Method syntax `v.push(x)` means `push(v, x)`.
 - **Closures**: a parameter of type `fn(T) -> U` takes a closure `|x| e`. Closures can only be passed as arguments
@@ -120,7 +122,7 @@ programs that run and programs that must be rejected.
 ## Known limitations
 
 - Closures cannot be stored in variables or data structures, or returned; closures cannot be nested.
-- `match` patterns cannot be nested (write `.Some((a, b))` as two levels).
+- There are no struct patterns yet (`P { x, y }` only works in `let`); patterns cannot look inside a `Box`.
 - `to_str` cannot be overloaded by type, so only one user type per program can be interpolated (traits will fix this).
 - `std.char` and case conversion only know ASCII; `sort` is not stable.
 - Type arguments of `Box` and `Vec` are invariant, which is stricter than Rust: some programs Rust accepts are rejected here.

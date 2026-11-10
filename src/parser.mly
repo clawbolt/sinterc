@@ -24,8 +24,37 @@ let mk_block ss =
 (* match 的分支（C46）：变体分支 .V(x) => e；通配 _ => e（Lean M23）；字面量 0 => e、-1 => e、true => e、"add" => e。 *)
 type parm =
   | PV of string * string * expr
-  | PW of Lexing.position * expr
-  | PL of Lexing.position * expr * expr
+  | PW of pos * expr
+  | PL of pos * expr * expr
+  | PN of pat * expr   (* 嵌套模式（C55） *)
+
+(* 只有一层的模式照旧：.V、.V(x)、.V(_)、_、字面量；其余（子模式不是变量或 _、元组）是嵌套模式。
+   最外层不能是变量（要匹配所有其余情况时写 _）。 *)
+let arm_of (q : pat) e =
+  match q.p with
+  | PBind x -> raise (Syntax (q.ppos, Printf.sprintf "分支的模式不能是变量 %s（要匹配所有其余情况时写 _）" x))
+  | PWild -> PW (q.ppos, e)
+  | PLit l -> PL (q.ppos, l, e)
+  | PVariant (n, None) -> PV (n, "", e)
+  | PVariant (n, Some { p = PBind x; _ }) -> PV (n, x, e)
+  | PVariant (n, Some { p = PWild; _ }) -> PV (n, "_", e)
+  | _ -> PN (q, e)
+
+let pat_of = function
+  | PV (n, x, e) ->
+      let sub = if x = "" then None else Some { p = (if x = "_" then PWild else PBind x); ppos = e.pos } in
+      ({ p = PVariant (n, sub); ppos = e.pos }, e)
+  | PW (wp, e) -> ({ p = PWild; ppos = wp }, e)
+  | PL (lp, l, e) -> ({ p = PLit l; ppos = lp }, e)
+  | PN (q, e) -> (q, e)
+
+(* 模式绑定的变量 *)
+let rec pat_vars (q : pat) =
+  match q.p with
+  | PBind x -> [ x ]
+  | PVariant (_, Some r) -> pat_vars r
+  | PTuple qs -> List.concat_map pat_vars qs
+  | PWild | PLit _ | PVariant (_, None) -> []
 
 (* 字面量分支展开成 if 链：{ let m# = s; if m# == 0 { … } else if … else { _ 分支 } }（字符串用 str_eq）。
    s 是变量或字段时直接比较它（不移走，也不复制字符串）。字面量的值都可以复制，不涉及所有权。
@@ -60,18 +89,20 @@ let interp pos args =
   e (Block { stmts = s (Let (true, "#s", Some TStr, init)) :: List.map push rest; tail = Some (e (Var "#s")) })
 
 let build_match pos borrow (s : expr) arms =
-  if not (List.exists (function PL _ -> true | _ -> false) arms) then
-    mk (Match (borrow, s, List.map (function PV (n, x, e) -> (n, x, e) | PW (_, e) -> ("_", "", e) | PL _ -> assert false) arms)) pos
+  if List.exists (function PN _ -> true | _ -> false) arms then mk (PMatch (borrow, s, List.map pat_of arms)) pos
+  else if not (List.exists (function PL _ -> true | _ -> false) arms) then
+    mk (Match (borrow, s, List.map (function PV (n, x, e) -> (n, x, e) | PW (_, e) -> ("_", "", e) | _ -> assert false) arms)) pos
   else begin
     let rec split seen = function
       | [ PW (_, e) ] -> ([], e)
       | PL (lp, l, e) :: r ->
           let k = lit_key l in
-          if List.mem k seen then raise (Syntax (p lp, Printf.sprintf "分支 %s 写了两次" (lit_show l)));
+          if List.mem k seen then raise (Syntax (lp, Printf.sprintf "分支 %s 写了两次" (lit_show l)));
           let ls, w = split (k :: seen) r in
           ((l, e) :: ls, w)
-      | PW (wp, _) :: _ -> raise (Syntax (p wp, "_ 分支只能放在最后"))
+      | PW (wp, _) :: _ -> raise (Syntax (wp, "_ 分支只能放在最后"))
       | PV (_, _, e) :: _ -> raise (Syntax (e.pos, "字面量分支和变体分支不能写在同一个 match 里"))
+      | PN _ :: _ -> assert false
       | [] -> raise (Syntax (p pos, "按字面量 match 时最后要有 _ 分支（字面量写不全）"))
     in
     let ls, w = split [] arms in
@@ -182,6 +213,8 @@ let for_inout pos x (v : expr) body =
       | Variant (w, b) -> Variant (w, Option.map ex b)
       | Match (bw, b, arms) ->
           Match (bw, ex b, List.map (fun (w, y, c) -> (w, y, if y = x then check_only c else ex c)) arms)
+      | PMatch (bw, b, arms) ->
+          PMatch (bw, ex b, List.map (fun (q, c) -> (q, if List.mem x (pat_vars q) then check_only c else ex c)) arms)
       | Arena (n, b) -> Arena (n, if n = x then check_block b else blk b)
       | If (c, b1, b2) -> If (ex c, blk b1, Option.map blk b2)
       | Block b -> Block (blk b)
@@ -200,6 +233,7 @@ let for_inout pos x (v : expr) body =
       | StructLit (_, fs) -> List.iter (fun (_, b) -> scan b) fs
       | Variant (_, b) -> Option.iter scan b
       | Match (_, b, arms) -> scan b; List.iter (fun (_, _, c) -> scan c) arms
+      | PMatch (_, b, arms) -> scan b; List.iter (fun (_, c) -> scan c) arms
       | Arena (_, b) | Block b -> scan_block b
       | If (c, b1, b2) -> scan c; scan_block b1; Option.iter scan_block b2
     and scan_block (b : block) = List.iter scan_stmt b.stmts; Option.iter scan b.tail
@@ -509,18 +543,25 @@ if_expr:
     { mk (If (c, b, Some { stmts = []; tail = Some i })) $startpos }
 
 arm:
-  | n = UIDENT LPAREN x = IDENT RPAREN FATARROW e = expr { PV (n, x, e) }
-  | DOT n = UIDENT LPAREN x = IDENT RPAREN FATARROW e = expr { PV (n, x, e) }
-  | DOT n = UIDENT FATARROW e = expr { PV (n, "", e) }
-  | x = IDENT FATARROW e = expr
-    { if x <> "_" then raise (Syntax (p $startpos, Printf.sprintf "分支的模式不能是变量 %s（要匹配所有其余情况时写 _）" x));
-      PW ($startpos, e) }
-  | n = INT FATARROW e = expr { PL ($startpos, mk (Int n) $startpos, e) }
-  | MINUS n = INT FATARROW e = expr { PL ($startpos, mk (Unop (Neg, mk (Int n) $startpos)) $startpos, e) }
-  | TRUE FATARROW e = expr { PL ($startpos, mk (Bool true) $startpos, e) }
-  | FALSE FATARROW e = expr { PL ($startpos, mk (Bool false) $startpos, e) }
-  | s = STRING FATARROW e = expr { PL ($startpos, mk (Str s) $startpos, e) }
-  | c = CHAR FATARROW e = expr { PL ($startpos, mk (Char c) $startpos, e) }
+  | q = pat FATARROW e = expr { arm_of q e }
+
+(* 模式（C55）：可以嵌套。只有一层的（.V(x)、_、字面量）照旧是 Match 或字面量的 if 链。 *)
+pat:
+  | x = IDENT { { p = (if x = "_" then PWild else PBind x); ppos = p $startpos } }
+  | n = INT { { p = PLit (mk (Int n) $startpos); ppos = p $startpos } }
+  | MINUS n = INT { { p = PLit (mk (Unop (Neg, mk (Int n) $startpos)) $startpos); ppos = p $startpos } }
+  | TRUE { { p = PLit (mk (Bool true) $startpos); ppos = p $startpos } }
+  | FALSE { { p = PLit (mk (Bool false) $startpos); ppos = p $startpos } }
+  | s = STRING { { p = PLit (mk (Str s) $startpos); ppos = p $startpos } }
+  | c = CHAR { { p = PLit (mk (Char c) $startpos); ppos = p $startpos } }
+  | DOT n = UIDENT { { p = PVariant (n, None); ppos = p $startpos } }
+  | DOT n = UIDENT LPAREN q = pat RPAREN { { p = PVariant (n, Some q); ppos = p $startpos } }
+  | n = UIDENT LPAREN q = pat RPAREN { { p = PVariant (n, Some q); ppos = p $startpos } }
+  | LPAREN q = pat RPAREN { q }
+  | LPAREN q = pat COMMA qs = separated_nonempty_list(COMMA, pat) RPAREN
+    { let qs = q :: qs in
+      ignore (tuple_ty $startpos (List.map (fun _ -> TUnit) qs));
+      { p = PTuple qs; ppos = p $startpos } }
 
 arms:
   | { [] }

@@ -135,6 +135,15 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
                   if y <> "" then binder pos y;
                   (v, y, ex a))
                 arms )
+      | PMatch (b, s, arms) ->
+          let rec binders (q : pat) =
+            match q.p with
+            | PBind y -> binder pos y
+            | PVariant (_, Some r) -> binders r
+            | PTuple qs -> List.iter binders qs
+            | PWild | PLit _ | PVariant (_, None) -> ()
+          in
+          PMatch (b, ex s, List.map (fun (q, a) -> binders q; (q, ex a)) arms)
       | Arena (r, b) -> Arena (r, blk b)
       | If (c, a, b) -> If (ex c, blk a, Option.map blk b)
       | Block b -> Block (blk b)
