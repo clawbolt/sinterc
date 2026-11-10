@@ -95,4 +95,4 @@ build 默认输出到去掉 .sn 的同名文件：
   [1]
 
   $ sinterc --version
-  sinterc 0.1.0
+  sinterc 0.2.0-pre

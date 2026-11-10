@@ -1,0 +1,61 @@
+// 词频统计：读文件（或标准输入），按词计数，按次数从多到少打印前 5 个。
+// 用到 std.io、std.str、std.hashmap、std.vec 的 sort_by、闭包、元组和字符串插值。
+// 运行：sinterc run words.sn 文件      或者      echo "a b a" | sinterc run words.sn
+
+use std.io
+use std.math
+use std.str
+use std.char
+use std.hashmap
+use std.vec
+
+fn words_of(line: Str) -> Vec<Str> {
+    var out: Vec<Str> = vec_new()
+    var w = ""
+    for c in line.chars() {
+        if char.is_alnum(c) || char_code(c) > 127 {
+            w.push_char(char.to_lower(c))
+        } else if w.len() > 0 {
+            out.push(w)
+            w = ""
+        }
+    }
+    if w.len() > 0 { out.push(w) }
+    out
+}
+
+fn main() {
+    let a = args()
+    var lines: Vec<Str> = vec_new()
+    if vec_len(a) > 0 {
+        match io.read_lines(vec_get(a, 0)) {
+            Ok(ls) => { lines = ls },
+            Err(e) => panic(e)
+        }
+    } else {
+        lines = io.input_lines()
+    }
+    var counts: hashmap.HashMap<Str, I64> = hashmap.new()
+    var total = 0
+    for line in lines {
+        for w in words_of(line) {
+            total = total + 1
+            let n = match hashmap.get(counts, w, |c| c) {
+                .Some(c) => c,
+                _ => 0
+            }
+            // for 按借用给出 w，插入要拿走所有权，所以复制一份
+            hashmap.insert(counts, str_clone(w), n + 1)
+        }
+    }
+    var pairs: Vec<(Str, I64)> = vec_new()
+    hashmap.for_each(counts, |k, v| pairs.push((str_clone(k), v)))
+    // 次数多的在前；次数相同按词的字典序
+    vec.sort_by(pairs, |p, q| p.1 > q.1 || (p.1 == q.1 && cmp(p.0, q.0) == -1))
+    print("共 {total} 个词，{hashmap.len(counts)} 个不同的词")
+    var i = 0
+    for p in pairs {
+        if i < 5 { print("{p.0}: {p.1}") }
+        i = i + 1
+    }
+}

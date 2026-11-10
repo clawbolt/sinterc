@@ -1,2 +1,8 @@
 (cram
  (deps %{bin:sinterc}))
+
+; 文档里的一览程序（T4）
+(cram
+ (applies_to tour)
+ (deps
+  (glob_files %{project_root}/examples/tour/*.sn)))

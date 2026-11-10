@@ -1,10 +1,13 @@
-# Trying Sinter (0.1.0)
+# Trying Sinter (0.2.0-pre)
 
 [中文版](TRY.md)
 
 Sinter is a simplified Rust: it has ownership, moves, borrowing and regions (arenas), but no lifetime
 annotations, and the core rules the compiler checks are proved in Lean 4. `sinterc` compiles `.sn` source
 files to C and hands the result to your system C compiler.
+
+This is a **pre-release**: the language and standard library will still change. Please try it and tell us
+what you find (see the last section).
 
 Error messages are in Chinese by default. Pass `--lang=en`, or set it once for your shell:
 
@@ -14,60 +17,114 @@ export SINTER_LANG=en
 
 ## Install
 
-You need OCaml 5.1 or later (installed with opam), dune 3, menhir, and GCC or Clang.
+You need OCaml 5.1 or later (via opam), dune 3, menhir, and GCC or Clang.
 
 ```sh
 opam install dune menhir
+git clone https://github.com/clawbolt/sinterc.git compiler
 cd compiler
 dune build
 dune install        # installs sinterc into the current opam switch; or use dune exec sinterc -- …
-sinterc --version   # sinterc 0.1.0
+sinterc --version   # sinterc 0.2.0-pre
 ```
 
-## Your first program
-
-`examples/tour/tour.sn` is a small program that covers the main features:
+To check the proofs yourself you also need Lean 4 (install it with elan). The proofs live in a separate
+repository, [sinter-formal](https://github.com/clawbolt/sinter-formal); clone it as `lean` next to `compiler`:
 
 ```sh
-sinterc run examples/tour/tour.sn      # compile and run
-sinterc build examples/tour/tour.sn    # produce the executable examples/tour/tour
-sinterc examples/tour/tour.sn -o t.c   # emit C only
+git clone https://github.com/clawbolt/sinter-formal.git lean   # in the same directory as compiler
+cd lean && lake build              # all proofs (the Lean version is in lean-toolchain)
+cd ../compiler && sh validate.sh   # control-flow graphs of the examples, checked independently by Lean
+sh diff.sh                         # 42,000 programs: Lean, sinterc and runtime behaviour compared
 ```
 
-The C compiler is taken from the `CC` environment variable (default `cc`).
+## A first program
 
-The comments and printed text in the examples and tests are in Chinese; the code itself reads the same in any language.
+`examples/tour/` has two tour programs:
+
+```sh
+sinterc run examples/tour/tour.sn       # structs, parameter modes, Box, Vec, match, arenas
+echo "a b a" | sinterc run examples/tour/words.sn   # word count: files, strings, HashMap, sorting, closures
+sinterc build examples/tour/tour.sn     # builds the executable examples/tour/tour
+sinterc examples/tour/tour.sn -o t.c    # emits C only
+sinterc fmt -w examples/tour/*.sn       # formats the files
+```
+
+The C compiler is taken from `$CC` (default: `cc`).
 
 ## The language at a glance
 
-- Types: `I64`, `Bool`, `()`, structs, enums, `Box<T>`, `Vec<T>`, `Result<T, E>`, `Option<T>`, and references `&T in a`.
-- Variables: `let` cannot be reassigned, `var` can.
-- Loops: `while c { … }`; `for i in 0..n { … }`; `for x in v { … }` borrows each element of a `Vec` in turn, and `v` is locked while an element is in use; `break` and `continue`.
-- Parameter modes: `let` by default (read-only borrow; the argument is still usable after the call); `inout` (modifies the caller's variable or field); `sink` (takes ownership).
-- Ownership: `Box`, `Vec` and structs containing them are moved, and dropped automatically at the end of their scope; using a value after moving it is a compile error.
-  You can move out a single field of a struct (`var a = q.p.a`) and put it back later (`q.p.a = box(7)`).
-- `linear struct`: must be explicitly `consume`d; forgetting to handle one is a compile error. Use `Result`, `?` and `errdefer` to write error paths.
-- Enums and `match`: `.Some(x)`, `.None`.
-- Generics and traits: `fn same<T: Eq>(a: T, b: T) -> Bool`, monomorphized and statically dispatched. Method-call syntax `v.push(x)` is the same as `push(v, x)`.
-- References come only from arenas: `arena |a| { let r = alloc(a, 1) … }`; a reference cannot outlive its arena.
-  Functions can take region parameters: `fn get(o: Option<&I64 in x>) -> I64`.
-- Strings `Str`: like `Box`, they own heap memory and can only be moved. `s.len()`, `a.eq(b)`, `a.concat(b)`, `s.push(t)` (`s` must be a `var`), `s.clone()`, `str_from_i64(n)`, `s.to_i64()` (returns `Option<I64>`), `s.byte(i)`, `s.slice(a, b)`.
-- Input: `read_line()` reads one line and returns `Option<Str>`; it is `.None` at end of input.
-- Output: `print(s)` (literal escapes are `\n`, `\t`, `\\`, `\"`), `print_i64`, `print_bool`.
+- **Types**: `I64`, `F64`, `Bool`, `Char`, `Str`, `()`, structs, enums, tuples `(A, B)`, `Box<T>`, `Vec<T>`,
+  `Result<T, E>`, `Option<T>`, references `&T in a`. No implicit numeric conversions (use `to_f64`, `to_i64`);
+  integer overflow and division by zero panic.
+- **Variables**: `let` cannot be reassigned, `var` can.
+- **Loops**: `while c { … }`; `for i in 0..n { … }`; `for x in v { … }` borrows each element of a `Vec`
+  (`v` is locked during the loop), `for x in inout v` can modify them; `v` may also be a call (`for c in s.chars()`);
+  `break`, `continue`.
+- **Parameter modes**: `let` by default (read-only borrow; the argument is still usable afterwards);
+  `inout` (modifies the caller's variable or field); `sink` (takes ownership).
+- **Ownership**: `Box`, `Vec`, `Str` and values containing them are moved and dropped automatically at the end
+  of their scope; using a moved value is a compile error. You can move a single field out of a struct and put
+  it back later.
+- **`linear struct`**: must be `consume`d explicitly; forgetting is a compile error. Combine with `Result`, `?`
+  and `errdefer` for error paths. `panic(msg)` ends the program immediately (exit code 101).
+- **Enums and `match`**: `.Some(x)`, `.None`; a `_` arm; literal arms for integers, characters, strings and
+  `true`/`false` (they need a final `_`).
+- **Generics and traits**: `fn same<T: math.Eq>(a: T, b: T) -> Bool`, monomorphised, statically dispatched.
+  Method syntax `v.push(x)` means `push(v, x)`.
+- **Closures**: a parameter of type `fn(T) -> U` takes a closure `|x| e`. Closures can only be passed as arguments
+  (not stored or returned); they can read outer variables and modify outer `var`s.
+- **References only come from arenas**: `arena |a| { let r = alloc(a, 1) … }`; a reference cannot outlive its arena.
+- **Modules**: one file per module; `use geom` brings in `geom.sn` from the same directory, and `geom.area(…)`
+  accesses its `pub` items.
+- **Strings**: `Str` holds UTF-8 bytes. `s.len()` counts bytes, `s.chars()` decodes `Char`s, `s.char_count()`
+  counts characters; `s.push(t)`, `s.push_char(c)`, `s.slice(a, b)`, `s.to_i64()`, `s.to_f64()`.
+  Interpolation: `"x = {x}, sum = {a + b}"`, with `{{` and `}}` for literal braces; types other than I64, F64,
+  Char, Bool and Str need a `fn to_str(x: T) -> Str`. Escapes are `\n`, `\r`, `\t`, `\\`, `\"`; character
+  literals look like `'a'`, `'中'`, `'\n'`.
+- **I/O**: `print(s)`, `print_i64`, `print_f64`, `print_char`, `read_line()`, `args()`, `read_file`, `write_file`.
 
-More complete examples of each feature are in `test/c*.t`. Each file starts by saying what that step added, followed by programs that run and programs that must be rejected.
+## Standard library
+
+Import a module with `use std.name` and call it as `name.function(…)`. The sources are in `std/`.
+
+| Module | Contents |
+|---|---|
+| `std.math` | traits `Eq`, `Ord`; `min`, `max`, `abs`, `pow`, `gcd`, `lcm`; F64 `sqrt`, `floor`, `round`, `pi`, … |
+| `std.option`, `std.result` | `is_some`, `unwrap_or`, `unwrap`, `expect`, … |
+| `std.vec` | `map`, `filter`, `fold`, `any`, `all`, `count`, `sum`, `max`, `min`, `reverse`, `contains`, `range`, `sort`, `sort_by`, `binary_search`, `dedup` |
+| `std.str` | `split`, `join`, `trim`, `find`, `contains`, `starts_with`, `replace`, `lines`, `to_upper`, `to_lower`, `repeat` |
+| `std.char` | `is_digit`, `is_alpha`, `is_whitespace`, `to_upper`, `to_digit`, … (ASCII only) |
+| `std.io` | `read_lines`, `write_lines`, `input_lines` |
+| `std.map` | ordered map (two sorted Vecs, binary search) |
+| `std.treemap` | ordered map (AVL tree, logarithmic insert and remove) |
+| `std.hashmap` | hash map (open addressing; keys implement `Eq` and `hashmap.Hash`; I64 and Str already do) |
+
+The core algorithms of sorting, binary search and the three maps are proved in Lean (S4–S9 in the sinter-formal README).
+
+## Tools
+
+- `sinterc run FILE [ARGS…]`, `sinterc build FILE [-o EXE]`, `sinterc FILE [-o OUT.c]`.
+- `sinterc fmt [--check | -w] FILE…`: formatting. It only changes whitespace (indentation, spaces around
+  operators, blank lines); tokens and line breaks stay where they are, and comments are kept.
+- Errors show the offending line with a `^` under the position.
+
+Fuller examples of each feature are in `test/*.t`: each file starts with what that step added, followed by
+programs that run and programs that must be rejected.
 
 ## Known limitations
 
-- Only integers, booleans and strings. Strings are handled as bytes; there are no character-level (UTF-8) operations or formatting yet. No floats, closures or modules; a program is a single file.
-- Error messages are Chinese by default; `--lang=en` (or `SINTER_LANG=en`) switches to English. A few messages are not translated yet and still appear in Chinese. Only the first error is reported.
-- Type parameters of `Box` and `Vec` are invariant across instances, which is stricter than Rust: some programs Rust accepts are rejected here.
-- Runtime errors (for example an index out of bounds) print `panic: …` and exit with code 101.
-- The generated C needs GCC or Clang (it uses GNU C extensions).
+- Closures cannot be stored in variables or data structures, or returned; closures cannot be nested.
+- `match` patterns cannot be nested (write `.Some((a, b))` as two levels).
+- `to_str` cannot be overloaded by type, so only one user type per program can be interpolated (traits will fix this).
+- `std.char` and case conversion only know ASCII; `sort` is not stable.
+- Type arguments of `Box` and `Vec` are invariant, which is stricter than Rust: some programs Rust accepts are rejected here.
+- The generated C needs GCC or Clang (it uses GNU C extensions). There is no editor plugin or language server yet.
 
 ## Feedback
 
-The most useful feedback:
-- programs you think should compile but are rejected (please include the source file and the error message);
-- programs you think should be rejected but compile, or crash at run time. These are the most serious problems, so please always tell us;
-- error messages you cannot understand. If an English message still shows Chinese, tell us that too.
+The most useful reports:
+- programs you think should be accepted but are rejected (with the source and the error message);
+- programs you think should be rejected but are accepted, or crash or leak at run time — these are the most
+  serious problems, please do tell us;
+- error messages you cannot understand.
