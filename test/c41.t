@@ -59,4 +59,6 @@ C41：闭包捕获引用（Lean M22）。闭包可以用类型里有区域的变
   > EOF
   $ sinterc short.sn
   short.sn:7:46: 错误：类型不匹配：需要 &I64 in a，实际是 &I64 in b
+   7 |             vec.for_each(v, |x| { outer.push(alloc(b, x)) })
+     |                                              ^
   [1]

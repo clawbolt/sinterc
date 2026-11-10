@@ -55,6 +55,8 @@ C7：按借用的 match（Lean M8（二））。match let x { … } 显式借用
   > EOF
   $ sinterc lock.sn
   lock.sn:7:17: 错误：o 正被投影 b 借用（之后还会用到 b），不能移动
+   7 |             eat(o)
+     |                 ^
   [1]
 
 分支变量不拥有载荷，不能移走：
@@ -72,6 +74,8 @@ C7：按借用的 match（Lean M8（二））。match let x { … } 显式借用
   > EOF
   $ sinterc own.sn
   own.sn:6:29: 错误：b 不拥有值（是 let / inout 参数或投影），不能移动
+   6 |         .Some(b) => eat_box(b),
+     |                             ^
   [1]
 
 match let 只能借用一个位置：
@@ -88,4 +92,6 @@ match let 只能借用一个位置：
   > EOF
   $ sinterc place.sn
   place.sn:4:23: 错误：match let 后面必须是变量、字段或解引用（要借用的位置）
+   4 |     let n = match let wrap(1) {
+     |                       ^
   [1]

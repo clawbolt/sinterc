@@ -67,4 +67,6 @@ C37：() 作类型实参（Lean M9u）。() 是只有一个值的 copy 类型：
   > EOF
   $ sinterc ref.sn
   ref.sn:3:26: 错误：区域里不能放 ()
+   3 |         let x = alloc(r, ())
+     |                          ^
   [1]

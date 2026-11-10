@@ -90,6 +90,8 @@ build 默认输出到去掉 .sn 的同名文件：
   > EOF
   $ sinterc run move.sn
   move.sn:5:15: 错误：b 已被移动，不能再使用
+   5 |     print_i64(*b)
+     |               ^
   [1]
 
   $ sinterc --version

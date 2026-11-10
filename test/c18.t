@@ -57,6 +57,8 @@ C18：多层部分移动（Lean M13 的位置编码按字段路径推广）。va
   > EOF
   $ sinterc whole.sn
   whole.sn:7:21: 错误：q.p.a 已被移走，不能整体使用 q.p
+   7 |     print_i64(sum_p(q.p))
+     |                     ^
   [1]
 
 移走中间的结构体之后使用它里面的叶子：
@@ -73,4 +75,6 @@ C18：多层部分移动（Lean M13 的位置编码按字段路径推广）。va
   > EOF
   $ sinterc inner.sn
   inner.sn:7:15: 错误：q.p.a 已被移走，不能再使用
+   7 |     print_i64(*q.p.a)
+     |               ^
   [1]

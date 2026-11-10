@@ -25,6 +25,8 @@ print 的实参不是字符串：
   > EOF
   $ sinterc num.sn
   num.sn:2:11: 错误：类型不匹配：需要 Str，实际是 I64
+   2 |     print(1)
+     |           ^
   [1]
 
 字符串没有结束：
@@ -36,4 +38,6 @@ print 的实参不是字符串：
   > EOF
   $ sinterc open.sn
   open.sn:2:11: 错误：字符串没有结束（缺少右边的 "，字符串不能跨行）
+   2 |     print("abc
+     |           ^
   [1]

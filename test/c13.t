@@ -87,6 +87,8 @@ inout 的接收者也必须可修改：
   > EOF
   $ sinterc inout.sn
   inout.sn:7:5: 错误：c 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）
+   7 |     c.bump()
+     |     ^
   [1]
 
 sink 的接收者被移走：
@@ -101,6 +103,8 @@ sink 的接收者被移走：
   > EOF
   $ sinterc sink.sn
   sink.sn:5:15: 错误：b 已被移动，不能再使用
+   5 |     print_i64(*b)
+     |               ^
   [1]
 
 get 的投影还活着时 push（和 vec_get / vec_push 一样）：
@@ -116,6 +120,8 @@ get 的投影还活着时 push（和 vec_get / vec_push 一样）：
   > EOF
   $ sinterc lock.sn
   lock.sn:5:5: 错误：v 正被投影 e 借用（之后还会用到 e），不能以 inout 传入
+   5 |     v.push(box(2))
+     |     ^
   [1]
 
 没有这个函数：
@@ -128,4 +134,6 @@ get 的投影还活着时 push（和 vec_get / vec_push 一样）：
   > EOF
   $ sinterc undef.sn
   undef.sn:3:17: 错误：未定义的函数 foo
+   3 |     print_i64(n.foo())
+     |                 ^
   [1]

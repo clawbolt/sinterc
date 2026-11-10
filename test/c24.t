@@ -49,6 +49,8 @@ Box、Vec 里的保守地算不变；inout 实参仍然要求类型完全相同�
   > EOF
   $ sinterc contra.sn
   contra.sn:6:49: 错误：类型不匹配：需要 Pair<&I64 in a, &I64 in a>，实际是 Pair<&I64 in a, &I64 in b>
+   6 |             let q: Pair<&I64 in a, &I64 in a> = p
+     |                                                 ^
   [1]
 
 类型参数在 Box 里：保守地算不变：
@@ -66,4 +68,6 @@ Box、Vec 里的保守地算不变；inout 实参仍然要求类型完全相同�
   > EOF
   $ sinterc boxed.sn
   boxed.sn:6:35: 错误：类型不匹配：需要 B<&I64 in b>，实际是 B<&I64 in a>
+   6 |             let q: B<&I64 in b> = o
+     |                                   ^
   [1]

@@ -57,6 +57,8 @@ for x in v 按借用依次取 Vec 的每个元素：可复制的元素复制，�
   > EOF
   $ sinterc set.sn
   set.sn:3:9: 错误：i 是用 let 声明的变量或参数，不能重新赋值（需要的话改用 var / inout）
+   3 |         i = 5
+     |         ^
   [1]
 
 元素还被借用时不能修改 Vec：
@@ -73,6 +75,8 @@ for x in v 按借用依次取 Vec 的每个元素：可复制的元素复制，�
   > EOF
   $ sinterc lock.sn
   lock.sn:5:9: 错误：v 正被投影 s 借用（之后还会用到 s），不能以 inout 传入
+   5 |         v.push("b")
+     |         ^
   [1]
 
 只能遍历变量或字段：
@@ -85,4 +89,6 @@ for x in v 按借用依次取 Vec 的每个元素：可复制的元素复制，�
   > EOF
   $ sinterc tmp.sn
   tmp.sn:3:14: 错误：for 只能遍历变量或字段里的 Vec，或者写成 a..b
+   3 |     for x in make() { print_i64(x) }
+     |              ^
   [1]

@@ -59,6 +59,8 @@ Box 计入泄漏检查，程序正常退出就说明没有泄漏，也没有重�
   > EOF
   $ sinterc whole.sn
   whole.sn:6:20: 错误：p.a 已被移走，不能整体使用 p
+   6 |     print_i64(show(p))
+     |                    ^
   [1]
 
 同一个字段移走两次：
@@ -73,6 +75,8 @@ Box 计入泄漏检查，程序正常退出就说明没有泄漏，也没有重�
   > EOF
   $ sinterc twice.sn
   twice.sn:5:13: 错误：p.a 已被移走，不能再使用
+   5 |     var b = p.a
+     |             ^
   [1]
 
 只在一个分支里移走，之后使用这个字段：
@@ -88,6 +92,8 @@ Box 计入泄漏检查，程序正常退出就说明没有泄漏，也没有重�
   > EOF
   $ sinterc maybe.sn
   maybe.sn:6:15: 错误：p.a 可能已被移走（某条路径上或上一轮循环里），不能再使用
+   6 |     print_i64(*p.a)
+     |               ^
   [1]
 
 let 参数不拥有值，不能移走它的字段：
@@ -103,6 +109,8 @@ let 参数不拥有值，不能移走它的字段：
   > EOF
   $ sinterc param.sn
   param.sn:3:13: 错误：p 不拥有值（是 let / inout 参数或投影），不能移走它的字段
+   3 |     var a = p.a
+     |             ^
   [1]
 
 linear 结构体不能部分移动：
@@ -116,4 +124,6 @@ linear 结构体不能部分移动：
   > EOF
   $ sinterc lin.sn
   lin.sn:4:13: 错误：linear 结构体 T 不能部分移动（要用 consume）
+   4 |     var a = t.a
+     |             ^
   [1]

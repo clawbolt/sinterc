@@ -74,6 +74,8 @@ Option<T>（内建）、Pair<A, B>，实例有 I64、Bool、Box<I64>、linear �
   > EOF
   $ sinterc bound.sn
   bound.sn:6:5: 错误：keep 的类型参数 T 没有标 linear，不能是 linear 类型 Token（要写 T: linear）
+   6 |     keep(t)
+     |     ^
   [1]
 
 定义处按抽象类型检查：即使只用 I64 实例化（可以复制），T 的值也只能移动一次：
@@ -89,6 +91,8 @@ Option<T>（内建）、Pair<A, B>，实例有 I64、Bool、Box<I64>、linear �
   > EOF
   $ sinterc twice.sn
   twice.sn:3:5: 错误：x 已被移动，不能再使用
+   3 |     x
+     |     ^
   [1]
 
 T: linear 的值必须交出去，即使只用 I64 实例化：
@@ -103,6 +107,8 @@ T: linear 的值必须交出去，即使只用 I64 实例化：
   > EOF
   $ sinterc hold.sn
   hold.sn:2:5: 错误：y 是 linear 值，作用域结束时还没有被消费
+   2 |     let y = x
+     |     ^
   [1]
 
 不能对 T 做运算（要等以后有了 trait）：
@@ -117,4 +123,6 @@ T: linear 的值必须交出去，即使只用 I64 实例化：
   > EOF
   $ sinterc ops.sn
   ops.sn:2:5: 错误：只能比较 I64 和 Bool
+   2 |     a == b
+     |     ^
   [1]

@@ -58,6 +58,8 @@ str_clone(s)、str_from_i64(n)；print(s) 打印并换行。实参都按 let 借
   > EOF
   $ sinterc move.sn
   move.sn:4:11: 错误：s 已被移动，不能再使用
+   4 |     print(s)
+     |           ^
   [1]
 
 字符串不能用 == 比较：
@@ -70,9 +72,13 @@ str_clone(s)、str_from_i64(n)；print(s) 打印并换行。实参都按 let 借
   > EOF
   $ sinterc eq.sn
   eq.sn:3:16: 错误：字符串用 str_eq(a, b) 或 a.eq(b) 比较
+   3 |     print_bool(a == "a")
+     |                ^
   [1]
   $ sinterc --lang=en eq.sn
   eq.sn:3:16: error: compare strings with str_eq(a, b) or a.eq(b)
+   3 |     print_bool(a == "a")
+     |                ^
   [1]
 
 let 变量不能追加：
@@ -85,4 +91,6 @@ let 变量不能追加：
   > EOF
   $ sinterc push.sn
   push.sn:3:5: 错误：s 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）
+   3 |     s.push("b")
+     |     ^
   [1]

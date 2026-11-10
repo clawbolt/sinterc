@@ -64,6 +64,8 @@ inout 实参里的区域不能放宽（不变），否则被调用的函数能�
   > EOF
   $ sinterc outer.sn
   outer.sn:6:17: 错误：类型不匹配：需要 &I64 in a，实际是 &I64 in b
+   6 |             r = id(alloc(b, 2))
+     |                 ^
   [1]
 
 inout 实参的区域不能放宽：区域 x 按第一个实参取成 b，r 的类型是 &I64 in a，放宽成 &I64 in b 之后 set 就能把 b 里的引用写进 r：
@@ -82,4 +84,6 @@ inout 实参的区域不能放宽：区域 x 按第一个实参取成 b，r 的�
   > EOF
   $ sinterc inout.sn
   inout.sn:6:30: 错误：inout 实参的类型要和参数类型完全相同：需要 &I64 in b，实际是 &I64 in a（区域不能放宽）
+   6 |             set(alloc(b, 2), r)
+     |                              ^
   [1]

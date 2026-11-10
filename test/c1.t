@@ -60,6 +60,8 @@ C1b：Box、移动、析构。程序结束时如果还有 Box 没释放，打印
   > EOF
   $ sinterc move.sn
   move.sn:6:15: 错误：b 已被移动，不能再使用
+   6 |     print_i64(*b)
+     |               ^
   [1]
 
 只在一个分支里移动，汇合之后再使用：
@@ -75,6 +77,8 @@ C1b：Box、移动、析构。程序结束时如果还有 Box 没释放，打印
   > EOF
   $ sinterc branch.sn
   branch.sn:6:15: 错误：b 可能已被移动（某条路径上或上一轮循环里），不能再使用
+   6 |     print_i64(*b)
+     |               ^
   [1]
 
 在循环里移动循环外的值：
@@ -93,6 +97,8 @@ C1b：Box、移动、析构。程序结束时如果还有 Box 没释放，打印
   > EOF
   $ sinterc loop.sn
   loop.sn:7:24: 错误：b 可能已被移动（某条路径上或上一轮循环里），不能再使用
+   7 |         print_i64(take(b))
+     |                        ^
   [1]
 
 let 声明的变量不能重新赋值：
@@ -105,6 +111,8 @@ let 声明的变量不能重新赋值：
   > EOF
   $ sinterc letmut.sn
   letmut.sn:3:5: 错误：x 是用 let 声明的变量或参数，不能重新赋值（需要的话改用 var / inout）
+   3 |     x = 2
+     |     ^
   [1]
 
 不能从 Box 里直接移出值（要用 unbox；移走变量的字段见 c14.t）：
@@ -119,4 +127,6 @@ let 声明的变量不能重新赋值：
   > EOF
   $ sinterc partial.sn
   partial.sn:5:13: 错误：不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 vec_pop）
+   5 |     var q = *p.a
+     |             ^
   [1]

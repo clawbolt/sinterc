@@ -62,6 +62,8 @@ C4：区域。arena |a| { … } 引入区域 a，alloc(a, e) 在 a 里分配，�
   > EOF
   $ sinterc escape.sn
   escape.sn:4:9: 错误：块的值的类型 &I64 in a 含有区域 a，不能带出这个区域（R3）
+   4 |         r
+     |         ^
   [1]
 
 内层区域的引用赋给外层变量（Lean M5 的反例：内层区域结束后外层再读就悬空）：
@@ -79,6 +81,8 @@ C4：区域。arena |a| { … } 引入区域 a，alloc(a, e) 在 a 里分配，�
   > EOF
   $ sinterc outer.sn
   outer.sn:5:17: 错误：类型不匹配：需要 &I64 in a，实际是 &I64 in b
+   5 |             r = alloc(b, 2)
+     |                 ^
   [1]
 
 区域里放需要析构的值（D4，Lean M5（三）的反例：区域结束时不运行析构，Box 泄漏）：
@@ -92,6 +96,8 @@ C4：区域。arena |a| { … } 引入区域 a，alloc(a, e) 在 a 里分配，�
   > EOF
   $ sinterc d4.sn
   d4.sn:3:17: 错误：区域里不能放需要析构或 linear 的值 Box<I64>：区域结束时不运行析构（D4）
+   3 |         let r = alloc(a, box(1))
+     |                 ^
   [1]
 
 函数的两个区域参数之间没有顺序，不能互相转换（D3，Lean M5（四）的反例）：
@@ -105,4 +111,6 @@ C4：区域。arena |a| { … } 引入区域 a，alloc(a, e) 在 a 里分配，�
   > EOF
   $ sinterc d3.sn
   d3.sn:2:5: 错误：类型不匹配：需要 &I64 in b，实际是 &I64 in a
+   2 |     r
+     |     ^
   [1]

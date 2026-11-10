@@ -82,6 +82,8 @@ C33：for x in inout v（Lean M18）。x 是第 i 个元素本身（可变借用
   > EOF
   $ sinterc push.sn
   push.sn:5:9: 错误：for x in inout v 的循环体里不能用 v（v 整个借给了循环，不能 push、pop、读或再借）
+   5 |         v.push(x)
+     |         ^
   [1]
 
 不能把 x 移走：
@@ -112,4 +114,6 @@ let 声明的 Vec 不能改：
   > EOF
   $ sinterc let.sn
   let.sn:4:9: 错误：v 不可修改，不能给它的元素赋值（需要 var 变量或 inout / sink 参数）
+   4 |         x = 1
+     |         ^
   [1]

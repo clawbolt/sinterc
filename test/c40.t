@@ -80,6 +80,8 @@ C40：闭包（Lean M21）。参数类型写 fn(T) -> U，实参写闭包 |x| e�
   > EOF
   $ sinterc conflict.sn
   conflict.sn:5:21: 错误：v 在同一次调用里出现两次，其中有移动或 inout，只能都是只读的
+   5 |     vec.for_each(v, |x| { v.push(x) })
+     |                     ^
   [1]
 
 闭包不能存进变量：
@@ -91,6 +93,8 @@ C40：闭包（Lean M21）。参数类型写 fn(T) -> U，实参写闭包 |x| e�
   > EOF
   $ sinterc store.sn
   store.sn:2:13: 错误：闭包只能直接写在调用的实参里，传给类型是 fn(…) 的参数
+   2 |     let f = |x| x + 1
+     |             ^
   [1]
 
 也不能返回：
@@ -103,6 +107,8 @@ C40：闭包（Lean M21）。参数类型写 fn(T) -> U，实参写闭包 |x| e�
   > EOF
   $ sinterc ret.sn
   ret.sn:1:1: 错误：函数类型 fn(…) 只能作为函数参数的类型（闭包不能存进变量、字段、Vec，也不能返回）
+   1 | fn mk() -> fn(I64) -> I64 {
+     | ^
   [1]
 
 函数参数只能调用或传下去：
@@ -117,6 +123,8 @@ C40：闭包（Lean M21）。参数类型写 fn(T) -> U，实参写闭包 |x| e�
   > EOF
   $ sinterc fnvar.sn
   fnvar.sn:2:13: 错误：f 是函数参数，只能调用它（f(…)），或者作为实参传给 fn(…) 类型的参数
+   2 |     let g = f
+     |             ^
   [1]
 
 只有 var 变量能在闭包里改：
@@ -131,6 +139,8 @@ C40：闭包（Lean M21）。参数类型写 fn(T) -> U，实参写闭包 |x| e�
   > EOF
   $ sinterc letcap.sn
   letcap.sn:5:27: 错误：t 是用 let 声明的变量或参数，不能重新赋值（需要的话改用 var / inout）
+   5 |     vec.for_each(v, |x| { t = t + x })
+     |                           ^
   [1]
 
 闭包里暂不能再写闭包：
@@ -144,4 +154,6 @@ C40：闭包（Lean M21）。参数类型写 fn(T) -> U，实参写闭包 |x| e�
   > EOF
   $ sinterc nested.sn
   nested.sn:4:42: 错误：闭包里暂不能再写闭包
+   4 |     print_bool(vec.any(v, |x| vec.any(v, |y| y == x)))
+     |                                          ^
   [1]

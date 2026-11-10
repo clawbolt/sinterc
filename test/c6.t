@@ -72,6 +72,8 @@ match 按标签选分支，必须穷尽，按移动拆开：载荷交给分支�
   > EOF
   $ sinterc nonexh.sn
   nonexh.sn:4:13: 错误：match 没有覆盖 .B（枚举的 match 必须穷尽）
+   4 |     let n = match e {
+     |             ^
   [1]
 
 载荷移进枚举之后不能再用：
@@ -86,6 +88,8 @@ match 按标签选分支，必须穷尽，按移动拆开：载荷交给分支�
   > EOF
   $ sinterc moved.sn
   moved.sn:5:15: 错误：b 已被移动，不能再使用
+   5 |     print_i64(*b)
+     |               ^
   [1]
 
 match 之后枚举已被拆开，不能再用：
@@ -106,6 +110,8 @@ match 之后枚举已被拆开，不能再用：
   > EOF
   $ sinterc after.sn
   after.sn:8:19: 错误：o 已被移动，不能再使用
+   8 |     let m = match o {
+     |                   ^
   [1]
 
 只有一个分支给 k 赋值，合并后 k 可能没有值（Lean M8 的 maybe）：
@@ -124,6 +130,8 @@ match 之后枚举已被拆开，不能再用：
   > EOF
   $ sinterc maybe.sn
   maybe.sn:9:15: 错误：k 可能已被移动（某条路径上或上一轮循环里），不能再使用
+   9 |     print_i64(*k)
+     |               ^
   [1]
 
 构造时标签和载荷必须对得上：
@@ -136,4 +144,6 @@ match 之后枚举已被拆开，不能再用：
   > EOF
   $ sinterc pay.sn
   pay.sn:3:16: 错误：.B 没有载荷，不能写 .B(…)
+   3 |     let e: E = .B(1)
+     |                ^
   [1]

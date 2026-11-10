@@ -82,6 +82,8 @@ C0 骨架的端到端测试：编译成 C，用系统的 cc 编译运行。
   > EOF
   $ sinterc bad.sn
   bad.sn:3:17: 错误：类型不匹配：需要 I64，实际是 Bool
+   3 |     let y = x + true
+     |                 ^
   [1]
 
 结构体缺字段：
@@ -95,6 +97,8 @@ C0 骨架的端到端测试：编译成 C，用系统的 cc 编译运行。
   > EOF
   $ sinterc field.sn
   field.sn:4:13: 错误：Point 缺少字段 y
+   4 |     let p = Point { x: 1 }
+     |             ^
   [1]
 
 函数返回类型和函数体不符：
@@ -109,4 +113,6 @@ C0 骨架的端到端测试：编译成 C，用系统的 cc 编译运行。
   > EOF
   $ sinterc ret.sn
   ret.sn:2:5: 错误：类型不匹配：需要 I64，实际是 Bool
+   2 |     true
+     |     ^
   [1]

@@ -107,6 +107,8 @@ vec_swap 的 v 要能修改：
   > EOF
   $ sinterc let.sn
   let.sn:2:14: 错误：v 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）
+   2 |     vec_swap(v, 0, 0)
+     |              ^
   [1]
 
 键的类型要实现 math.Ord：
@@ -121,4 +123,6 @@ vec_swap 的 v 要能修改：
   > EOF
   $ sinterc noord.sn
   noord.sn:5:17: 错误：P 没有实现 math.Ord（map.insert 要求 K: math.Ord）
+   5 |     let o = map.insert(m, P { x: 1 }, 1)
+     |                 ^
   [1]

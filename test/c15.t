@@ -62,6 +62,8 @@ let 变量不可修改：
   > EOF
   $ sinterc letv.sn
   letv.sn:4:5: 错误：c 不可修改，不能给它的字段赋值（需要 var 变量或 inout / sink 参数）
+   4 |     c.n = 1
+     |     ^
   [1]
 
 let 参数不可修改：
@@ -76,6 +78,8 @@ let 参数不可修改：
   > EOF
   $ sinterc letp.sn
   letp.sn:3:5: 错误：c 不可修改，不能给它的字段赋值（需要 var 变量或 inout / sink 参数）
+   3 |     c.n = 1
+     |     ^
   [1]
 
 结构体整个被移走之后：
@@ -90,6 +94,8 @@ let 参数不可修改：
   > EOF
   $ sinterc moved.sn
   moved.sn:5:5: 错误：p 已被移动，不能给它的字段赋值
+   5 |     p.n = 1
+     |     ^
   [1]
 
 字段的投影还活着时：
@@ -105,4 +111,6 @@ let 参数不可修改：
   > EOF
   $ sinterc lock.sn
   lock.sn:5:5: 错误：p 正被投影 r 借用（之后还会用到 r），不能修改
+   5 |     p.a = box(3)
+     |     ^
   [1]

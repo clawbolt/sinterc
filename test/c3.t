@@ -95,6 +95,8 @@ C3：linear 值、Result、?、match、errdefer。
   > EOF
   $ cat lib.sn part > forget.sn && sinterc forget.sn
   forget.sn:18:5: 错误：tx 是 linear 值，作用域结束时还没有被消费
+   18 |     let tx = begin(id)?
+      |     ^
   [1]
 
 没有 errdefer：出错返回的路径上 tx 没有被消费（Lean M6（二）的反例）：
@@ -109,6 +111,8 @@ C3：linear 值、Result、?、match、errdefer。
   > EOF
   $ cat lib.sn part > noguard.sn && sinterc noguard.sn
   noguard.sn:19:14: 错误：tx 是 linear 值，出错从这里返回时还没有被消费（可以加 errdefer）
+   19 |     check(id)?
+      |              ^
   [1]
 
 先手动消费，再出错返回：errdefer 会重复消费（Lean M6（二）的反例）：
@@ -124,6 +128,8 @@ C3：linear 值、Result、?、match、errdefer。
   > EOF
   $ cat lib.sn part > double.sn && sinterc double.sn
   double.sn:21:14: 错误：tx 在这里出错返回之前已经被消费，errdefer 会重复消费它
+   21 |     check(id)?
+      |              ^
   [1]
 
 errdefer 登记时 tx 已经被消费。后面没有出错路径，只看出错路径的数据流查不出来，
@@ -139,6 +145,8 @@ errdefer 登记时 tx 已经被消费。后面没有出错路径，只看出错�
   > EOF
   $ cat lib.sn part > late.sn && sinterc late.sn
   late.sn:20:5: 错误：errdefer 登记时 tx 必须是还没有被消费的 linear 值
+   20 |     errdefer rollback(tx)
+      |     ^
   [1]
 
 同一个值登记两次 errdefer：
@@ -154,6 +162,8 @@ errdefer 登记时 tx 已经被消费。后面没有出错路径，只看出错�
   > EOF
   $ cat lib.sn part > twice.sn && sinterc twice.sn
   twice.sn:20:5: 错误：tx 已经有一个生效的 errdefer，不能再登记
+   20 |     errdefer commit(tx)
+      |     ^
   [1]
 
 只在一个分支里消费（Lean M6（一）：分支两边必须一致）：
@@ -166,4 +176,6 @@ errdefer 登记时 tx 已经被消费。后面没有出错路径，只看出错�
   > EOF
   $ cat lib.sn part > branch.sn && sinterc branch.sn
   branch.sn:18:5: 错误：tx 是 linear 值，作用域结束时在某些路径上还没有被消费
+   18 |     let tx = Tx { id: 1 }
+      |     ^
   [1]

@@ -69,6 +69,8 @@ Eq、Show 用在 I64、结构体、Box 上；impl 里可以写 Self；Box 计入
   > EOF
   $ sinterc nobound.sn
   nobound.sn:4:24: 错误：T 没有写约束 Show，不能调用 show（要写 T: Show）
+   4 | fn f<T>(x: T) -> I64 { show(x) }
+     |                        ^
   [1]
 
 实例类型没有 impl（调用处报错）：
@@ -84,6 +86,8 @@ Eq、Show 用在 I64、结构体、Box 上；impl 里可以写 Self；Box 计入
   > EOF
   $ sinterc noimpl.sn
   noimpl.sn:6:15: 错误：Bool 没有实现 Show（total 要求 T: Show）
+   6 |     print_i64(total(true))
+     |               ^
   [1]
 
 impl 把 let 参数改成 sink（Lean M10 的反例：泛型代码会读到已交出的值）：
@@ -100,6 +104,8 @@ impl 把 let 参数改成 sink（Lean M10 的反例：泛型代码会读到已�
   > EOF
   $ sinterc mode.sn
   mode.sn:5:5: 错误：impl Show for I64 的方法 show 的第 1 个参数约定是 sink，trait 里声明的是 let
+   5 |     fn show(sink x: I64) -> I64 { x }
+     |     ^
   [1]
 
 同一个类型对同一个 trait 只能有一个 impl：
@@ -119,4 +125,6 @@ impl 把 let 参数改成 sink（Lean M10 的反例：泛型代码会读到已�
   > EOF
   $ sinterc dup.sn
   dup.sn:7:1: 错误：I64 已经实现过 Show
+   7 | impl Show for I64 {
+     | ^
   [1]

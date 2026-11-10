@@ -72,6 +72,8 @@ consume 只能在定义这个 linear 类型的文件里用，别的模块只能�
   > EOF
   $ sinterc private.sn
   private.sn:3:20: 错误：geom.scale 不是 pub 的，不能在模块 geom 之外使用
+   3 |     print_i64(geom.scale(1))
+     |                    ^
   [1]
 
 linear 值只能在定义它的模块里 consume：
@@ -85,6 +87,8 @@ linear 值只能在定义它的模块里 consume：
   > EOF
   $ sinterc consume.sn
   consume.sn:4:5: 错误：geom.Tok 定义在模块 geom 里，只能在那里 consume（可以让模块 geom 提供一个 pub 的函数来消费它）
+   4 |     consume(t)
+     |     ^
   [1]
 
 没有 use 就用：
@@ -96,6 +100,8 @@ linear 值只能在定义它的模块里 consume：
   > EOF
   $ sinterc nouse.sn
   nouse.sn:2:13: 错误：没有引入模块 geom（在文件开头写 use geom）
+   2 |     let p = geom.Point { x: 1, y: 2 }
+     |             ^
   [1]
 
 找不到模块：
@@ -107,6 +113,8 @@ linear 值只能在定义它的模块里 consume：
   > EOF
   $ sinterc missing.sn
   missing.sn:1:1: 错误：找不到模块 shapes（应当是文件 shapes.sn）
+   1 | use shapes
+     | ^
   [1]
 
 模块里的错误报在模块的文件里：
@@ -124,6 +132,8 @@ linear 值只能在定义它的模块里 consume：
   > EOF
   $ sinterc usebroken.sn
   broken.sn:2:5: 错误：类型不匹配：需要 I64，实际是 Bool
+   2 |     true
+     |     ^
   [1]
 
 变量不能和引入的模块同名：
@@ -136,4 +146,6 @@ linear 值只能在定义它的模块里 consume：
   > EOF
   $ sinterc shadow.sn
   shadow.sn:3:5: 错误：变量 geom 和引入的模块同名，换一个名字
+   3 |     let geom = 1
+     |     ^
   [1]

@@ -8,15 +8,72 @@
    开发用的选项：--emit=core 生成给 Lean 复核的 CFG（附录 F 的 C5）；
    --unchecked 只和 --emit=core 一起用：跳过所有权与投影检查、区域的先后和 R3 检查，照样导出，看 Lean 是否独立地拒绝；
    --batch：对照测试，见下面。
-   出错时打印“文件:行:列: 错误：…”，退出码 1。 *)
+   出错时打印“文件:行:列: 错误：…”和出错的那一行（T1），退出码 1。 *)
 open Sinter
 
 let version = "0.1.0"
 
+(* 报错时显示出错的那一行，下一行用 ^ 标出列（T1）：
+     ok.sn:4:11: 错误：s 已被移动，不能再使用
+       4 |     print(s.0)
+         |           ^
+   源码按文件读一次缓存起来；标准库的模块（std/m.sn）用编进编译器的源码。读不到或行号超出时只打印第一行。
+   列号按字节数，^ 前的空白按显示宽度算：ASCII 占 1 格，其他字符（中文等）占 2 格，制表符照抄。 *)
+let sources : (string, string array option) Hashtbl.t = Hashtbl.create 4
+
+let source_lines path =
+  match Hashtbl.find_opt sources path with
+  | Some ls -> ls
+  | None ->
+      let text =
+        let std = "std/" in
+        if String.length path > String.length std && String.sub path 0 (String.length std) = std then
+          List.assoc_opt (Filename.chop_suffix (Filename.basename path) ".sn") Stdlib_src.files
+        else
+          try
+            let ic = open_in_bin path in
+            let s = really_input_string ic (in_channel_length ic) in
+            close_in ic;
+            Some s
+          with Sys_error _ -> None
+      in
+      let ls = Option.map (fun s -> Array.of_list (String.split_on_char '\n' s)) text in
+      Hashtbl.replace sources path ls;
+      ls
+
+(* 和整个程序有关、不指向某一行的错误：不显示源码 *)
+let whole_program msg =
+  List.exists
+    (fun p -> String.length msg >= String.length p && String.sub msg 0 (String.length p) = p)
+    [ "缺少 fn main()"; "main 必须是"; "泛型函数的实例超过"; "泛型类型的实例超过" ]
+
+let caret_pad line col =
+  let b = Buffer.create 16 in
+  let n = min (col - 1) (String.length line) in
+  String.iteri
+    (fun i c ->
+      if i < n then
+        if c = '\t' then Buffer.add_char b '\t'
+        else if Char.code c < 0x80 then Buffer.add_char b ' '
+        else if Char.code c >= 0xC0 then Buffer.add_string b "  ")   (* 多字节字符的首字节 *)
+    line;
+  Buffer.contents b
+
+let snippet path line col =
+  match source_lines path with
+  | Some ls when line >= 1 && line <= Array.length ls ->
+      let text = ls.(line - 1) in
+      let text = if String.ends_with ~suffix:"\r" text then String.sub text 0 (String.length text - 1) else text in
+      let num = string_of_int line in
+      let gutter = String.make (String.length num + 1) ' ' in
+      Printf.eprintf " %s | %s\n%s | %s^\n" num text gutter (caret_pad text col)
+  | _ -> ()
+
 (* 位置可能在引入的模块里（C34）：换回那个文件的名字和行号。 *)
 let report file (pos : Ast.pos) msg =
   let file, line = Ast.locate file pos in
-  Printf.eprintf "%s:%d:%d: %s%s\n" file line pos.col (I18n.pick "错误：" "error: ") (I18n.msg msg)
+  Printf.eprintf "%s:%d:%d: %s%s\n" file line pos.col (I18n.pick "错误：" "error: ") (I18n.msg msg);
+  if not (whole_program msg) then snippet file line pos.col
 
 let fail file pos msg =
   report file pos msg;

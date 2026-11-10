@@ -69,6 +69,8 @@ unbox(b) 按 sink 交出 Box，释放堆内存，得到里面的值；let Node {
   > EOF
   $ sinterc after.sn
   after.sn:5:15: 错误：p 已被移动，不能再使用
+   5 |     print_i64(p.b)
+     |               ^
   [1]
 
 linear 结构体不能拆开（只能 consume）：
@@ -82,6 +84,8 @@ linear 结构体不能拆开（只能 consume）：
   > EOF
   $ sinterc lin.sn
   lin.sn:4:5: 错误：linear 结构体 Tok 不能拆开（要用 consume）
+   4 |     let Tok { id } = t
+     |     ^
   [1]
 
 unbox 之后 Box 已经被交出：
@@ -95,4 +99,6 @@ unbox 之后 Box 已经被交出：
   > EOF
   $ sinterc unboxed.sn
   unboxed.sn:4:15: 错误：b 已被移动，不能再使用
+   4 |     print_i64(*b)
+     |               ^
   [1]

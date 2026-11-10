@@ -59,4 +59,6 @@ C10：递归类型（Lean M11（一））。经过 Box 的递归可以：链表�
   > EOF
   $ sinterc inf.sn
   inf.sn:1:1: 错误：类型 Node 不经过 Box 包含自己，大小是无限的（递归要经过 Box，例如 next: Box<List>）
+   1 | struct Node { v: I64, next: List }
+     | ^
   [1]

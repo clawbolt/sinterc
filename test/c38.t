@@ -59,6 +59,8 @@ panic 不要求消费线性值（这是明确的取舍：线性值的保证只�
   > EOF
   $ sinterc forget.sn
   forget.sn:4:5: 错误：t 是 linear 值，作用域结束时还没有被消费
+   4 |     let t = Tx { id: 1 }
+     |     ^
   [1]
 
 只有一个分支 panic 时，另一个分支照常检查：
@@ -73,6 +75,8 @@ panic 不要求消费线性值（这是明确的取舍：线性值的保证只�
   > EOF
   $ sinterc branch.sn
   branch.sn:4:5: 错误：t 是 linear 值，作用域结束时还没有被消费
+   4 |     let t = Tx { id: 1 }
+     |     ^
   [1]
 
 说明必须是 Str：
@@ -84,4 +88,6 @@ panic 不要求消费线性值（这是明确的取舍：线性值的保证只�
   > EOF
   $ sinterc arg.sn
   arg.sn:2:11: 错误：类型不匹配：需要 Str，实际是 I64
+   2 |     panic(3)
+     |           ^
   [1]

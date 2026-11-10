@@ -58,6 +58,8 @@ C20：含引用的泛型结构体、枚举（Lean M15）。Option<&I64 in a>、P
   > EOF
   $ sinterc escape.sn
   escape.sn:4:9: 错误：块的值的类型 Option<&I64 in b> 含有区域 b，不能带出这个区域（R3）
+   4 |         some(alloc(b, 1))
+     |         ^
   [1]
 
 内层区域的引用装进外层的 Option：
@@ -78,4 +80,6 @@ C20：含引用的泛型结构体、枚举（Lean M15）。Option<&I64 in a>、P
   > EOF
   $ sinterc outer.sn
   outer.sn:5:23: 错误：类型不匹配：需要 &I64 in a，实际是 &I64 in b
+   5 |             o = .Some(alloc(b, 2))
+     |                       ^
   [1]

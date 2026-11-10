@@ -74,6 +74,8 @@ get 的投影还活着时 push：
   > EOF
   $ sinterc lock.sn
   lock.sn:5:14: 错误：v 正被投影 e 借用（之后还会用到 e），不能以 inout 传入
+   5 |     vec_push(v, box(2))
+     |              ^
   [1]
 
 元素不能直接移出（要用 vec_pop）：
@@ -87,4 +89,6 @@ get 的投影还活着时 push：
   > EOF
   $ sinterc mv.sn
   mv.sn:4:19: 错误：不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 vec_pop）
+   4 |     let b = unbox(vec_get(v, 0))
+     |                   ^
   [1]

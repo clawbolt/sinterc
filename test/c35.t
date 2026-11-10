@@ -83,6 +83,8 @@ std.str（starts_with、ends_with、find、contains、trim、split、join、repe
   > EOF
   $ sinterc nostd.sn
   nostd.sn:1:1: 错误：标准库里没有模块 nothing（有：map、math、option、result、str、treemap、vec）
+   1 | use std.nothing
+     | ^
   [1]
 
 只有标准库写成 std.m：
@@ -94,6 +96,8 @@ std.str（starts_with、ends_with、find、contains、trim、split、join、repe
   > EOF
   $ sinterc dotted.sn
   dotted.sn:1:1: 错误：只有标准库的模块写成 std.m；自己的模块直接写 use bar
+   1 | use foo.bar
+     | ^
   [1]
 
 自己的 math.sn 和 std.math 不能同时用：
@@ -109,4 +113,6 @@ std.str（starts_with、ends_with、find、contains、trim、split、join、repe
   > EOF
   $ sinterc both.sn
   both.sn:2:1: 错误：模块 math 既是 math.sn 又是 std/math.sn，同一个程序里只能用其中一个
+   2 | use std.math
+     | ^
   [1]

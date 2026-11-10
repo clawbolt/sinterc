@@ -79,9 +79,13 @@ C31：break 和 continue。break 跳出最内层的循环，continue 进入它�
   > EOF
   $ sinterc out.sn
   out.sn:2:5: 错误：break 只能用在循环里
+   2 |     break
+     |     ^
   [1]
   $ sinterc --lang=en out.sn
   out.sn:2:5: error: break can only be used inside a loop
+   2 |     break
+     |     ^
   [1]
 
 跳走之前没有消费 linear 值：
@@ -97,4 +101,6 @@ C31：break 和 continue。break 跳出最内层的循环，continue 进入它�
   > EOF
   $ sinterc lin.sn
   lin.sn:5:9: 错误：t 是 linear 值，作用域结束时还没有被消费
+   5 |         break
+     |         ^
   [1]

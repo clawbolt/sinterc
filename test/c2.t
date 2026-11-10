@@ -60,6 +60,8 @@ let 绑定字段得到投影，投影存在时可以只读使用源对象，投�
   > EOF
   $ sinterc alias.sn
   alias.sn:5:13: 错误：n 在同一次调用里出现两次，其中有移动或 inout，只能都是只读的
+   5 |     both(n, n)
+     |             ^
   [1]
 
 投影之后还会用到时移走源对象（Lean M4 的反例）：
@@ -78,6 +80,8 @@ let 绑定字段得到投影，投影存在时可以只读使用源对象，投�
   > EOF
   $ sinterc lock.sn
   lock.sn:8:19: 错误：p 正被投影 a 借用（之后还会用到 a），不能移动
+   8 |     print_i64(eat(p))
+     |                   ^
   [1]
 
 同一个程序，投影最后一次使用之后再移走源对象：锁按活跃性结束，接受（Lean M4（二））：
@@ -115,6 +119,8 @@ let 绑定字段得到投影，投影存在时可以只读使用源对象，投�
   > EOF
   $ sinterc inout.sn
   inout.sn:8:9: 错误：p 正被投影 a 借用（之后还会用到 a），不能以 inout 传入
+   8 |     inc(p.n)
+     |         ^
   [1]
 
 let 参数不拥有值，不能移走：
@@ -128,6 +134,8 @@ let 参数不拥有值，不能移走：
   > EOF
   $ sinterc keep.sn
   keep.sn:1:36: 错误：b 不拥有值（是 let / inout 参数或投影），不能移动
+   1 | fn keep(b: Box<I64>) -> Box<I64> { b }
+     |                                    ^
   [1]
 
 inout 实参必须可修改：
@@ -142,4 +150,6 @@ inout 实参必须可修改：
   > EOF
   $ sinterc immut.sn
   immut.sn:5:9: 错误：n 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）
+   5 |     inc(n)
+     |         ^
   [1]
