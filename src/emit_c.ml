@@ -87,6 +87,53 @@ static void u_str_push(sn_str *s, const sn_str *t) {
   memcpy(s->p + s->len, t->p, (size_t)t->len); s->len += t->len; s->p[s->len] = 0;
 }
 static sn_str u_str_from_i64(int64_t x) { char b[24]; int n = snprintf(b, sizeof b, "%lld", (long long)x); return sn_str_make(b, n); }
+/* UTF-8（C48，Lean S7）：sn_utf8_put 是 S7 的 encode，sn_utf8_get 是 decode1——解出一个字符，*k 是吃掉的字节数；
+   不合法的字节（多余的续字节、过长的编码、代理区、超出范围、截断）解成 U+FFFD，只吃一个字节。 */
+static int sn_utf8_put(char *b, uint32_t c) {
+  if (c < 0x80) { b[0] = (char)c; return 1; }
+  if (c < 0x800) { b[0] = (char)(0xC0 + c / 64); b[1] = (char)(0x80 + c % 64); return 2; }
+  if (c < 0x10000) { b[0] = (char)(0xE0 + c / 4096); b[1] = (char)(0x80 + c / 64 % 64); b[2] = (char)(0x80 + c % 64); return 3; }
+  b[0] = (char)(0xF0 + c / 262144); b[1] = (char)(0x80 + c / 4096 % 64); b[2] = (char)(0x80 + c / 64 % 64); b[3] = (char)(0x80 + c % 64); return 4;
+}
+static uint32_t sn_utf8_get(const unsigned char *p, int64_t n, int64_t *k) {
+  uint32_t b0 = p[0];
+  *k = 1;
+#define SN_CONT(i) (n > (i) && p[i] >= 0x80 && p[i] < 0xC0)
+  if (b0 < 0x80) return b0;
+  if (b0 >= 0xC2 && b0 < 0xE0) {
+    if (SN_CONT(1)) { *k = 2; return (b0 - 0xC0) * 64 + (p[1] - 0x80); }
+    return 0xFFFD;
+  }
+  if (b0 >= 0xE0 && b0 < 0xF0) {
+    if (SN_CONT(1) && SN_CONT(2)) {
+      uint32_t c = (b0 - 0xE0) * 4096 + (p[1] - 0x80) * 64 + (p[2] - 0x80);
+      if (c >= 0x800 && !(c >= 0xD800 && c <= 0xDFFF)) { *k = 3; return c; }
+    }
+    return 0xFFFD;
+  }
+  if (b0 >= 0xF0 && b0 < 0xF5) {
+    if (SN_CONT(1) && SN_CONT(2) && SN_CONT(3)) {
+      uint32_t c = (b0 - 0xF0) * 262144 + (p[1] - 0x80) * 4096 + (p[2] - 0x80) * 64 + (p[3] - 0x80);
+      if (c >= 0x10000 && c < 0x110000) { *k = 4; return c; }
+    }
+    return 0xFFFD;
+  }
+#undef SN_CONT
+  return 0xFFFD;
+}
+static void u_print_char(uint32_t c) { char b[5]; int k = sn_utf8_put(b, c); b[k] = 0; puts(b); }
+static int64_t u_char_code(uint32_t c) { return (int64_t)c; }
+static sn_str u_str_from_char(uint32_t c) { char b[4]; int k = sn_utf8_put(b, c); return sn_str_make(b, k); }
+static void u_str_push_char(sn_str *s, uint32_t c) {
+  char b[4]; int k = sn_utf8_put(b, c);
+  s->p = sn_realloc(s->p, (size_t)(s->len + k) + 1);
+  memcpy(s->p + s->len, b, (size_t)k); s->len += k; s->p[s->len] = 0;
+}
+static int64_t u_str_char_count(const sn_str *s) {
+  int64_t i = 0, n = 0, k;
+  while (i < s->len) { sn_utf8_get((const unsigned char *)s->p + i, s->len - i, &k); i += k; n++; }
+  return n;
+}
 /* Vec 的下标检查：越界时 panic，不读内存。 */
 static int64_t sn_idx(int64_t n, int64_t i) { if (i < 0 || i >= n) sn_panic("下标越界"); return i; }
 /* 字符串的第 i 个字节、[a, b) 的子串（C32）：越界时 panic，不读内存。 */
@@ -138,6 +185,7 @@ let fname n = cname "u_" n   (* 函数 *)
 let rec mangle = function
   | TI64 -> "I64"
   | TF64 -> "F64"
+  | TChar -> "Char"
   | TBool -> "Bool"
   | TStr -> "Str"
   | TUnit -> "U"
@@ -152,6 +200,7 @@ let rec mangle = function
 let rec cty = function
   | TI64 -> "int64_t"
   | TF64 -> "double"
+  | TChar -> "uint32_t"
   | TBool -> "bool"
   | TStr -> "sn_str"
   | TUnit -> "sn_unit"   (* 存值的地方（变量、字段、载荷、Vec 元素）占一个字节；函数返回 () 时仍是 void *)
@@ -172,7 +221,7 @@ let rec drop_code ty lv =
   | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
   | TStr -> Printf.sprintf "sn_free(%s.p); " lv
   | (TStruct _ | TResult _ | TVec _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
-  | TI64 | TF64 | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ | TFn _ -> ""
+  | TI64 | TF64 | TChar | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ | TFn _ -> ""
 
 (* 析构函数的函数体：结构体逐个析构字段；枚举按运行时标签析构对应变体的载荷（Lean M8 的 dropOne）；
    Vec 逐个析构元素，再释放缓冲区（Lean M12）。 *)
@@ -252,7 +301,7 @@ let type_defs (p : program) (fs : Mir.func list) =
           (fun (f : field) -> Buffer.add_string defs (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname))
           fields;
         Buffer.add_string defs " };\n"
-    | (TI64 | TF64 | TBool | TStr | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _), _ -> ()
+    | (TI64 | TF64 | TChar | TBool | TStr | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _), _ -> ()
   in
   List.iter
     (function
@@ -274,6 +323,10 @@ let type_defs (p : program) (fs : Mir.func list) =
   let opt_str = Typeck.instantiate "Option" [ TStr ] and opt_i64 = Typeck.instantiate "Option" [ TI64 ] in
   let opt_f64 = Typeck.instantiate "Option" [ TF64 ] in
   visit opt_f64;
+  (* 字符（C48）：char_from 返回的 Option<Char>，str_chars 返回的 Vec<Char>：辅助函数总是生成，类型也总要有 *)
+  let opt_char = Typeck.instantiate "Option" [ TChar ] in
+  visit opt_char;
+  visit (TVec TChar);
   visit opt_str;
   visit opt_i64;
   (* args、read_file、write_file 的返回类型（C36） *)
@@ -314,6 +367,24 @@ let type_defs (p : program) (fs : Mir.func list) =
     Typeck.vec_calls;
   (* 读一行：读到换行或文件末尾为止，去掉行尾的 \r；什么都没读到就到了末尾时返回 .None。
      解析整数：可以有一个正负号，后面全是数字；超出 I64 范围时返回 .None。 *)
+  let oc = cty opt_char and vc = cty (TVec TChar) in
+  Buffer.add_string helpers
+    (Printf.sprintf
+       "static %s u_char_from(int64_t n) {\n\
+       \  if (n < 0 || n >= 0x110000 || (n >= 0xD800 && n <= 0xDFFF)) return (%s){ .tag = 1 };\n\
+       \  return (%s){ .tag = 0, .u.v0 = (uint32_t)n };\n\
+        }\n\
+        static %s u_str_chars(const sn_str *s) {\n\
+       \  %s v; v.data = 0; v.len = 0; v.cap = 0;\n\
+       \  int64_t i = 0, k;\n\
+       \  while (i < s->len) {\n\
+       \    uint32_t c = sn_utf8_get((const unsigned char *)s->p + i, s->len - i, &k); i += k;\n\
+       \    if (v.len == v.cap) { int64_t m = v.cap ? v.cap * 2 : 4; v.data = sn_realloc(v.data, (size_t)m * sizeof(uint32_t)); v.cap = m; }\n\
+       \    v.data[v.len++] = c;\n\
+       \  }\n\
+       \  return v;\n\
+        }\n"
+       oc oc oc vc vc);
   let os = cty opt_str and oi = cty opt_i64 and of64 = cty opt_f64 in
   (* 解析浮点数（C47）：整个字符串都要是 strtod 认得的写法，不能有前后的空白 *)
   Buffer.add_string helpers
@@ -417,6 +488,7 @@ let place f (p : Mir.place) =
 
 let operand f = function
   | Mir.Const (Mir.CInt n) -> Printf.sprintf "INT64_C(%Ld)" n
+  | Mir.Const (Mir.CChar c) -> Printf.sprintf "UINT32_C(%d)" c
   | Mir.Const (Mir.CF64 x) -> Printf.sprintf "%h" x   (* 十六进制浮点数：和字面量的值完全相同 *)
   | Mir.Const (Mir.CBool b) -> if b then "true" else "false"
   | Mir.Const Mir.CUnit -> "0"

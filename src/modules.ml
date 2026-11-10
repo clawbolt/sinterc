@@ -98,7 +98,7 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
     | TResult (a, b) -> TResult (ty pos a, ty pos b)
     | TRef (t, r) -> TRef (ty pos t, r)
     | TFn (ps, r) -> TFn (List.map (fun (m, t) -> (m, ty pos t)) ps, ty pos r)
-    | (TI64 | TF64 | TBool | TStr | TUnit | TArena _ | TParam _) as t -> t
+    | (TI64 | TF64 | TChar | TBool | TStr | TUnit | TArena _ | TParam _) as t -> t
   in
   let binder pos x =
     if List.mem x imported then err pos "变量 %s 和引入的模块同名，换一个名字" x
@@ -107,7 +107,7 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
     let pos = x.pos in
     let e =
       match x.e with
-      | (Int _ | Float _ | Bool _ | Unit | Str _ | Var _) as d -> d
+      | (Int _ | Float _ | Char _ | Bool _ | Unit | Str _ | Var _) as d -> d
       | Binop (o, a, b) -> Binop (o, ex a, ex b)
       | Unop (o, a) -> Unop (o, ex a)
       | Call (f, { e = Var m; _ } :: args) when f <> "" && f.[0] = '.' && List.mem m imported ->

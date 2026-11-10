@@ -27,6 +27,7 @@ let lit_key (l : expr) =
   | Unop (Neg, { e = Int n; _ }) -> "i" ^ Int64.to_string (Int64.neg n)
   | Bool b -> "b" ^ string_of_bool b
   | Str s -> "s" ^ s
+  | Char c -> "c" ^ string_of_int c
   | _ -> ""
 
 let lit_show (l : expr) =
@@ -35,6 +36,7 @@ let lit_show (l : expr) =
   | Unop (Neg, { e = Int n; _ }) -> "-" ^ Int64.to_string n
   | Bool b -> string_of_bool b
   | Str s -> "\"" ^ s ^ "\""
+  | Char c -> "'" ^ Buffer.contents (let b = Buffer.create 4 in Buffer.add_utf_8_uchar b (Uchar.of_int c); b) ^ "'"
   | _ -> "?"
 
 let build_match pos borrow (s : expr) arms =
@@ -86,7 +88,7 @@ let arena_param n = function TArena _ -> TArena n | t -> t
    每一轮按借用取第 i 个元素：可复制的元素复制，需要析构的元素是投影，锁住 v（Lean M4、M12）；
    长度每轮重新读，循环体里改了 v 也只会少走或多走几轮，下标照样检查。
    加一放在取出元素之后、循环体之前（C31）：continue 直接回到条件，不会漏掉加一。 *)
-let for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
+let rec for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
   let e d = mk d pos and s d = mks d pos in
   let rec copy (v : expr) =
     match v.e with
@@ -106,11 +108,16 @@ let for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
         [ s (Let (true, "#i", Some TI64, a)); s (Let (false, "#n", Some TI64, b)) ]
         (e (Binop (Lt, e (Var "#i"), e (Var "#n"))))
         (e (Var "#i"))
-  | `Vec v ->
+  | `Vec ({ e = Var _ | Field _ | Deref _; _ } as v) ->
       loop "#k"
         [ s (Let (true, "#k", Some TI64, e (Int 0L))) ]
         (e (Binop (Lt, e (Var "#k"), e (Call ("vec_len", [ copy v ])))))
         (e (Call ("vec_get", [ copy v; e (Var "#k") ])))
+  | `Vec v ->
+      (* 不是变量或字段时（for c in s.chars()、for x in make()，C48）：先放进隐藏变量 #v，再遍历它。
+         #v 在这个块结束时析构；嵌套的 for 各有自己的块，内层的 #v 遮住外层的 *)
+      let inner = for_loop pos x (`Vec (e (Var "#v"))) body in
+      s (Expr (e (Block { stmts = [ s (Let (false, "#v", None, v)); inner ]; tail = None })))
 
 (* for x in inout v { … }（C33，Lean M18）：x 是第 i 个元素本身（可变借用），不是副本。展开成
      { var #k: I64 = 0; while #k < vec_len(v) { let #jN = #k; #k = #k + 1; { …[x := vec_get(v, #jN)]… } } }
@@ -144,7 +151,7 @@ let for_inout pos x (v : expr) body =
       match a.e with
       | Var y when y = r -> mention a.pos
       | Var y when y = x -> (place a.pos).e
-      | Int _ | Float _ | Bool _ | Unit | Str _ | Var _ -> a.e
+      | Int _ | Float _ | Char _ | Bool _ | Unit | Str _ | Var _ -> a.e
       | Binop (o, b, c) -> Binop (o, ex b, ex c)
       | Unop (o, b) -> Unop (o, ex b)
       | Call (f, bs) -> Call (f, List.map ex bs)
@@ -166,7 +173,7 @@ let for_inout pos x (v : expr) body =
     let rec scan (a : expr) =
       match a.e with
       | Var y when y = r -> mention a.pos
-      | Int _ | Float _ | Bool _ | Unit | Str _ | Var _ -> ()
+      | Int _ | Float _ | Char _ | Bool _ | Unit | Str _ | Var _ -> ()
       | Binop (_, b, c) -> scan b; scan c
       | Unop (_, b) | Field (b, _) | Deref b | Try b | Lambda (_, b) -> scan b
       | Call (_, bs) -> List.iter scan bs
@@ -253,6 +260,7 @@ let tuple_ty pos ts =
 let ty_of_name = function
   | "I64" -> TI64
   | "F64" -> TF64
+  | "Char" -> TChar
   | "Bool" -> TBool
   | "Str" -> TStr
   | "Arena" -> TArena ""        (* 名字由参数名补上 *)
@@ -261,6 +269,7 @@ let ty_of_name = function
 
 %token <int64> INT
 %token <float> FLOAT
+%token <int> CHAR
 %token <string> STRING
 %token <string> IDENT UIDENT
 %token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
@@ -433,6 +442,7 @@ stmt:
 expr:
   | n = INT { mk (Int n) $startpos }
   | f = FLOAT { mk (Float f) $startpos }
+  | c = CHAR { mk (Char c) $startpos }
   | s = STRING { mk (Str s) $startpos }
   | TRUE { mk (Bool true) $startpos }
   | FALSE { mk (Bool false) $startpos }
@@ -489,6 +499,7 @@ arm:
   | TRUE FATARROW e = expr { PL ($startpos, mk (Bool true) $startpos, e) }
   | FALSE FATARROW e = expr { PL ($startpos, mk (Bool false) $startpos, e) }
   | s = STRING FATARROW e = expr { PL ($startpos, mk (Str s) $startpos, e) }
+  | c = CHAR FATARROW e = expr { PL ($startpos, mk (Char c) $startpos, e) }
 
 arms:
   | { [] }

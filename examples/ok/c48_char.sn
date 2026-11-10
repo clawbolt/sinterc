@@ -1,0 +1,71 @@
+use std.char
+
+fn count_digits(s: Str) -> I64 {
+    var n = 0
+    for c in s.chars() {
+        if char.is_digit(c) { n = n + 1 }
+    }
+    n
+}
+
+fn upper(s: Str) -> Str {
+    var r = ""
+    for c in s.chars() {
+        r.push_char(char.to_upper(c))
+    }
+    r
+}
+
+fn reverse(s: Str) -> Str {
+    let cs = s.chars()
+    var r = ""
+    var i = vec_len(cs)
+    while i > 0 {
+        i = i - 1
+        r.push_char(vec_get(cs, i))
+    }
+    r
+}
+
+fn squares(n: I64) -> Vec<I64> {
+    var v: Vec<I64> = vec_new()
+    for i in 0..n {
+        v.push(i * i)
+    }
+    v
+}
+
+fn main() {
+    let s = "héllo, 世界 😀"
+    print_i64(str_len(s))
+    print_i64(s.char_count())
+    for c in "a中😀".chars() {
+        print_i64(c.code())
+    }
+    print_char('中')
+    print(upper("abc-xyz 中文"))
+    print(reverse("你好，abc"))
+    print_i64(count_digits("a1b22c333"))
+    print_bool('a' < 'b')
+    print_bool('中' == '中')
+    print_i64(char_code('\t'))
+    print_char(char.to_lower('Q'))
+    match char_from(65) {
+        .Some(c) => print_char(c),
+        .None => print("不是字符")
+    }
+    match char_from(55296) {
+        .Some(c) => print_char(c),
+        .None => print("不是字符")
+    }
+    match char.to_digit('7') {
+        .Some(d) => print_i64(d),
+        .None => print("不是数字")
+    }
+    var t = str_from_char('😀')
+    t.push_char('!')
+    print(t)
+    for x in squares(4) {
+        print_i64(x)
+    }
+}

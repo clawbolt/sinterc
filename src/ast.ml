@@ -8,6 +8,7 @@ type mode = MLet | MInout | MSink
 type ty =
   | TI64
   | TF64                (* 64 位浮点数（C47）：可以复制，不涉及所有权 *)
+  | TChar               (* 一个 Unicode 标量值（C48，Lean S7）：可以复制 *)
   | TBool
   | TStr                (* 字符串：拥有一块堆内存（字节），需要析构，只能移动（C29，Lean M17） *)
   | TUnit
@@ -33,6 +34,7 @@ type expr = { e : expr_desc; pos : pos; id : int }   (* id：每个表达式唯�
 and expr_desc =
   | Int of int64
   | Float of float      (* 浮点数字面量 1.5、2e-3（C47） *)
+  | Char of int         (* 字符字面量 'a'、'中'（C48）：码点 *)
   | Bool of bool
   | Unit
   | Str of string       (* 字符串字面量：每次求值分配一个新的 Str（C29） *)
@@ -131,6 +133,7 @@ let app_name g args = if is_tuple g then "(" ^ String.concat ", " args ^ ")" els
 let rec string_of_ty = function
   | TI64 -> "I64"
   | TF64 -> "F64"
+  | TChar -> "Char"
   | TBool -> "Bool"
   | TStr -> "Str"
   | TUnit -> "()"

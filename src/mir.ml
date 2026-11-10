@@ -18,7 +18,7 @@ type proj =
 
 type place = { base : local; proj : proj list; at : pos }
 
-type const = CInt of int64 | CF64 of float | CBool of bool | CStr of string   (* CStr：字符串字面量的字节，只作为 str_lit 的实参 *)
+type const = CInt of int64 | CF64 of float | CChar of int | CBool of bool | CStr of string   (* CStr：字符串字面量的字节，只作为 str_lit 的实参 *)
   | CUnit   (* ()：只有一个值，所以 () 类型的表达式求完副作用后的值总是它（C37） *)
 
 type operand =
@@ -215,6 +215,7 @@ let rec expr st env (x : expr) : operand option =
   match x.e with
   | Int n -> Some (Const (CInt n))
   | Float f -> Some (Const (CF64 f))
+  | Char c -> Some (Const (CChar c))
   | Bool b -> Some (Const (CBool b))
   | Str s -> value st x (Call ("str_lit", [ Const (CStr s) ]))   (* 分配一个新的 Str，存进临时变量 *)
   | Unit -> None

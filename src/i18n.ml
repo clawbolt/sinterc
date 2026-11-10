@@ -217,6 +217,9 @@ let table =
      "{1} is borrowed by projection {2} (which is used later), so it cannot be {4}");
     ("整数超出 I64 范围：%s", "integer literal out of I64 range: {1}");
     ("浮点数超出 F64 范围：%s", "float literal out of F64 range: {1}");
+    ("字符字面量的引号里要正好是一个字符", "a character literal must contain exactly one character between the quotes");
+    ("字符字面量的引号里要正好是一个字符（转义只有 \\n、\\t、\\\\、\\'、\\0）",
+     "a character literal must contain exactly one character between the quotes (escapes: \\n, \\t, \\\\, \\', \\0)");
     ("无法识别的字符 '%s'", "unrecognized character '{1}'");
     ("字符串里只能用 \\n、\\t、\\\\、\\\" 这几种转义", "only the escapes \\n, \\t, \\\\ and \\\" are allowed in strings");
     ("字符串没有结束（缺少右边的 \"，字符串不能跨行）", "unterminated string (missing the closing \"; strings cannot span lines)");

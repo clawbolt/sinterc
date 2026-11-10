@@ -111,7 +111,7 @@ let rec is_linear = function
   | TResult (a, b) -> is_linear a || is_linear b
   | TBox t | TVec t -> is_linear t
   | TParam (_, l) -> l
-  | TI64 | TF64 | TBool | TStr | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
+  | TI64 | TF64 | TChar | TBool | TStr | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
 
 (* 需要析构（或者是 linear）的类型：这些类型的值只能移动，不能复制。 *)
 let rec needs_drop = function
@@ -128,7 +128,7 @@ let rec needs_drop = function
           | None -> false))
   | TResult (a, b) -> needs_drop a || needs_drop b
   | TParam _ -> true            (* 类型参数按抽象类型检查：可能需要析构，只能移动（Lean M9） *)
-  | TI64 | TF64 | TBool | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
+  | TI64 | TF64 | TChar | TBool | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
 
 (* 内建函数按值接收可复制的参数，记作 sink；字符串按 let（只读借用）或 inout 传入（C29）。 *)
 let builtins =
@@ -155,6 +155,15 @@ let builtins =
     "f64_ceil", ([ (MSink, TF64) ], TF64);
     "f64_round", ([ (MSink, TF64) ], TF64);
     "f64_is_nan", ([ (MSink, TF64) ], TBool);
+    (* C48（Lean S7）：字符。char_from 在不是合法码点时返回 .None；str_chars 按 S7 的 decode1 逐个解码
+       （不合法的字节解成 U+FFFD），结果是新的 Vec<Char>；str_char_count 是字符的个数 *)
+    "print_char", ([ (MSink, TChar) ], TUnit);
+    "char_code", ([ (MSink, TChar) ], TI64);
+    "char_from", ([ (MSink, TI64) ], TApp ("Option", [ TChar ]));
+    "str_from_char", ([ (MSink, TChar) ], TStr);
+    "str_push_char", ([ (MInout, TStr); (MSink, TChar) ], TUnit);
+    "str_chars", ([ (MLet, TStr) ], TVec TChar);
+    "str_char_count", ([ (MLet, TStr) ], TI64);
     (* C32：读一行（读到末尾时 .None，去掉行尾的换行）、解析整数（格式不对或超出范围时 .None）、
        第 i 个字节、[a, b) 的子串（新的 Str）；下标越界时 panic *)
     "read_line", ([], TApp ("Option", [ TStr ]));
@@ -170,7 +179,7 @@ let builtins =
   ]
 
 (* 字符串的方法调用：s.len() 就是 str_len(s)。 *)
-let str_methods = [ "len"; "eq"; "concat"; "push"; "clone"; "to_i64"; "to_f64"; "byte"; "slice" ]
+let str_methods = [ "len"; "eq"; "concat"; "push"; "clone"; "to_i64"; "to_f64"; "byte"; "slice"; "chars"; "char_count"; "push_char" ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
 let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "vec_swap"; "panic" ]
@@ -265,7 +274,7 @@ let rec mentions r = function
   | TBox t | TVec t -> mentions r t
   | TResult (a, b) -> mentions r a || mentions r b
   | TStruct n -> List.exists (mentions r) (inst_args n)
-  | TI64 | TF64 | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> false   (* fn(…) 里不能有区域（check_ty） *)
+  | TI64 | TF64 | TChar | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> false   (* fn(…) 里不能有区域（check_ty） *)
 
 let rec region_names = function
   | TRef (t, x) -> x :: region_names t
@@ -273,7 +282,7 @@ let rec region_names = function
   | TBox t | TVec t -> region_names t
   | TResult (a, b) -> region_names a @ region_names b
   | TStruct n -> List.concat_map region_names (inst_args n)
-  | TI64 | TF64 | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> []
+  | TI64 | TF64 | TChar | TBool | TStr | TUnit | TApp _ | TParam _ | TFn _ -> []
 
 let rec rename s = function
   | TRef (t, x) -> TRef (rename s t, Option.value (List.assoc_opt x s) ~default:x)
@@ -486,7 +495,7 @@ let rec params_of = function
   | TBox t | TVec t | TRef (t, _) -> params_of t
   | TResult (a, b) -> params_of a @ params_of b
   | TFn (ps, r) -> List.concat_map (fun (_, t) -> params_of t) ps @ params_of r
-  | TI64 | TF64 | TBool | TStr | TUnit | TArena _ | TApp _ -> []
+  | TI64 | TF64 | TChar | TBool | TStr | TUnit | TArena _ | TApp _ -> []
 
 (* 协变（C24，Lean M16）：泛型结构体、枚举 g 的第 i 个类型参数只出现在只读的位置时，
    g<…外层…> 可以当作 g<…内层…> 用。只读的位置：字段、载荷直接是这个参数，
@@ -525,7 +534,7 @@ and only_cov p t =
             (List.mapi (fun i t -> (not (List.mem p (params_of t))) || (covariant g i && only_cov p t)) ts)
       | None -> true)
   | TBox _ | TVec _ | TRef _ | TFn _ -> not (List.mem p (params_of t))
-  | TI64 | TF64 | TBool | TStr | TUnit | TArena _ | TApp _ -> true
+  | TI64 | TF64 | TChar | TBool | TStr | TUnit | TArena _ | TApp _ -> true
 
 let () = covariant_fwd := covariant
 
@@ -550,7 +559,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
   let rec ex (x : expr) =
     let e =
       match x.e with
-      | (Int _ | Float _ | Bool _ | Unit | Str _ | Var _) as d -> d
+      | (Int _ | Float _ | Char _ | Bool _ | Unit | Str _ | Var _) as d -> d
       | Binop (o, a, b) -> Binop (o, ex a, ex b)
       | Unop (o, a) -> Unop (o, ex a)
       | Call (f, args) -> (
@@ -680,6 +689,7 @@ and expr1 env (x : expr) : t =
   | Call (f, (r :: _ as args)) when is_method f -> expr1 env { x with e = Call (method_name env x f r, args) }
   | Int _ -> Ty TI64
   | Float _ -> Ty TF64
+  | Char _ -> Ty TChar
   | Bool _ -> Ty TBool
   | Unit -> Ty TUnit
   | Str _ -> Ty TStr
@@ -701,7 +711,7 @@ and expr1 env (x : expr) : t =
           let t = num ta in
           expect a.pos t ta; expect b.pos t tb; Ty t
       | Lt | Le | Gt | Ge ->
-          let t = num ta in
+          let t = match ta with Ty TChar -> TChar | _ -> num ta in   (* 字符按码点比较（C48） *)
           expect a.pos t ta; expect b.pos t tb; Ty TBool
       | Eq | Ne -> (
           match ta, tb with
@@ -841,6 +851,7 @@ and method_name env (x : expr) f (r : expr) =
     match expr env r, m with
     | Ty (TVec _), ("push" | "pop" | "len" | "get" | "swap") -> "vec_" ^ m
     | Ty TStr, m when List.mem m str_methods -> "str_" ^ m
+    | Ty TChar, "code" -> "char_code"
     | _ -> m
   in
   Hashtbl.replace method_res x.id g;
@@ -1425,7 +1436,7 @@ and errdefer env pos (e : expr) =
       List.iter
         (fun (a : expr) ->
           match a.e with
-          | Var _ | Field _ | Deref _ | Int _ | Float _ | Bool _ | Unit -> ()
+          | Var _ | Field _ | Deref _ | Int _ | Float _ | Char _ | Bool _ | Unit -> ()
           | _ -> err a.pos "errdefer 的实参只能是变量、字段或常量")
         args;
       let modes = if f = "consume" then [ MSink ] else List.map fst (fst (Hashtbl.find sigs f)) in

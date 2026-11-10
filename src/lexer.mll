@@ -77,6 +77,15 @@ rule token = parse
             let s = str p (Buffer.create 16) lexbuf in
             lexbuf.Lexing.lex_start_p <- start;
             STRING s }
+  (* 字符字面量（C48）：'a'、'中'、'😀'，转义 '\n'、'\t'、'\\'、'\''、'\0'。引号里正好一个字符 *)
+  | "'\\n'" { CHAR 10 }   | "'\\t'" { CHAR 9 }   | "'\\\\'" { CHAR 92 }
+  | "'\\''" { CHAR 39 }   | "'\\0'" { CHAR 0 }
+  | '\'' ([^ '\\' '\'' '\n'] ['\128'-'\191']* as s) '\''
+      { let d = String.get_utf_8_uchar s 0 in
+        if Uchar.utf_decode_is_valid d && Uchar.utf_decode_length d = String.length s then
+          CHAR (Uchar.to_int (Uchar.utf_decode_uchar d))
+        else raise (Error (pos lexbuf, "字符字面量的引号里要正好是一个字符")) }
+  | '\'' { raise (Error (pos lexbuf, "字符字面量的引号里要正好是一个字符（转义只有 \\n、\\t、\\\\、\\'、\\0）")) }
   | eof   { EOF }
   | _ as c { raise (Error (pos lexbuf, Printf.sprintf "无法识别的字符 '%c'" c)) }
 

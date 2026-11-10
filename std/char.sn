@@ -1,0 +1,35 @@
+// std.char：字符的分类和大小写转换（C48）。只认 ASCII：'中'、'é' 既不是字母也不是数字，大小写转换原样返回。
+
+pub fn is_digit(c: Char) -> Bool { c >= '0' && c <= '9' }
+
+pub fn is_upper(c: Char) -> Bool { c >= 'A' && c <= 'Z' }
+
+pub fn is_lower(c: Char) -> Bool { c >= 'a' && c <= 'z' }
+
+pub fn is_alpha(c: Char) -> Bool { is_upper(c) || is_lower(c) }
+
+pub fn is_alnum(c: Char) -> Bool { is_alpha(c) || is_digit(c) }
+
+// 空格、制表符、换行、回车。
+pub fn is_whitespace(c: Char) -> Bool { c == ' ' || c == '\t' || c == '\n' || char_code(c) == 13 }
+
+// 码点加减 32 之后一定还是合法字符，.None 走不到。
+fn shift(c: Char, d: I64) -> Char {
+    match char_from(char_code(c) + d) {
+        .Some(u) => u,
+        .None => c
+    }
+}
+
+pub fn to_upper(c: Char) -> Char {
+    if is_lower(c) { shift(c, -32) } else { c }
+}
+
+pub fn to_lower(c: Char) -> Char {
+    if is_upper(c) { shift(c, 32) } else { c }
+}
+
+// '0'..'9' 对应的数；别的字符是 .None。
+pub fn to_digit(c: Char) -> Option<I64> {
+    if is_digit(c) { .Some(char_code(c) - 48) } else { .None }
+}

@@ -79,16 +79,19 @@ for x in v 按借用依次取 Vec 的每个元素：可复制的元素复制，�
      |         ^
   [1]
 
-只能遍历变量或字段：
+函数返回的 Vec 也能遍历（C48 起）：先放进一个隐藏变量，循环结束后析构：
 
   $ cat > tmp.sn <<'EOF'
-  > fn make() -> Vec<I64> { vec_new() }
+  > fn make() -> Vec<I64> {
+  >     var v: Vec<I64> = vec_new()
+  >     v.push(1)
+  >     v.push(2)
+  >     v
+  > }
   > fn main() {
   >     for x in make() { print_i64(x) }
   > }
   > EOF
-  $ sinterc tmp.sn
-  tmp.sn:3:14: 错误：for 只能遍历变量或字段里的 Vec，或者写成 a..b
-   3 |     for x in make() { print_i64(x) }
-     |              ^
-  [1]
+  $ sinterc run tmp.sn
+  1
+  2
