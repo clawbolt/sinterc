@@ -1,5 +1,5 @@
 # CI（T4）：
-# - test：在 Linux 和 macOS 上构建 sinterc、跑全部测试和格式检查；
+# - test：在 Linux 和 macOS 上构建 sinterc、跑全部测试、格式检查和随机测试（T5）；
 # - verify：把证明仓库 clawbolt/sinter-formal 取到旁边的 lean/ 目录（和本地一样的布局），
 #   检查证明，再做翻译验证（validate.sh）和三方对照（diff.sh）。
 # sinter-formal 是私有仓库时，要在本仓库的 Secrets 里放一个能读它的 token（FORMAL_TOKEN）。
@@ -25,6 +25,8 @@ jobs:
       - run: opam exec -- dune build
       - run: opam exec -- dune test
       - run: opam exec -- sh fmtcheck.sh
+      # 随机测试（T5）：每次换一个种子（运行编号），失败时用同一个种子在本地重现：sh fuzz.sh 20 种子
+      - run: opam exec -- sh fuzz.sh 20 ${{ github.run_number }}
       - run: opam exec -- dune exec sinterc -- --version
 
   verify:

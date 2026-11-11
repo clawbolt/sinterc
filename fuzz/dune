@@ -1,0 +1,4 @@
+; 随机测试（T5），由 fuzz.sh 运行
+(executable
+ (name fuzz)
+ (libraries sinter))
