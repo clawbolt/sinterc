@@ -2,16 +2,27 @@
 
 use std.char
 
+// s 从 i 开始的几个字节和 p 相同（调用者保证 i + len(p) ≤ len(s)）；逐字节比较，不复制子串
+fn at(s: Str, i: I64, p: Str) -> Bool {
+    let m = str_len(p)
+    var k = 0
+    while k < m {
+        if str_byte(s, i + k) != str_byte(p, k) { return false }
+        k = k + 1
+    }
+    true
+}
+
 pub fn starts_with(s: Str, p: Str) -> Bool {
     if str_len(p) > str_len(s) { return false }
-    str_eq(str_slice(s, 0, str_len(p)), p)
+    at(s, 0, p)
 }
 
 pub fn ends_with(s: Str, p: Str) -> Bool {
     let n = str_len(s)
     let m = str_len(p)
     if m > n { return false }
-    str_eq(str_slice(s, n - m, n), p)
+    at(s, n - m, p)
 }
 
 // p 第一次出现的位置；没有时是 .None。空的 p 出现在 0。
@@ -20,7 +31,7 @@ pub fn find(s: Str, p: Str) -> Option<I64> {
     let m = str_len(p)
     var i = 0
     while i + m <= n {
-        if str_eq(str_slice(s, i, i + m), p) { return .Some(i) }
+        if at(s, i, p) { return .Some(i) }
         i = i + 1
     }
     .None
@@ -52,7 +63,7 @@ pub fn split(s: Str, sep: Str) -> Vec<Str> {
     var start = 0
     var i = 0
     while m > 0 && i + m <= n {
-        if str_eq(str_slice(s, i, i + m), sep) {
+        if at(s, i, sep) {
             vec_push(out, str_slice(s, start, i))
             i = i + m
             start = i
@@ -113,7 +124,7 @@ pub fn replace(s: Str, from: Str, to: Str) -> Str {
     var start = 0
     var i = 0
     while i + m <= n {
-        if str_eq(str_slice(s, i, i + m), from) {
+        if at(s, i, from) {
             str_push(out, str_slice(s, start, i))
             str_push(out, to)
             i = i + m

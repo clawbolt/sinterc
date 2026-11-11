@@ -1,10 +1,10 @@
-# sinterc：Sinter 编译器（C61，含 C28、C33、T3、T5）
+# sinterc：Sinter 编译器（C62，含 C28、C33、T3、T5）
 
 版本 0.2.0-pre（预发布）。上手看 [TRY.md](TRY.md)（[English](TRY.en.md)），改动看 [CHANGELOG.md](CHANGELOG.md)。
 证明在单独的仓库 [sinter-formal](https://github.com/clawbolt/sinter-formal)：克隆到本仓库旁边的 `lean` 目录后，
 `sh validate.sh`（翻译验证）和 `sh diff.sh`（三方对照）才能运行。
 
-附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变；C25 试用版命令行（run、build）和上手文档 TRY.md（英文版 TRY.en.md）；C26 用 print 输出文字；C27 英文错误信息（--lang=en）；C29 字符串类型 Str（Lean M17）；C30 for 循环（a..b 和 Vec）；C31 break 和 continue；C32 读取输入（read_line）和字符串的字节、子串、整数解析；C34 模块（use、pub）；C35 标准库第一版（std.math、std.option、std.result、std.vec、std.str）；C36 文件与参数（args、read_file、write_file）；C37 () 作类型实参；C28 一次报多个错误（每个函数报它的第一个，最多 20 个）；C33 for x in inout v（Lean M18：循环体里改元素本身，不能用 v）；C38 panic（Lean M19），std 的 unwrap、expect；C39 std.map（Lean S4）和 vec_swap（Lean M20）；C40 闭包（Lean M21），std.vec 的 map、filter 等；C41 闭包捕获引用（Lean M22）；C42 std.map 的二分查找（Lean S5）；C43 std.treemap（AVL 树，Lean S6），闭包体里的换行重新分隔语句；C44 对照测试加上移动、调用、闭包、泛型（42000 个程序）；C45 元组；C46 match 的 _ 分支和字面量分支（Lean M23）；T1 报错显示源码行和 ^；C47 浮点数 F64；C48 字符 Char 和 UTF-8（Lean S7），std.char，for 遍历函数返回的 Vec；C49 字符串插值；C50 排序 sort、sort_by（Lean S8）；C51 哈希表 std.hashmap（Lean S9）；C52 常用函数和 std.io；C53 下标 v[i] 和按下标赋值（Lean M18），print_str、print_byte；C54 大整数 std.bigint（Lean S10）；C55 嵌套模式（Lean M24、M24b）；C56 内建的 ToStr、默认方法、泛型 impl（Lean M25）；C57 字节串 Bytes 和二进制文件（Lean S11）；C58 std.os：环境变量、目录、子进程、exit；C59 可以存起来的闭包 Fn(…)（Lean M26）；C60 标准错误输出 eprint 和 --release；C61 字符串切片 &str in a 和静态字面量（Lean M27）；T2 sinterc fmt；T3 编辑器的语法高亮（VS Code、Vim）；T4 CI、文档和 0.2.0-pre；T5 fmt 和编译器的随机测试。
+附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变；C25 试用版命令行（run、build）和上手文档 TRY.md（英文版 TRY.en.md）；C26 用 print 输出文字；C27 英文错误信息（--lang=en）；C29 字符串类型 Str（Lean M17）；C30 for 循环（a..b 和 Vec）；C31 break 和 continue；C32 读取输入（read_line）和字符串的字节、子串、整数解析；C34 模块（use、pub）；C35 标准库第一版（std.math、std.option、std.result、std.vec、std.str）；C36 文件与参数（args、read_file、write_file）；C37 () 作类型实参；C28 一次报多个错误（每个函数报它的第一个，最多 20 个）；C33 for x in inout v（Lean M18：循环体里改元素本身，不能用 v）；C38 panic（Lean M19），std 的 unwrap、expect；C39 std.map（Lean S4）和 vec_swap（Lean M20）；C40 闭包（Lean M21），std.vec 的 map、filter 等；C41 闭包捕获引用（Lean M22）；C42 std.map 的二分查找（Lean S5）；C43 std.treemap（AVL 树，Lean S6），闭包体里的换行重新分隔语句；C44 对照测试加上移动、调用、闭包、泛型（42000 个程序）；C45 元组；C46 match 的 _ 分支和字面量分支（Lean M23）；T1 报错显示源码行和 ^；C47 浮点数 F64；C48 字符 Char 和 UTF-8（Lean S7），std.char，for 遍历函数返回的 Vec；C49 字符串插值；C50 排序 sort、sort_by（Lean S8）；C51 哈希表 std.hashmap（Lean S9）；C52 常用函数和 std.io；C53 下标 v[i] 和按下标赋值（Lean M18），print_str、print_byte；C54 大整数 std.bigint（Lean S10）；C55 嵌套模式（Lean M24、M24b）；C56 内建的 ToStr、默认方法、泛型 impl（Lean M25）；C57 字节串 Bytes 和二进制文件（Lean S11）；C58 std.os：环境变量、目录、子进程、exit；C59 可以存起来的闭包 Fn(…)（Lean M26）；C60 标准错误输出 eprint 和 --release；C61 字符串切片 &str in a 和静态字面量（Lean M27）；C62 直接读进 arena 的 read_file_in、read_stdin_in、read_chunk；T2 sinterc fmt；T3 编辑器的语法高亮（VS Code、Vim）；T4 CI、文档和 0.2.0-pre；T5 fmt 和编译器的随机测试。
 下面是各个里程碑的约定细节；语言的完整一览（包括 `F64`、`Char`、`Str`、`Bytes`、`Vec`、元组、闭包、模块、标准库）见 [TRY.md](TRY.md)。
 支持 `I64`、`Bool`、`()`、结构体、`Box<T>`、函数、`let` / `var` / 赋值、`if`（可作表达式）、`while`、`return`，
 以及内置的 `print`、`print_i64`、`print_bool`、字符串的 `str_len` / `str_eq` / `str_concat` / `str_push` / `str_clone` / `str_from_i64` / `str_to_i64` / `str_byte` / `str_slice`、`read_line`、`box(e)`、解引用 `*b`、`unbox(b)`（取出 Box 里的值并释放），拆开结构体 `let Node { v, next } = n`。
@@ -221,7 +221,17 @@ sinterc 接受的生成 C，每个按所有长度不超过 3 的选择序列（`
 - 切片的方法：`len`、`byte(i)`、`sub(i, j)`（越界时 panic，结果在同一块缓冲区里，M27 的一）、`find(p, from)`、`eq(s)`、`eq_view(w)`、
   `print_str()`，都不分配；`to_str()` 复制成 `Str`。`std.view`：`split`、`lines`、`trim`、`starts_with`、`ends_with`、`to_i64`。
 - C 里切片是 `sn_view { p, len }`，按值传；字符串结构体多了一个字节的 `lit`。
-- 暂不支持：直接把文件读进 arena（现在是 `read_file` 之后 `text(a, s)`，多复制一次）、对切片做字符串插值、`match` 切片。
+- 暂不支持：对切片做字符串插值、`match` 切片。（直接读进 arena 见 C62。）
+
+## 直接读进 arena（C62）
+
+- `read_file_in(a, path) -> Result<&str in a, Str>`：普通文件按 `fstat` 的大小在区域里分配一块缓冲区，大小没变时只读一次、不复制。
+- `read_stdin_in(a) -> &str in a`：读完标准输入，任意字节（包括 0）。
+- `read_chunk(a, n) -> &str in a`：从标准输入最多读 `n` 个字节（`n ≤ 0` 时 panic），到头时是空的切片。
+  每次都在区域里新分配一块，区域结束时一起释放；循环里读大文件时，把每一块的处理放进内层的 `arena` 块，内存就不会一直涨。
+- 都只是在区域后面追加新的缓冲区，就是 Lean M27 的二已经证明的情况（`fresh_valid`、`grow_read`），没有新的推理。
+- 同时 `std.str` 的 `find`、`split`、`replace`、`starts_with`、`ends_with` 改为逐字节比较，不再为每个位置复制一个子串。
+- `benchmark/` 的 `sh run.sh csv`：100 万行的 CSV 对一列求和，`Str` 版 0.13s、76.0 MB，切片版 0.04s、37.6 MB（结果相同）。
 
 
 ## 许可证 / License

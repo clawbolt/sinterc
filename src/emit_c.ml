@@ -452,6 +452,9 @@ let type_defs (p : program) (fs : Mir.func list) =
   let rvstr = TResult (TVec TStr, TStr) and ri64 = TResult (TI64, TStr) in
   visit rvstr;
   visit ri64;
+  (* read_file_in 的返回类型（C62） *)
+  let rview = TResult (TRef (TView, "_"), TStr) in
+  visit rview;
   while not (Queue.is_empty later) do
     visit (Queue.pop later)
   done;
@@ -602,6 +605,40 @@ let type_defs (p : program) (fs : Mir.func list) =
        \  return (%s){ .tag = 0, .u.v0 = u_str_clone(b) };\n\
         }\n"
        rb rs rb ru os os os);
+  (* 流式读入（C62，Lean M27 的二：只在区域后面追加新的缓冲区）。sn_read_all_in 把 f 剩下的内容读进区域里的一块缓冲区：
+     普通文件按 fstat 的大小分配（多留一个字节，读完再读一次才知道到头），大小没变时只分配一次、不复制；
+     满了就换一块两倍大的（旧的留在区域里，区域结束时一起释放）。read_chunk 最多读 n 个字节，到头时得到空的切片 *)
+  let rvw = cty rview in
+  Buffer.add_string helpers
+    (Printf.sprintf
+       "static sn_view sn_read_all_in(sn_arena *a, FILE *f) {\n\
+       \  struct stat st; size_t cap = 4096, n = 0, k;\n\
+       \  if (fstat(fileno(f), &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) cap = (size_t)st.st_size + 2;\n\
+       \  char *p = sn_arena_alloc(a, cap);\n\
+       \  while ((k = fread(p + n, 1, cap - 1 - n, f)) > 0) {\n\
+       \    n += k;\n\
+       \    if (n + 1 >= cap) { char *q = sn_arena_alloc(a, cap * 2); memcpy(q, p, n); p = q; cap *= 2; }\n\
+       \  }\n\
+       \  p[n] = 0;\n\
+       \  return (sn_view){ p, (int64_t)n };\n\
+        }\n\
+        static %s u_read_file_in(sn_arena *a, const sn_str *path) {\n\
+       \  FILE *f = fopen(path->p, \"rb\");\n\
+       \  if (!f) return (%s){ .tag = 1, .u.v1 = sn_io_err(path->p) };\n\
+       \  sn_view v = sn_read_all_in(a, f);\n\
+       \  if (ferror(f)) { sn_str e = sn_io_err(path->p); fclose(f); return (%s){ .tag = 1, .u.v1 = e }; }\n\
+       \  fclose(f);\n\
+       \  return (%s){ .tag = 0, .u.v0 = v };\n\
+        }\n\
+        static sn_view u_read_stdin_in(sn_arena *a) { fflush(stdout); return sn_read_all_in(a, stdin); }\n\
+        static sn_view u_read_chunk(sn_arena *a, int64_t n) {\n\
+       \  if (n <= 0) sn_panic(\"read_chunk 的大小必须大于 0\");\n\
+       \  fflush(stdout);\n\
+       \  char *p = sn_arena_alloc(a, (size_t)n + 1);\n\
+       \  size_t k = fread(p, 1, (size_t)n, stdin); p[k] = 0;\n\
+       \  return (sn_view){ p, (int64_t)k };\n\
+        }\n"
+       rvw rvw rvw rvw);
   (* std.os（C58）。出错说明和文件读写一样是“路径：系统的说明”；os_output 的退出码不是 0 时是“程序：退出码 n” *)
   let rv = cty rvstr and ri = cty ri64 in
   Buffer.add_string helpers

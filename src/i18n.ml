@@ -294,6 +294,7 @@ let table =
     ("未知类型 %s（字符串切片写 &str in 区域）", "unknown type {1} (a string slice is written &str in REGION)");
     ("text 的第一个参数必须是区域，%s 不是", "the first argument of text must be a region; {1} is not");
     ("text 需要 2 个参数：区域和字符串", "text takes 2 arguments: a region and a string");
+    ("%s 的第一个参数必须是区域，%s 不是", "the first argument of {1} must be a region; {2} is not");
     ("eq_view 的参数必须是字符串切片，%s 不是（和 Str 比较用 eq）",
      "the argument of eq_view must be a string slice; {1} is not (use eq to compare with a Str)");
     ("%s 的第一个参数必须是字符串切片 &str in …，%s 不是", "the first argument of {1} must be a string slice &str in …; {2} is not");
@@ -413,6 +414,7 @@ let runtime text =
           ("\"整数溢出\"", "\"integer overflow\""); ("\"除以零\"", "\"division by zero\"");
           ("\"F64 转换成 I64 时超出范围（或是 NaN）\"", "\"F64 to I64 conversion out of range (or NaN)\"");
           ("\"内存不足\"", "\"out of memory\""); ("\"下标越界\"", "\"index out of bounds\"");
+          ("\"read_chunk 的大小必须大于 0\"", "\"the size given to read_chunk must be greater than 0\"");
           ("\"%s：退出码 %lld\"", "\"%s: exit code %lld\"");
           ("\"字节不在 0 到 255 之间\"", "\"byte not between 0 and 255\"");
           ("\"print_byte 的参数不在 0 到 255 之间\"", "\"the argument of print_byte is not between 0 and 255\"");

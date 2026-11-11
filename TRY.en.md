@@ -84,7 +84,7 @@ The C compiler is taken from `$CC` (default: `cc`).
   so it must be in a `var` when called (`var f: Fn(I64) -> I64 = |x| x + k`, `f(1)`; for fields and `Vec` elements
   write `fs[i].call(1)`).
 - **References only come from arenas**: `arena |a| { let r = alloc(a, 1) … }`; a reference cannot outlive its arena.
-- **String slices `&str in a`**: `text(a, s)` hands a string to an arena and gives a slice of the whole of it; `v.sub(i, j)`, `v.byte(i)`, `v.find(p, from)`, `v.eq(s)`, `v.len()` do not allocate (out of bounds panics), and `v.to_str()` copies into a `Str`. Like references, slices cannot outlive their arena. String literals do not allocate; they are copied only when modified.
+- **String slices `&str in a`**: `text(a, s)` hands a string to an arena and gives a slice of the whole of it; `v.sub(i, j)`, `v.byte(i)`, `v.find(p, from)`, `v.eq(s)`, `v.len()` do not allocate (out of bounds panics), and `v.to_str()` copies into a `Str`. Like references, slices cannot outlive their arena. String literals do not allocate; they are copied only when modified. `read_file_in(a, path)`, `read_stdin_in(a)` and `read_chunk(a, n)` read a file or standard input (any bytes) straight into an arena and give a slice.
 - **Modules**: one file per module; `use geom` brings in `geom.sn` from the same directory, and `geom.area(…)`
   accesses its `pub` items.
 - **Strings**: `Str` holds UTF-8 bytes. `s.len()` counts bytes, `s.chars()` decodes `Char`s, `s.char_count()`

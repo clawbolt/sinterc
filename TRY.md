@@ -68,7 +68,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
   要存进变量、字段、`Vec` 或者返回，就用 `Fn(T) -> U`：外面的变量按值拿进闭包（`Str` 这类被移走），闭包可以改自己的环境（计数器），
   所以调用时闭包要在 `var` 里（`var f: Fn(I64) -> I64 = |x| x + k`，`f(1)`；字段、`Vec` 元素写 `fs[i].call(1)`）。
 - **引用只能来自 arena**：`arena |a| { let r = alloc(a, 1) … }`，引用不能活过它的 arena。
-- **字符串切片 `&str in a`**：`text(a, s)` 把字符串交给 arena，得到整段的切片；`v.sub(i, j)`、`v.byte(i)`、`v.find(p, from)`、`v.eq(s)`、`v.len()` 都不分配（越界时 panic），`v.to_str()` 复制成 `Str`。切片和引用一样不能活过它的 arena。字符串字面量不分配，修改时才复制。
+- **字符串切片 `&str in a`**：`text(a, s)` 把字符串交给 arena，得到整段的切片；`v.sub(i, j)`、`v.byte(i)`、`v.find(p, from)`、`v.eq(s)`、`v.len()` 都不分配（越界时 panic），`v.to_str()` 复制成 `Str`。切片和引用一样不能活过它的 arena。字符串字面量不分配，修改时才复制。`read_file_in(a, path)`、`read_stdin_in(a)`、`read_chunk(a, n)` 把文件、标准输入（任意字节）直接读进 arena，得到切片。
 - **模块**：一个文件一个模块，`use geom` 引入同目录的 `geom.sn`，用 `geom.area(…)` 访问标了 `pub` 的条目。
 - **字符串**：`Str` 存 UTF-8 字节。`s.len()` 是字节数，`s.chars()` 逐个解出 `Char`，`s.char_count()` 是字符数，
   `s.push(t)`、`s.push_char(c)`、`s.slice(a, b)`、`s.to_i64()`、`s.to_f64()`。

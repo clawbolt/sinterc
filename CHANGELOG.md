@@ -22,6 +22,8 @@
   （收集标准输出），不经过 shell；`exit(code)`（C58）。
 - `eprint(s)`、`eprint_str(s)`：写到标准错误（C60）。
 - `std.view`：字符串切片的 `split`、`lines`、`trim`、`starts_with`、`ends_with`、`to_i64`，结果是同一块缓冲区里的切片（C61）。
+- `read_file_in(a, path)`、`read_stdin_in(a)`、`read_chunk(a, n)`：把文件、标准输入（任意字节）直接读进 arena，得到切片（C62）。
+- `std.str` 的 `find`、`split`、`replace`、`starts_with`、`ends_with` 逐字节比较，不再为每个位置复制子串（C62）。
 
 **验证**
 - AVL 平衡：`std.treemap` 的插入、删除保持平衡，树高是对数（Lean S6b）。

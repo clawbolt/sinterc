@@ -239,6 +239,10 @@ let view_sigs =
     "view_eq_view", ([ (MLet, v); (MLet, v) ], TBool);
     "view_find", ([ (MLet, v); (MLet, TStr); (MSink, TI64) ], TI64);
     "view_print_str", ([ (MLet, v) ], TUnit);
+    (* 流式读入（C62）：读到的字节放进区域 a 里新的缓冲区（Lean M27 的 fresh_valid），得到它的切片，不经过 Str *)
+    "read_file_in", ([ (MLet, TArena "_"); (MLet, TStr) ], TResult (v, TStr));
+    "read_stdin_in", ([ (MLet, TArena "_") ], v);
+    "read_chunk", ([ (MLet, TArena "_"); (MSink, TI64) ], v);
   ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
@@ -1231,6 +1235,18 @@ and expr1 env (x : expr) : t =
       | Never -> Never
       | Ty t -> err a.pos "text 的第一个参数必须是区域，%s 不是" (string_of_ty t))
   | Call ("text", _) -> err pos "text 需要 2 个参数：区域和字符串"
+  | Call ((("read_file_in" | "read_stdin_in" | "read_chunk") as f), a :: rest) -> (
+      (* 流式读入（C62）：结果是区域 a 里的切片，和 text 一样 *)
+      match expr env a with
+      | Ty (TArena r) -> (
+          let v = TRef (TView, r) in
+          match f, rest with
+          | "read_file_in", [ p ] -> expect p.pos TStr (expr env p); Ty (TResult (v, TStr))
+          | "read_stdin_in", [] -> Ty v
+          | "read_chunk", [ n ] -> expect n.pos TI64 (expr env n); Ty v
+          | _ -> err pos "%s 的参数个数不对" f)
+      | Never -> Never
+      | Ty t -> err a.pos "%s 的第一个参数必须是区域，%s 不是" f (string_of_ty t))
   | Call (f, v :: rest) when List.mem_assoc f view_sigs -> (
       (* 切片的方法（C61）：子切片和原切片在同一个区域里（Lean M27 的一） *)
       let int (e : expr) = expect e.pos TI64 (expr env e) in
