@@ -6,3 +6,12 @@
  (applies_to tour)
  (deps
   (glob_files %{project_root}/examples/tour/*.sn)))
+
+; 编辑器的语法高亮和词法分析的关键字一致（T3）
+(cram
+ (applies_to t3)
+ (deps
+  %{project_root}/src/lexer.mll
+  %{project_root}/editor/vscode/package.json
+  %{project_root}/editor/vscode/syntaxes/sinter.tmLanguage.json
+  %{project_root}/editor/vim/syntax/sinter.vim))

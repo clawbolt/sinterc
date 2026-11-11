@@ -1,0 +1,28 @@
+{
+  "name": "sinter",
+  "displayName": "Sinter",
+  "description": "Syntax highlighting for Sinter (.sn), a simplified Rust",
+  "version": "0.3.0",
+  "publisher": "clawbolt",
+  "license": "MIT OR Apache-2.0",
+  "repository": { "type": "git", "url": "https://github.com/clawbolt/sinterc.git" },
+  "engines": { "vscode": "^1.60.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "sinter",
+        "aliases": ["Sinter", "sinter"],
+        "extensions": [".sn"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sinter",
+        "scopeName": "source.sinter",
+        "path": "./syntaxes/sinter.tmLanguage.json"
+      }
+    ]
+  }
+}

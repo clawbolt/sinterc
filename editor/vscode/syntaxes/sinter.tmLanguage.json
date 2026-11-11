@@ -1,0 +1,117 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Sinter",
+  "scopeName": "source.sinter",
+  "fileTypes": ["sn"],
+  "patterns": [{ "include": "#code" }],
+  "repository": {
+    "code": {
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#string" },
+        { "include": "#char" },
+        { "include": "#number" },
+        { "include": "#item" },
+        { "include": "#keyword" },
+        { "include": "#type" },
+        { "include": "#variant" },
+        { "include": "#call" },
+        { "include": "#operator" }
+      ]
+    },
+    "comment": {
+      "name": "comment.line.double-slash.sinter",
+      "match": "//.*$"
+    },
+    "string": {
+      "name": "string.quoted.double.sinter",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.sinter", "match": "\\\\[nrt\\\\\"]" },
+        { "name": "invalid.illegal.escape.sinter", "match": "\\\\." },
+        { "name": "constant.character.escape.brace.sinter", "match": "\\{\\{|\\}\\}" },
+        {
+          "name": "meta.interpolation.sinter",
+          "begin": "\\{",
+          "end": "\\}",
+          "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.sinter" } },
+          "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.sinter" } },
+          "contentName": "source.sinter",
+          "patterns": [{ "include": "#code" }]
+        }
+      ]
+    },
+    "char": {
+      "name": "string.quoted.single.sinter",
+      "match": "'(\\\\[nt\\\\'0]|[^\\\\'\\n])'"
+    },
+    "number": {
+      "patterns": [
+        { "name": "constant.numeric.float.sinter", "match": "\\b[0-9]+(\\.[0-9]+([eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)\\b" },
+        { "name": "constant.numeric.integer.sinter", "match": "\\b[0-9]+\\b" }
+      ]
+    },
+    "item": {
+      "patterns": [
+        {
+          "match": "\\b(fn)\\s+([a-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.function.sinter" },
+            "2": { "name": "entity.name.function.sinter" }
+          }
+        },
+        {
+          "match": "\\b(struct|enum|trait)\\s+([A-Z][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.type.sinter" },
+            "2": { "name": "entity.name.type.sinter" }
+          }
+        }
+      ]
+    },
+    "keyword": {
+      "patterns": [
+        { "name": "keyword.control.sinter", "match": "\\b(if|else|while|for|in|match|return|break|continue|errdefer)\\b" },
+        { "name": "keyword.declaration.sinter", "match": "\\b(fn|struct|enum|trait|impl|let|var|use|pub|arena)\\b" },
+        { "name": "storage.modifier.sinter", "match": "\\b(inout|sink|linear)\\b" },
+        { "name": "constant.language.boolean.sinter", "match": "\\b(true|false)\\b" }
+      ]
+    },
+    "type": {
+      "patterns": [
+        { "name": "support.type.primitive.sinter", "match": "\\b(I64|F64|Bool|Char|Str|Bytes|Self)\\b" },
+        { "name": "support.type.builtin.sinter", "match": "\\b(Box|Vec|Option|Result|Arena|ToStr)\\b" },
+        { "name": "support.constant.variant.sinter", "match": "\\b(Ok|Err)\\b" },
+        { "name": "entity.name.type.sinter", "match": "\\b[A-Z][A-Za-z0-9_]*\\b" }
+      ]
+    },
+    "variant": {
+      "name": "constant.other.variant.sinter",
+      "match": "(?<![A-Za-z0-9_)\\]])\\.[A-Z][A-Za-z0-9_]*"
+    },
+    "call": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.sinter",
+          "match": "\\b(print|print_str|print_i64|print_f64|print_bool|print_char|print_byte|print_bytes|panic|box|unbox|consume|alloc|read_line|read_file|write_file|read_bytes|write_bytes|args|vec_new|bytes_new|str_from_utf8)\\b(?=\\s*\\()"
+        },
+        {
+          "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": { "1": { "name": "entity.name.function.call.sinter" } }
+        }
+      ]
+    },
+    "operator": {
+      "patterns": [
+        { "name": "keyword.operator.arrow.sinter", "match": "->|=>" },
+        { "name": "keyword.operator.range.sinter", "match": "\\.\\." },
+        { "name": "keyword.operator.comparison.sinter", "match": "==|!=|<=|>=" },
+        { "name": "keyword.operator.logical.sinter", "match": "&&|\\|\\||!" },
+        { "name": "keyword.operator.question.sinter", "match": "\\?" },
+        { "name": "keyword.operator.arithmetic.sinter", "match": "[-+*/%]" },
+        { "name": "keyword.operator.assignment.sinter", "match": "=" }
+      ]
+    }
+  }
+}
