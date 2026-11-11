@@ -1,10 +1,10 @@
-# sinterc：Sinter 编译器（C58，含 C28、C33、T3、T5）
+# sinterc：Sinter 编译器（C59，含 C28、C33、T3、T5）
 
 版本 0.2.0-pre（预发布）。上手看 [TRY.md](TRY.md)（[English](TRY.en.md)），改动看 [CHANGELOG.md](CHANGELOG.md)。
 证明在单独的仓库 [sinter-formal](https://github.com/clawbolt/sinter-formal)：克隆到本仓库旁边的 `lean` 目录后，
 `sh validate.sh`（翻译验证）和 `sh diff.sh`（三方对照）才能运行。
 
-附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变；C25 试用版命令行（run、build）和上手文档 TRY.md（英文版 TRY.en.md）；C26 用 print 输出文字；C27 英文错误信息（--lang=en）；C29 字符串类型 Str（Lean M17）；C30 for 循环（a..b 和 Vec）；C31 break 和 continue；C32 读取输入（read_line）和字符串的字节、子串、整数解析；C34 模块（use、pub）；C35 标准库第一版（std.math、std.option、std.result、std.vec、std.str）；C36 文件与参数（args、read_file、write_file）；C37 () 作类型实参；C28 一次报多个错误（每个函数报它的第一个，最多 20 个）；C33 for x in inout v（Lean M18：循环体里改元素本身，不能用 v）；C38 panic（Lean M19），std 的 unwrap、expect；C39 std.map（Lean S4）和 vec_swap（Lean M20）；C40 闭包（Lean M21），std.vec 的 map、filter 等；C41 闭包捕获引用（Lean M22）；C42 std.map 的二分查找（Lean S5）；C43 std.treemap（AVL 树，Lean S6），闭包体里的换行重新分隔语句；C44 对照测试加上移动、调用、闭包、泛型（42000 个程序）；C45 元组；C46 match 的 _ 分支和字面量分支（Lean M23）；T1 报错显示源码行和 ^；C47 浮点数 F64；C48 字符 Char 和 UTF-8（Lean S7），std.char，for 遍历函数返回的 Vec；C49 字符串插值；C50 排序 sort、sort_by（Lean S8）；C51 哈希表 std.hashmap（Lean S9）；C52 常用函数和 std.io；C53 下标 v[i] 和按下标赋值（Lean M18），print_str、print_byte；C54 大整数 std.bigint（Lean S10）；C55 嵌套模式（Lean M24、M24b）；C56 内建的 ToStr、默认方法、泛型 impl（Lean M25）；C57 字节串 Bytes 和二进制文件（Lean S11）；C58 std.os：环境变量、目录、子进程、exit；T2 sinterc fmt；T3 编辑器的语法高亮（VS Code、Vim）；T4 CI、文档和 0.2.0-pre；T5 fmt 和编译器的随机测试。
+附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变；C25 试用版命令行（run、build）和上手文档 TRY.md（英文版 TRY.en.md）；C26 用 print 输出文字；C27 英文错误信息（--lang=en）；C29 字符串类型 Str（Lean M17）；C30 for 循环（a..b 和 Vec）；C31 break 和 continue；C32 读取输入（read_line）和字符串的字节、子串、整数解析；C34 模块（use、pub）；C35 标准库第一版（std.math、std.option、std.result、std.vec、std.str）；C36 文件与参数（args、read_file、write_file）；C37 () 作类型实参；C28 一次报多个错误（每个函数报它的第一个，最多 20 个）；C33 for x in inout v（Lean M18：循环体里改元素本身，不能用 v）；C38 panic（Lean M19），std 的 unwrap、expect；C39 std.map（Lean S4）和 vec_swap（Lean M20）；C40 闭包（Lean M21），std.vec 的 map、filter 等；C41 闭包捕获引用（Lean M22）；C42 std.map 的二分查找（Lean S5）；C43 std.treemap（AVL 树，Lean S6），闭包体里的换行重新分隔语句；C44 对照测试加上移动、调用、闭包、泛型（42000 个程序）；C45 元组；C46 match 的 _ 分支和字面量分支（Lean M23）；T1 报错显示源码行和 ^；C47 浮点数 F64；C48 字符 Char 和 UTF-8（Lean S7），std.char，for 遍历函数返回的 Vec；C49 字符串插值；C50 排序 sort、sort_by（Lean S8）；C51 哈希表 std.hashmap（Lean S9）；C52 常用函数和 std.io；C53 下标 v[i] 和按下标赋值（Lean M18），print_str、print_byte；C54 大整数 std.bigint（Lean S10）；C55 嵌套模式（Lean M24、M24b）；C56 内建的 ToStr、默认方法、泛型 impl（Lean M25）；C57 字节串 Bytes 和二进制文件（Lean S11）；C58 std.os：环境变量、目录、子进程、exit；C59 可以存起来的闭包 Fn(…)（Lean M26）；T2 sinterc fmt；T3 编辑器的语法高亮（VS Code、Vim）；T4 CI、文档和 0.2.0-pre；T5 fmt 和编译器的随机测试。
 下面是各个里程碑的约定细节；语言的完整一览（包括 `F64`、`Char`、`Str`、`Bytes`、`Vec`、元组、闭包、模块、标准库）见 [TRY.md](TRY.md)。
 支持 `I64`、`Bool`、`()`、结构体、`Box<T>`、函数、`let` / `var` / 赋值、`if`（可作表达式）、`while`、`return`，
 以及内置的 `print`、`print_i64`、`print_bool`、字符串的 `str_len` / `str_eq` / `str_concat` / `str_push` / `str_clone` / `str_from_i64` / `str_to_i64` / `str_byte` / `str_slice`、`read_line`、`box(e)`、解引用 `*b`、`unbox(b)`（取出 Box 里的值并释放），拆开结构体 `let Node { v, next } = n`。
@@ -180,7 +180,7 @@ sinterc 接受的生成 C，每个按所有长度不超过 3 的选择序列（`
 
 - 参数类型写 `fn(T, inout U) -> R`（返回 `()` 时写 `fn(T)`），实参写闭包 `|x, y| 表达式`，没有参数写 `|| 表达式`：
   `vec.map(v, |x| x * k)`、`vec.for_each(v, |x| { total = total + x })`。
-- 闭包只能当实参传：`fn(…)` 只能作函数参数的类型，函数参数只能调用或原样传给另一个 `fn(…)` 参数；不能存进变量、字段、Vec，也不能返回。
+- 闭包只能当实参传：`fn(…)` 只能作函数参数的类型，函数参数只能调用或原样传给另一个 `fn(…)` 参数；不能存进变量、字段、Vec，也不能返回（要存起来用 C59 的 `Fn(…)`）。
 - 闭包用到的外层变量是捕获：只读的按 `let`，赋值、作 `inout` 实参的按 `inout`（要求是 `var` 变量）。调用处把捕获当作额外的实参，
   和别的实参一起检查排他性，所以 `vec.for_each(v, |x| { v.push(x) })` 被拒绝。
 - 实现是按闭包特化：每个闭包提升成普通函数（捕获在前），`h(a, |x| …)` 换成调用 `h` 的特化 `h[闭包]`。之后的所有权检查、排他性检查和
@@ -188,6 +188,19 @@ sinterc 接受的生成 C，每个按所有长度不超过 3 的选择序列（`
 - 闭包可以用含引用的变量和区域本身（C41，Lean M22）：提升出的函数里这些区域换成区域参数 `'c00`、`'c01`…，按闭包所在位置的嵌套顺序编号，
   只保留那里真实成立的先后关系（外层 arena 比内层的活得久；函数自己的区域参数之间没有顺序）。闭包里同样不能把内层区域的引用放进外层区域的 Vec。
 - 暂不支持：闭包里再写闭包；闭包用函数参数；`fn(…)` 里有引用；trait / impl 的方法有 `fn(…)` 参数；`errdefer` 调用函数参数。
+
+## 可以存起来的闭包 Fn(…)（C59，Lean M26）
+
+- 类型写 `Fn(T, inout U) -> R`。闭包写在需要 `Fn(…)` 的地方（`let` / `var` 的类型标注、返回值、实参、字段、`Vec` 元素）时，
+  用到的外层变量**按值**拿进来：会移动的值（`Str`、`Vec`、`Box`、`Fn`…）被移走，可复制的值复制一份，存在堆上的环境里。
+- `Fn` 值和 `Box` 一样：只能移动，作用域结束时析构（连同环境）；可以存进变量、字段、`Vec`，也可以返回。
+- 调用写 `f(x)`（`f` 是变量或参数）或 `f.call(x)`（字段、`Vec` 元素），闭包按 `inout`：闭包可以改自己环境里的变量（计数器），
+  所以 `f` 要是 `var` 变量或 `inout` / `sink` 参数。闭包体访问的环境和实参不重叠（M26 的 `env_disjoint`），
+  所以闭包照 C40 提升成普通函数检查就够了；`w.g.call(w)` 这种闭包所在的位置又当实参的调用照常被排他性检查拒绝。
+- `Fn` 变量可以传给 `fn(…)` 参数（例如 `vec.map(v, f)`）：当作闭包 `|x| f(x)`。
+- 环境里不能有引用、区域和 `linear` 值（M26 的 `ok`：存起来的值不指向任何栈帧，返回之后也不会悬空）。
+- 实现：C 里是 `sn_fn`（环境指针、转发函数、析构函数）；每个闭包一个环境结构体，每种 `Fn` 类型一个 `call#…`。
+  导出给 Lean 时 `Fn` 是需要析构的值，和 `Str` 一样，`validate.sh` 照常检查。
 
 
 ## 许可证 / License

@@ -111,11 +111,11 @@ let rec is_linear = function
   | TResult (a, b) -> is_linear a || is_linear b
   | TBox t | TVec t -> is_linear t
   | TParam (_, l) -> l
-  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TRef _ | TArena _ | TApp _ | TFn _ | TOFn _ -> false
 
 (* 需要析构（或者是 linear）的类型：这些类型的值只能移动，不能复制。 *)
 let rec needs_drop = function
-  | TBox _ | TVec _ | TStr | TBytes -> true
+  | TBox _ | TVec _ | TStr | TBytes | TOFn _ -> true   (* Fn(…)（C59）拥有堆上的环境 *)
   | TStruct n -> (
       Hashtbl.mem linear_tbl n
       ||
@@ -261,6 +261,8 @@ let inout_place env (a : expr) =
       note ~write:true env.vars v;
       match List.assoc_opt v env.vars with
       | Some (_, true) -> ()
+      | Some (TOFn _, _) when a.e = Var v ->
+          err a.pos "%s 不可修改：调用 Fn(…) 闭包时闭包按 inout（它可以改自己的环境），要用 var 声明，或者作为 inout / sink 参数" v
       | _ -> err a.pos "%s 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）" v)
 
 let show = function Ty t -> string_of_ty t | Never -> "!"
@@ -312,7 +314,7 @@ let rec mentions r = function
   | TBox t | TVec t -> mentions r t
   | TResult (a, b) -> mentions r a || mentions r b
   | TStruct n -> List.exists (mentions r) (inst_args n)
-  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TApp _ | TParam _ | TFn _ -> false   (* fn(…) 里不能有区域（check_ty） *)
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TApp _ | TParam _ | TFn _ | TOFn _ -> false   (* fn(…)、Fn(…) 里不能有区域（check_ty） *)
 
 let rec region_names = function
   | TRef (t, x) -> x :: region_names t
@@ -320,7 +322,7 @@ let rec region_names = function
   | TBox t | TVec t -> region_names t
   | TResult (a, b) -> region_names a @ region_names b
   | TStruct n -> List.concat_map region_names (inst_args n)
-  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TApp _ | TParam _ | TFn _ -> []
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TApp _ | TParam _ | TFn _ | TOFn _ -> []
 
 let rec rename s = function
   | TRef (t, x) -> TRef (rename s t, Option.value (List.assoc_opt x s) ~default:x)
@@ -375,6 +377,12 @@ let rec check_ty ?(param = false) env pos = function
   | TFn (ps, r) ->
       if List.exists (fun (_, t) -> region_names t <> []) ps || region_names r <> [] then
         err pos "函数类型 fn(…) 里暂不能有引用或区域";
+      List.iter (fun (_, t) -> check_ty env pos t) ps;
+      check_ty env pos r
+  | TOFn (ps, r) ->
+      (* Fn(…)（C59，Lean M26）：可以存、可以返回，所以里面不能有引用或区域（环境里也不能有，见 pack） *)
+      if List.exists (fun (_, t) -> region_names t <> []) ps || region_names r <> [] then
+        err pos "函数类型 Fn(…) 里暂不能有引用或区域";
       List.iter (fun (_, t) -> check_ty env pos t) ps;
       check_ty env pos r
   | TRef (t, r) ->
@@ -449,6 +457,17 @@ let pending_items :
 (* 调用的改写：调用表达式的 id → 新的函数名和实参，检查完之后换上（和方法调用的名字一样）。 *)
 let rewrites : (int, string * expr list) Hashtbl.t = Hashtbl.create 16
 
+(* ---------- 可以存起来的闭包 Fn(…)（C59，Lean M26） ----------
+   写在需要 Fn(pts) -> r 的地方（let 标注、返回值、实参、字段、Vec 元素）的闭包：照 C40 提升成普通函数
+   （捕获在前，只读的按 let、修改的按 inout），闭包表达式换成调用内建的 Fn#提升出的函数名(捕获…)，
+   捕获按 sink 传入（按值：会移动的值被移走，可复制的值复制），存进堆上的环境。调用 f(x) 换成 call#类型(f, x)，
+   闭包按 inout：闭包体访问的环境和实参不重叠（M26 的 env_disjoint），所以提升出的函数照常检查就够了。
+   Fn 值需要析构（析构环境），只能移动；环境里不能有引用、区域和 fn(…) 参数（M26 的 ok：存起来也不会悬空）。
+   packs：Fn#… → (闭包, 它的类型)；fcalls：call#… → 闭包的类型。代码生成为它们写 C 函数。 *)
+let packs : (string, closure * ty) Hashtbl.t = Hashtbl.create 16
+let fcalls : (string, ty) Hashtbl.t = Hashtbl.create 16
+
+
 (* 带嵌套模式的 match 展开后的表达式（按 PMatch 的 id，C55）：map_body 把 PMatch 换成它，之后的阶段只看到 Match、If、Destruct。 *)
 let pdesugar : (int, expr) Hashtbl.t = Hashtbl.create 16
 
@@ -509,6 +528,7 @@ let rec resolve sc pos = function
   | TResult (a, b) -> TResult (resolve sc pos a, resolve sc pos b)
   | TRef (t, r) -> TRef (resolve sc pos t, r)
   | TFn (ps, r) -> TFn (List.map (fun (m, t) -> (m, resolve sc pos t)) ps, resolve sc pos r)
+  | TOFn (ps, r) -> TOFn (List.map (fun (m, t) -> (m, resolve sc pos t)) ps, resolve sc pos r)
   | t -> t
 
 and instantiate g ts =
@@ -545,6 +565,7 @@ let rec subst s = function
   | TResult (a, b) -> TResult (subst s a, subst s b)
   | TRef (t, r) -> TRef (subst s t, r)
   | TFn (ps, r) -> TFn (List.map (fun (m, t) -> (m, subst s t)) ps, subst s r)
+  | TOFn (ps, r) -> TOFn (List.map (fun (m, t) -> (m, subst s t)) ps, subst s r)
   | t -> t
 
 (* 类型里出现的类型参数。 *)
@@ -554,7 +575,7 @@ let rec params_of = function
       match Hashtbl.find_opt inst_tbl n with Some (_, ts) -> List.concat_map params_of ts | None -> [])
   | TBox t | TVec t | TRef (t, _) -> params_of t
   | TResult (a, b) -> params_of a @ params_of b
-  | TFn (ps, r) -> List.concat_map (fun (_, t) -> params_of t) ps @ params_of r
+  | TFn (ps, r) | TOFn (ps, r) -> List.concat_map (fun (_, t) -> params_of t) ps @ params_of r
   | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TArena _ | TApp _ -> []
 
 (* ---- impl 的查找（C56，Lean M25） ---- *)
@@ -660,7 +681,7 @@ and only_cov p t =
           List.for_all Fun.id
             (List.mapi (fun i t -> (not (List.mem p (params_of t))) || (covariant g i && only_cov p t)) ts)
       | None -> true)
-  | TBox _ | TVec _ | TRef _ | TFn _ -> not (List.mem p (params_of t))
+  | TBox _ | TVec _ | TRef _ | TFn _ | TOFn _ -> not (List.mem p (params_of t))
   | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TArena _ | TApp _ -> true
 
 let () = covariant_fwd := covariant
@@ -671,7 +692,7 @@ let rec unify s p t =
   | TParam (n, _), t -> if not (List.mem_assoc n !s) then s := (n, t) :: !s
   | TBox p, TBox t | TVec p, TVec t -> unify s p t
   | TResult (a, b), TResult (c, d) -> unify s a c; unify s b d
-  | TFn (ps, r), TFn (qs, u) when List.length ps = List.length qs ->
+  | TFn (ps, r), (TFn (qs, u) | TOFn (qs, u)) | TOFn (ps, r), TOFn (qs, u) when List.length ps = List.length qs ->
       List.iter2 (fun (_, p) (_, q) -> unify s p q) ps qs;
       unify s r u
   | TStruct a, TStruct b -> (
@@ -679,6 +700,20 @@ let rec unify s p t =
       | Some (g, ps), Some (h, ts) when g = h -> List.iter2 (unify s) ps ts
       | _ -> ())
   | _ -> ()
+
+(* 调用 Fn(…) 类型 t 的闭包的内建函数 call#t（C59）：闭包按 inout，其余参数按类型里写的约定。 *)
+let fcall_name (fns : (string, (mode * ty) list * ty) Hashtbl.t) t =
+  match t with
+  | TOFn (pts, r) ->
+      let n = "call#" ^ string_of_ty t in
+      if not (Hashtbl.mem fns n) then begin
+        let s = ((MInout, t) :: pts, r) in
+        Hashtbl.replace sigs n s;
+        Hashtbl.replace fns n s
+      end;
+      if params_of t = [] then Hashtbl.replace fcalls n t;
+      n
+  | _ -> assert false
 
 (* 改写函数体里写出的类型（let 标注、var 声明），方法调用换成解析出的函数名（检查过的才有）。
    fresh：表达式换新的 id（复制出实例时用）；不是 fresh 时还换上记下的调用改写（C40）。 *)
@@ -706,7 +741,11 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | Arena (r, b) -> Arena (r, blk b)
       | If (c, a, b) -> If (ex c, blk a, Option.map blk b)
       | Block b -> Block (blk b)
-      | Lambda (ps, a) -> Lambda (ps, ex a)
+      | Lambda (ps, a) -> (
+          (* 需要 Fn(…) 的地方的闭包（C59）：换成 Fn#…(捕获…) *)
+          match if fresh then None else Hashtbl.find_opt rewrites x.id with
+          | Some (g, args) -> Call (g, List.map ex args)
+          | None -> Lambda (ps, ex a))
     in
     { x with e; id = (if fresh then fresh_id () else x.id) }
   and st (s : stmt) =
@@ -1060,6 +1099,7 @@ and check1 env want (x : expr) : t =
       let t = struct_lit env (Some want) x n inits in
       expect x.pos want t;
       t
+  | Lambda (ys, body) when (match want with TOFn _ -> true | _ -> false) -> pack env x ys body want
   | _ ->
       let t = expr1 env x in
       expect x.pos want t;
@@ -1082,7 +1122,8 @@ and expr1 env (x : expr) : t =
           err pos "%s 是函数参数，只能调用它（%s(…)），或者作为实参传给 fn(…) 类型的参数" v v
       | Some (t, _) -> Ty t
       | None -> err pos "未定义的变量 %s" v)
-  | Lambda _ -> err pos "闭包只能直接写在调用的实参里，传给类型是 fn(…) 的参数"
+  | Lambda _ ->
+      err pos "无法确定闭包的类型：写在调用的实参里传给 fn(…) 参数，或者写在知道类型的地方（例如 var f: Fn(I64) -> I64 = |x| …）"
   | Binop (op, a, b) -> (
       let ta = expr env a in
       let tb = expr env b in
@@ -1099,8 +1140,8 @@ and expr1 env (x : expr) : t =
           match ta, tb with
           | Ty TStr, _ | _, Ty TStr -> err pos "字符串用 str_eq(a, b) 或 a.eq(b) 比较"
           | Ty TBytes, _ | _, Ty TBytes -> err pos "字节串用 a.eq(b) 比较"
-          | Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _), _
-          | _, Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _) ->
+          | Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _ | TOFn _), _
+          | _, Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _ | TOFn _) ->
               err pos "只能比较 I64、F64 和 Bool"
           | _ -> ignore (join pos "比较" ta tb); Ty TBool)
       | And | Or -> expect a.pos TBool ta; expect b.pos TBool tb; Ty TBool)
@@ -1248,6 +1289,7 @@ and method_name env (x : expr) f (r : expr) =
     | Ty TChar, "to_str" -> "str_from_char"
     | Ty TBool, "to_str" -> "str_from_bool"
     | Ty TStr, "to_str" -> "str_clone"
+    | Ty (TOFn _ as t), "call" -> fcall_name env.fns t   (* f.call(x)：字段、Vec 元素里的闭包也能这样调用（C59） *)
     | _ -> m
   in
   Hashtbl.replace method_res x.id g;
@@ -1271,7 +1313,31 @@ and call env want (x : expr) f args : t =
              Hashtbl.replace rewrites x.id (c.cname, List.map (fun (n, t) -> var_expr x.pos n t) caps @ args)
          | None -> ());
       Ty r
+  | Some ((TOFn _ as t), _) ->
+      (* 调用 Fn(…) 类型的变量 f（C59）：就是 call#…(f, …)，闭包按 inout（M26 的 env_disjoint） *)
+      let g = fcall_name env.fns t in
+      let args = var_expr x.pos f t :: args in
+      Hashtbl.replace rewrites x.id (g, args);
+      call_named env want x g args
   | _ -> call_named env want x f args
+
+(* 需要 Fn(pts) -> r 的地方的闭包（C59，Lean M26）：照 C40 检查、提升，捕获按值存进环境。 *)
+and pack env (x : expr) ys body want : t =
+  match want with
+  | TOFn (pts, r) ->
+      let c, _ = lambda env x ys body pts (Some r) in
+      List.iter
+        (fun (_, v, t) ->
+          if region_names t <> [] then
+            err x.pos "Fn(…) 闭包暂不能用含引用或区域的变量 %s：闭包可以存起来，引用可能活不过它的区域" v;
+          if is_linear t then err x.pos "Fn(…) 闭包暂不能用 linear 值 %s" v)
+        c.caps;
+      let pk = "Fn#" ^ c.cname in
+      if not (Hashtbl.mem sigs pk) then Hashtbl.replace sigs pk (List.map (fun (_, _, t) -> (MSink, t)) c.caps, want);
+      if !concrete then Hashtbl.replace packs pk (c, want);
+      Hashtbl.replace rewrites x.id (pk, List.map (fun (_, v, t) -> var_expr x.pos v t) c.caps);
+      Ty want
+  | _ -> assert false
 
 (* 闭包 |ys| body 作 fn(pts) -> r 类型的参数的实参（C40）：参数的类型取 pts，在原地检查函数体，找出捕获。
    r 为 None 时只推出函数体的类型（泛型函数的类型实参还没确定时）。会生成代码时把闭包提升成普通函数：
@@ -1354,6 +1420,12 @@ and fn_arg env f p pts pr (a : expr) : closure * expr list =
           match List.assoc_opt g env.clos with
           | Some (c, caps) -> (c, List.map (fun (n, t) -> var_expr a.pos n t) caps)
           | None -> ({ cname = ""; caps = []; rord = [] }, []))
+      | Some ((TOFn (qs, u) as t), _) ->
+          (* Fn(…) 变量传给 fn(…) 参数（C59）：当作闭包 |a…| g(a…)，它按 inout 捕获 g *)
+          if TFn (qs, u) <> p then err a.pos "类型不匹配：需要 %s，实际是 %s" (string_of_ty p) (string_of_ty t);
+          let ys = List.mapi (fun i _ -> Printf.sprintf "#a%d" i) pts in
+          let body = mkx a.pos (Call (g, List.map (fun y -> mkx a.pos (Var y)) ys)) in
+          fn_arg env f p pts pr { a with e = Lambda (ys, body) }
       | _ -> bad ())
   | _ -> bad ()
 
@@ -1947,6 +2019,8 @@ let prepare (p : program) =
   Hashtbl.reset method_res;
   Hashtbl.reset skip_lower;
   Hashtbl.reset rewrites;
+  Hashtbl.reset packs;
+  Hashtbl.reset fcalls;
   Hashtbl.reset pdesugar;
   Hashtbl.reset fn_items;
   Queue.clear pending_items;
@@ -2102,7 +2176,7 @@ let prepare (p : program) =
           if region_names st <> [] then err ipos "暂不支持为含引用的类型 %s 实现 trait" (string_of_ty st);
           (match st with
           | TArena _ -> err ipos "不能为 Arena 实现 trait"
-          | TFn _ -> err ipos "不能为函数类型实现 trait"
+          | TFn _ | TOFn _ -> err ipos "不能为函数类型实现 trait"
           | TParam (t, _) -> err ipos "不能为类型参数 %s 本身实现 trait（impl<%s> … for %s 会和所有的 impl 重叠）" t t t
           | _ -> ());
           (* M25 的 WF：impl 的类型参数都要出现在头部里（实例的类型实参由匹配得到） *)

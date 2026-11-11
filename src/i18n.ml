@@ -289,6 +289,17 @@ let table =
      "{1} is a function parameter: it can only be called ({2}(…)) or passed on to a parameter of type fn(…)");
     ("闭包只能直接写在调用的实参里，传给类型是 fn(…) 的参数",
      "a closure can only be written directly as a call argument, for a parameter of type fn(…)");
+    (* C59 可以存起来的闭包 Fn(…) *)
+    ("无法确定闭包的类型：写在调用的实参里传给 fn(…) 参数，或者写在知道类型的地方（例如 var f: Fn(I64) -> I64 = |x| …）",
+     "cannot determine the type of this closure: pass it to a fn(…) parameter, or write it where the type is known (for example var f: Fn(I64) -> I64 = |x| …)");
+    ("函数类型 Fn(…) 里暂不能有引用或区域", "function types Fn(…) cannot contain references or regions yet");
+    ("类型 %s 后面不能跟括号（函数类型写 Fn(…) -> …）",
+     "type {1} cannot be followed by parentheses (function types are written Fn(…) -> …)");
+    ("Fn(…) 闭包暂不能用含引用或区域的变量 %s：闭包可以存起来，引用可能活不过它的区域",
+     "an Fn(…) closure cannot use {1}, which contains references or regions: the closure may be stored, and the references might not outlive their region");
+    ("Fn(…) 闭包暂不能用 linear 值 %s", "an Fn(…) closure cannot use the linear value {1} yet");
+    ("%s 不可修改：调用 Fn(…) 闭包时闭包按 inout（它可以改自己的环境），要用 var 声明，或者作为 inout / sink 参数",
+     "{1} cannot be modified: calling an Fn(…) closure passes it as inout (it may change its own environment), so declare it with var or take it as an inout / sink parameter");
     ("闭包里暂不能再写闭包", "closures inside closures are not supported yet");
     ("闭包有 %d 个参数，这里需要 %d 个", "the closure has {1} parameters, {2} expected here");
     ("闭包的参数 %s 重复", "closure parameter {1} is repeated");

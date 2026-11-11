@@ -2,7 +2,7 @@
 
 证明在单独的仓库 [sinter-formal](https://github.com/clawbolt/sinter-formal)，和编译器的版本一起更新。
 
-## 未发布（0.3 计划中）
+## 未发布（0.3 的计划全部完成，0.4 进行中）
 
 **语言**
 - 嵌套模式：`.Some((0, s))`、`Ok(.None)`、`(0, _)`，可以 match 元组；检查穷尽（没覆盖时报一个例子）和永远匹配不到的分支（C55，Lean M24、M24b）。
@@ -11,6 +11,8 @@
   重叠的 impl 被拒绝（C56，Lean M25）。`std.bigint` 的 BigInt 可以直接插值。
 - 字节串 `Bytes`：任意字节，`get`、`set`、`push`、`append`、`slice` 等；`read_bytes`、`write_bytes` 读写二进制文件，
   `print_bytes` 原样输出；`s.to_bytes()`、`str_from_utf8(b)`（只在合法的 UTF-8 时得到 `.Some`，C57，Lean S11）。
+- 可以存起来的闭包 `Fn(T) -> U`：存进变量、字段、`Vec`，也可以返回；外面的变量按值拿进来，闭包可以改自己的环境（计数器），
+  调用时闭包按 `inout`；`Fn` 变量可以传给 `fn(…)` 参数（C59，Lean M26）。
 
 **标准库**
 - `std.bigint`：任意大小的整数，加、减、乘、比较、除以小数、十进制转换，实现 `Eq`、`Ord`（C54，Lean S10）。

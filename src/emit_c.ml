@@ -212,6 +212,8 @@ static void *sn_arena_alloc(sn_arena *a, size_t n) {
   return p;
 }
 static void sn_arena_free(sn_arena *a) { sn_chunk *c = a->head; while (c) { sn_chunk *n = c->next; sn_free(c); c = n; } a->head = 0; }
+/* 可以存起来的闭包 Fn(…)（C59）：堆上的环境、转发到提升出的函数的 code、析构并释放环境的 drop */
+typedef struct { void *env; void (*code)(void); void (*drop)(void *); } sn_fn;
 |}
 
 (* 泛型实例（名字里有 <）的 C 名字：编号加上去掉符号的写法，和用户写的名字（S_、u_ 开头）不会重名。 *)
@@ -251,6 +253,7 @@ let rec mangle = function
   | TResult (a, b) -> "R" ^ mangle a ^ "_" ^ mangle b ^ "_"
   | TRef (t, _) -> "P" ^ mangle t
   | TArena _ -> "A"
+  | TOFn _ -> "Fn"   (* 所有 Fn(…) 的 C 表示相同 *)
   | TApp _ | TParam _ | TFn _ -> failwith "泛型的类型参数和函数类型不会出现在生成的 C 里"
 
 let rec cty = function
@@ -267,6 +270,7 @@ let rec cty = function
   | TVec _ as t -> "S_" ^ mangle t
   | TRef (t, _) -> cty t ^ "*"
   | TArena _ -> "sn_arena"
+  | TOFn _ -> "sn_fn"
   | TApp _ | TParam _ | TFn _ -> failwith "泛型的类型参数和函数类型不会出现在生成的 C 里"
 
 (* 析构一个值：先析构 Box 里面的值，再释放 Box；字符串释放它的字节；结构体、枚举（含 Result）调用这个类型的析构函数。
@@ -277,6 +281,7 @@ let rec drop_code ty lv =
   match ty with
   | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
   | TStr | TBytes -> Printf.sprintf "sn_free(%s.p); " lv
+  | TOFn _ -> Printf.sprintf "%s.drop(%s.env); " lv lv
   | (TStruct _ | TResult _ | TVec _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
   | TI64 | TF64 | TChar | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ | TFn _ -> ""
 
@@ -358,7 +363,7 @@ let type_defs (p : program) (fs : Mir.func list) =
           (fun (f : field) -> Buffer.add_string defs (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname))
           fields;
         Buffer.add_string defs " };\n"
-    | (TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _), _ -> ()
+    | (TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _ | TOFn _), _ -> ()
   in
   List.iter
     (function
@@ -779,6 +784,61 @@ let func b (f : Mir.func) =
     f.blocks;
   add "}\n"
 
+(* Fn(…)（C59，Lean M26）：每个造闭包的 Fn#… 一个环境结构体（捕获按值存进去）、一个转发函数（把环境的字段按指针
+   交给提升出的函数，后面接上调用的实参）、一个析构函数（析构每个捕获，释放环境）；每种 Fn 类型一个 call#…，
+   按类型的签名经过 code 调用。let / inout 参数在 C 里是指针，sink 参数是值。 *)
+let closures () =
+  let b = Buffer.create 256 in
+  let add s = Buffer.add_string b s in
+  let pty (m, t) = if m = MSink then cty t else cty t ^ " *" in
+  let rty r = if r = TUnit then "void" else cty r in
+  let names = List.sort compare (Hashtbl.fold (fun n _ acc -> n :: acc) Typeck.packs []) in
+  List.iteri
+    (fun k pk ->
+      let (c : Typeck.closure), t = Hashtbl.find Typeck.packs pk in
+      match t with
+      | TOFn (pts, r) ->
+          let fields = List.mapi (fun i (_, _, t) -> Printf.sprintf " %s c%d;" (cty t) i) c.caps in
+          add (Printf.sprintf "struct sn_env%d {%s };\n" k (if fields = [] then " char c_;" else String.concat "" fields));
+          let ps = List.mapi (fun i p -> Printf.sprintf ", %s a%d" (pty p) i) pts in
+          let fwd =
+            List.mapi (fun i _ -> Printf.sprintf "&x->c%d" i) c.caps @ List.mapi (fun i _ -> Printf.sprintf "a%d" i) pts
+          in
+          add
+            (Printf.sprintf "static %s sn_code%d(void *e%s) { struct sn_env%d *x = e; (void)x; %s%s(%s); }\n" (rty r) k
+               (String.concat "" ps) k
+               (if r = TUnit then "" else "return ")
+               (fname c.cname) (String.concat ", " fwd));
+          let drops = List.mapi (fun i (_, _, t) -> drop_code t (Printf.sprintf "x->c%d" i)) c.caps in
+          add
+            (Printf.sprintf "static void sn_envdrop%d(void *e) { struct sn_env%d *x = e; (void)x; %ssn_free(e); }\n" k k
+               (String.concat "" drops));
+          let args = List.mapi (fun i (_, _, t) -> Printf.sprintf "%s c%d" (cty t) i) c.caps in
+          let sets = List.mapi (fun i _ -> Printf.sprintf "x->c%d = c%d; " i i) c.caps in
+          add
+            (Printf.sprintf
+               "static sn_fn %s(%s) { struct sn_env%d *x = sn_alloc(sizeof(struct sn_env%d)); %sreturn (sn_fn){ x, (void (*)(void))sn_code%d, sn_envdrop%d }; }\n"
+               (fname pk)
+               (if args = [] then "void" else String.concat ", " args)
+               k k (String.concat "" sets) k k)
+      | _ -> ())
+    names;
+  let calls = List.sort compare (Hashtbl.fold (fun n t acc -> (n, t) :: acc) Typeck.fcalls []) in
+  List.iter
+    (fun (n, t) ->
+      match t with
+      | TOFn (pts, r) ->
+          let ps = List.mapi (fun i p -> Printf.sprintf ", %s a%d" (pty p) i) pts in
+          let cast = Printf.sprintf "(%s (*)(void *%s))" (rty r) (String.concat "" (List.map (fun p -> ", " ^ pty p) pts)) in
+          add
+            (Printf.sprintf "static %s %s(sn_fn *f%s) { %s(%sf->code)(f->env%s); }\n" (rty r) (fname n) (String.concat "" ps)
+               (if r = TUnit then "" else "return ")
+               cast
+               (String.concat "" (List.mapi (fun i _ -> Printf.sprintf ", a%d" i) pts)))
+      | _ -> ())
+    calls;
+  Buffer.contents b
+
 (* batch：对照测试的函数名。给了的话不调用 u_main，而是每个函数按所有长度不超过 3 的选择序列各跑一遍，
    每次跑完检查有没有没释放的 Box 或区域内存块。 *)
 let program ?batch (p : program) (fs : Mir.func list) : string =
@@ -788,6 +848,7 @@ let program ?batch (p : program) (fs : Mir.func list) : string =
   add "\n";
   add (type_defs p fs);
   List.iter (fun f -> add (signature f ^ ";\n")) fs;
+  add (closures ());
   List.iter (func b) fs;
   (match batch with
   | None ->

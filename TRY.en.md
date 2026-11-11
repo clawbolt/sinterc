@@ -55,7 +55,7 @@ The C compiler is taken from `$CC` (default: `cc`).
 ## The language at a glance
 
 - **Types**: `I64`, `F64`, `Bool`, `Char`, `Str`, `Bytes`, `()`, structs, enums, tuples `(A, B)`, `Box<T>`, `Vec<T>`,
-  `Result<T, E>`, `Option<T>`, references `&T in a`. No implicit numeric conversions (use `to_f64`, `to_i64`);
+  `Result<T, E>`, `Option<T>`, `Fn(T) -> U`, references `&T in a`. No implicit numeric conversions (use `to_f64`, `to_i64`);
   integer overflow and division by zero panic.
 - **Variables**: `let` cannot be reassigned, `var` can.
 - **Loops**: `while c { … }`; `for i in 0..n { … }`; `for x in v { … }` borrows each element of a `Vec`
@@ -78,8 +78,11 @@ The C compiler is taken from `$CC` (default: `cc`).
 - **Generics and traits**: `fn same<T: math.Eq>(a: T, b: T) -> Bool`, monomorphised, statically dispatched.
   Method syntax `v.push(x)` means `push(v, x)`. A trait method with a body is a default method that an impl may
   omit; impls can be generic: `impl<T: ToStr> ToStr for Vec<T> { … }`.
-- **Closures**: a parameter of type `fn(T) -> U` takes a closure `|x| e`. Closures can only be passed as arguments
-  (not stored or returned); they can read outer variables and modify outer `var`s.
+- **Closures**: a parameter of type `fn(T) -> U` takes a closure `|x| e`, which can read outer variables and modify
+  outer `var`s. To store a closure in a variable, field or `Vec`, or to return it, use `Fn(T) -> U`: outer variables
+  are taken into the closure by value (a `Str` is moved), and the closure may change its own environment (a counter),
+  so it must be in a `var` when called (`var f: Fn(I64) -> I64 = |x| x + k`, `f(1)`; for fields and `Vec` elements
+  write `fs[i].call(1)`).
 - **References only come from arenas**: `arena |a| { let r = alloc(a, 1) … }`; a reference cannot outlive its arena.
 - **Modules**: one file per module; `use geom` brings in `geom.sn` from the same directory, and `geom.area(…)`
   accesses its `pub` items.
@@ -129,7 +132,7 @@ programs that run and programs that must be rejected.
 
 ## Known limitations
 
-- Closures cannot be stored in variables or data structures, or returned; closures cannot be nested.
+- Closures cannot be nested, and the environment of an `Fn(…)` closure cannot contain references.
 - There are no struct patterns yet (`P { x, y }` only works in `let`); patterns cannot look inside a `Box`.
 - `std.char` and case conversion only know ASCII; `sort` is not stable.
 - Type arguments of `Box` and `Vec` are invariant, which is stricter than Rust: some programs Rust accepts are rejected here.

@@ -455,6 +455,9 @@ ty:
   | AMP t = ty IN r = IDENT { TRef (t, r) }
   | RESULT LT t = ty COMMA e = ty GT { TResult (t, e) }
   | FN LPAREN ps = separated_list(COMMA, fn_param) RPAREN r = ret { TFn (ps, r) }
+  (* 可以存起来的闭包 Fn(T) -> U（C59）：Fn 不是关键字，写在类型的位置、后面跟括号时才是 *)
+  | n = UIDENT LPAREN ps = separated_list(COMMA, fn_param) RPAREN r = ret
+      { if n = "Fn" then TOFn (ps, r) else raise (Syntax (p $startpos, Printf.sprintf "类型 %s 后面不能跟括号（函数类型写 Fn(…) -> …）" n)) }
 
 (* 函数类型 fn(T, inout U) 的参数：约定和类型（C40） *)
 fn_param:

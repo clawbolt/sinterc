@@ -22,6 +22,7 @@ type ty =
   | TApp of string * ty list   (* Option<I64>：泛型结构体或枚举加类型实参；类型检查时换成具体的 TStruct *)
   | TParam of string * bool    (* 泛型函数里的类型参数 T；true：T: linear（Lean M9） *)
   | TFn of (mode * ty) list * ty   (* fn(T) -> U：只能作为函数参数的类型，实参是闭包（C40，Lean M21） *)
+  | TOFn of (mode * ty) list * ty  (* Fn(T) -> U：可以存、可以返回的闭包（C59，Lean M26）：拥有堆上的环境，需要析构、只能移动 *)
 
 type binop =
   | Add | Sub | Mul | Div | Rem
@@ -54,7 +55,7 @@ and expr_desc =
   | Arena of string * block   (* arena |a| { … } *)
   | If of expr * block * block option
   | Block of block
-  | Lambda of string list * expr   (* |x, y| e：闭包，只能写在类型是 fn(…) 的参数的实参位置（C40） *)
+  | Lambda of string list * expr   (* |x, y| e：闭包，写在类型是 fn(…) 的参数的实参位置（C40），或者需要 Fn(…) 的地方（C59） *)
   | PMatch of bool * expr * (pat * expr) list
       (* 带嵌套模式的 match（C55，Lean M24、M24b）：类型检查时检查覆盖性，再展开成 Match、If、Destruct，
          之后的阶段看不到它。true：match let *)
@@ -171,3 +172,6 @@ let rec string_of_ty = function
   | TFn (ps, r) ->
       let m = function MLet -> "" | MInout -> "inout " | MSink -> "sink " in
       "fn(" ^ String.concat ", " (List.map (fun (md, t) -> m md ^ string_of_ty t) ps) ^ ") -> " ^ string_of_ty r
+  | TOFn (ps, r) ->
+      let m = function MLet -> "" | MInout -> "inout " | MSink -> "sink " in
+      "Fn(" ^ String.concat ", " (List.map (fun (md, t) -> m md ^ string_of_ty t) ps) ^ ") -> " ^ string_of_ty r
