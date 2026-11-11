@@ -40,6 +40,41 @@ pub fn lines(v: &str in r) -> Vec<&str in r> {
 
 fn is_space(c: I64) -> Bool { c == 32 || c == 9 || c == 10 || c == 13 }
 
+// 不收集成 Vec 的逐行访问：从 pos 开始的这一行在哪里结束（\n 的位置，没有时是 len）。
+//     var pos = 0
+//     while pos < data.len() {
+//         let e = view.line_end(data, pos)
+//         let line = view.trim_cr(data.sub(pos, e))
+//         …
+//         pos = e + 1
+//     }
+pub fn line_end(v: &str in r, pos: I64) -> I64 {
+    let e = v.find("\n", pos)
+    if e < 0 { v.len() } else { e }
+}
+
+// 去掉行尾的一个 \r（\r\n 换行的文件）
+pub fn trim_cr(v: &str in r) -> &str in r {
+    let n = v.len()
+    if n > 0 && v.byte(n - 1) == 13 { v.sub(0, n - 1) } else { v }
+}
+
+// 按 sep 切开后的第 i 段（从 0 开始，sep 不能为空），没有这么多段时是 .None；和 split(v, sep)[i] 相同，但不建 Vec
+pub fn field(v: &str in r, sep: Str, i: I64) -> Option<&str in r> {
+    if str_len(sep) == 0 { panic("split 的分隔符不能为空") }
+    if i < 0 { return .None }
+    var start = 0
+    var k = 0
+    while k < i {
+        let j = v.find(sep, start)
+        if j < 0 { return .None }
+        start = j + str_len(sep)
+        k = k + 1
+    }
+    let e = v.find(sep, start)
+    if e < 0 { .Some(v.sub(start, v.len())) } else { .Some(v.sub(start, e)) }
+}
+
 // 去掉两头的空格、制表符和换行
 pub fn trim(v: &str in r) -> &str in r {
     var a = 0

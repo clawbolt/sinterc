@@ -220,7 +220,7 @@ sinterc 接受的生成 C，每个按所有长度不超过 3 的选择序列（`
   不引入“借用某个变量”：缓冲区由 `text(a, s)` 交给区域 `a`（字面量直接指向静态存储，不复制），之后不再改动，区域结束时整块释放。
 - 切片的方法：`len`、`byte(i)`、`sub(i, j)`（越界时 panic，结果在同一块缓冲区里，M27 的一）、`find(p, from)`、`eq(s)`、`eq_view(w)`、
   `print_str()`，都不分配；`to_str()` 复制成 `Str`。`std.view`：`split`、`lines`、`trim`、`starts_with`、`ends_with`、`to_i64`。
-- C 里切片是 `sn_view { p, len }`，按值传；字符串结构体多了一个字节的 `lit`。
+- C 里切片是 `sn_view { p, len }`，按值传。字符串的 `lit` 和 `len` 共用 8 字节（位域，`len` 63 位），`sn_str` 仍是 16 字节；最初加成单独的 `bool` 时是 24 字节，全量的 `Vec<Vec<Str>>` 因此多用了约 30 MB，已改回。
 - 暂不支持：对切片做字符串插值、`match` 切片。（直接读进 arena 见 C62。）
 
 ## 直接读进 arena（C62）
@@ -231,7 +231,9 @@ sinterc 接受的生成 C，每个按所有长度不超过 3 的选择序列（`
   每次都在区域里新分配一块，区域结束时一起释放；循环里读大文件时，把每一块的处理放进内层的 `arena` 块，内存就不会一直涨。
 - 都只是在区域后面追加新的缓冲区，就是 Lean M27 的二已经证明的情况（`fresh_valid`、`grow_read`），没有新的推理。
 - 同时 `std.str` 的 `find`、`split`、`replace`、`starts_with`、`ends_with` 改为逐字节比较，不再为每个位置复制一个子串。
-- `benchmark/` 的 `sh run.sh csv`：100 万行的 CSV 对一列求和，`Str` 版 0.13s、76.0 MB，切片版 0.04s、37.6 MB（结果相同）。
+- `std.view` 的 `line_end(v, pos)`、`trim_cr(v)`、`field(v, sep, i)`：逐行、逐字段访问，不建 `Vec`。
+  `c62.t` 检查它们和 `lines`、`split` 的结果相同（空行、`\r\n`、空字段、末尾没有换行）。
+- `benchmark/` 的 `sh run.sh csv`：100 万行的 CSV 对一列求和，`Str` 版 0.13s、68.4 MB，切片收集成 `Vec` 0.04s、37.6 MB，`line_end` + `field` 不建 `Vec` 0.02s、20.2 MB（结果相同）。
 
 
 ## 许可证 / License

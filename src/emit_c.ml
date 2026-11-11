@@ -84,8 +84,10 @@ static void sn_free(void *p) { free(p); SN_COUNT(sn_live--); }
 static void *sn_realloc(void *p, size_t n) { if (!p) return sn_alloc(n); void *q = realloc(p, n); if (!q) sn_panic("内存不足"); return q; }
 /* 字符串（C29）：末尾多一个 0；let 参数传指针，inout 参数传指针并可以改。
    静态字面量（C61，Lean M27 的三）：lit 是 1 时 p 指向程序里的字符串常量，不占堆——不分配，复制还是字面量，
-   析构什么都不做；要修改时先用 sn_str_own 复制到堆上。lit 是 0 时拥有一块堆内存。 */
-typedef struct { char *p; int64_t len; bool lit; } sn_str;
+   析构什么都不做；要修改时先用 sn_str_own 复制到堆上。lit 是 0 时拥有一块堆内存。
+   lit 和 len 共用 8 个字节（位域），结构体和加标记之前一样是 16 字节，Vec<Str> 不因此变大 */
+typedef struct { char *p; int64_t len : 63; uint64_t lit : 1; } sn_str;
+_Static_assert(sizeof(sn_str) == 16, "sn_str 应该是 16 字节");
 static sn_str sn_str_make(const char *s, int64_t n) { sn_str r = { 0 }; r.p = sn_alloc((size_t)n + 1); memcpy(r.p, s, (size_t)n); r.p[n] = 0; r.len = n; return r; }
 static sn_str u_str_lit(const char *s) { sn_str r; r.p = (char *)s; r.len = (int64_t)strlen(s); r.lit = true; return r; }
 /* C 字符串（参数、环境变量、目录项）复制成拥有堆内存的 Str：它们的内存不归程序所有 */

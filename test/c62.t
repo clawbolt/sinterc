@@ -108,3 +108,47 @@ C62：流式读入。read_file_in(a, path)、read_stdin_in(a) 把文件、标准
    2 |     let c = read_stdin_in(1)
      |                           ^
   [1]
+
+不收集成 Vec 的逐行、逐字段访问：line_end、trim_cr 逐行走，结果和 view.lines 相同；field(v, sep, i) 和 split(v, sep)[i] 相同，
+段数不够时是 .None：
+
+  $ cat > walk.sn <<'EOF'
+  > use std.view
+  > 
+  > fn check(a: Arena, sink s: Str) {
+  >     let data = text(a, s)
+  >     let ls = view.lines(data)
+  >     var k = 0
+  >     var pos = 0
+  >     var same = true
+  >     while pos < data.len() {
+  >         let e = view.line_end(data, pos)
+  >         let line = view.trim_cr(data.sub(pos, e))
+  >         if k >= ls.len() || !line.eq_view(ls[k]) { same = false }
+  >         let parts = view.split(line, ",")
+  >         for i in 0..parts.len() + 1 {
+  >             match view.field(line, ",", i) {
+  >                 .Some(f) => { if i >= parts.len() || !f.eq_view(parts[i]) { same = false } },
+  >                 .None => { if i < parts.len() { same = false } }
+  >             }
+  >         }
+  >         k = k + 1
+  >         pos = e + 1
+  >     }
+  >     print("{k} {ls.len()} {same && k == ls.len()}")
+  > }
+  > 
+  > fn main() {
+  >     arena |a| {
+  >         check(a, "a,b,c\nd,,e\r\n,\n\nlast")
+  >         check(a, "x\n")
+  >         check(a, "")
+  >         check(a, "no newline, at all")
+  >     }
+  > }
+  > EOF
+  $ sinterc run walk.sn
+  5 5 true
+  1 1 true
+  0 0 true
+  1 1 true

@@ -110,7 +110,7 @@ Import a module with `use std.name` and call it as `name.function(…)`. The sou
 | `std.option`, `std.result` | `is_some`, `unwrap_or`, `unwrap`, `expect`, … |
 | `std.vec` | `map`, `filter`, `fold`, `any`, `all`, `count`, `sum`, `max`, `min`, `reverse`, `contains`, `range`, `sort`, `sort_by`, `binary_search`, `dedup` |
 | `std.str` | `split`, `join`, `trim`, `find`, `contains`, `starts_with`, `replace`, `lines`, `to_upper`, `to_lower`, `repeat` |
-| `std.view` | `split`, `lines`, `trim`, `starts_with`, `ends_with`, `to_i64` on string slices `&str in a`, without allocating |
+| `std.view` | `split`, `lines`, `trim`, `starts_with`, `ends_with`, `to_i64` on string slices `&str in a`, plus `line_end`, `trim_cr`, `field` that walk lines and fields without building a Vec; none of them allocate strings |
 | `std.char` | `is_digit`, `is_alpha`, `is_whitespace`, `to_upper`, `to_digit`, … (ASCII only) |
 | `std.io` | `read_lines`, `write_lines`, `input_lines` |
 | `std.os` | `env`, `list_dir` (sorted by name), `exists`, `is_dir`, `make_dir`, `remove`, `run` (starts a process without a shell and returns its exit code), `output` (also collects its standard output), `exit` |

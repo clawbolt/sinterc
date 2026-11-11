@@ -91,7 +91,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 | `std.option`、`std.result` | `is_some`、`unwrap_or`、`unwrap`、`expect` 等 |
 | `std.vec` | `map`、`filter`、`fold`、`any`、`all`、`count`、`sum`、`max`、`min`、`reverse`、`contains`、`range`、`sort`、`sort_by`、`binary_search`、`dedup` |
 | `std.str` | `split`、`join`、`trim`、`find`、`contains`、`starts_with`、`replace`、`lines`、`to_upper`、`to_lower`、`repeat` |
-| `std.view` | 字符串切片 `&str in a` 的 `split`、`lines`、`trim`、`starts_with`、`ends_with`、`to_i64`，都不分配 |
+| `std.view` | 字符串切片 `&str in a` 的 `split`、`lines`、`trim`、`starts_with`、`ends_with`、`to_i64`，以及不建 Vec 的 `line_end`、`trim_cr`、`field`，都不分配 |
 | `std.char` | `is_digit`、`is_alpha`、`is_whitespace`、`to_upper`、`to_digit` 等（只认 ASCII） |
 | `std.io` | `read_lines`、`write_lines`、`input_lines` |
 | `std.os` | `env`、`list_dir`（按名字排好）、`exists`、`is_dir`、`make_dir`、`remove`、`run`（启动子进程，不经过 shell，返回退出码）、`output`（收集标准输出）、`exit` |
