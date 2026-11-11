@@ -13,15 +13,19 @@
   `print_bytes` 原样输出；`s.to_bytes()`、`str_from_utf8(b)`（只在合法的 UTF-8 时得到 `.Some`，C57，Lean S11）。
 - 可以存起来的闭包 `Fn(T) -> U`：存进变量、字段、`Vec`，也可以返回；外面的变量按值拿进来，闭包可以改自己的环境（计数器），
   调用时闭包按 `inout`；`Fn` 变量可以传给 `fn(…)` 参数（C59，Lean M26）。
+- 字符串切片 `&str in a`：`text(a, s)` 把字符串交给区域，`sub`、`byte`、`find`、`eq` 不分配，切片和引用一样不能活过它的区域；
+  字符串字面量不再每次分配，修改时才复制（C61，Lean M27）。
 
 **标准库**
 - `std.bigint`：任意大小的整数，加、减、乘、比较、除以小数、十进制转换，实现 `Eq`、`Ord`（C54，Lean S10）。
 - `std.os`：`env`、`list_dir`、`exists`、`is_dir`、`make_dir`、`remove`，启动子进程 `run`（返回退出码）和 `output`
   （收集标准输出），不经过 shell；`exit(code)`（C58）。
 - `eprint(s)`、`eprint_str(s)`：写到标准错误（C60）。
+- `std.view`：字符串切片的 `split`、`lines`、`trim`、`starts_with`、`ends_with`、`to_i64`，结果是同一块缓冲区里的切片（C61）。
 
 **验证**
 - AVL 平衡：`std.treemap` 的插入、删除保持平衡，树高是对数（Lean S6b）。
+- 切片的边界、arena 只增不改、静态字面量的分配计数（Lean M27）。
 
 **工具**
 - `sinterc build --release`、`sinterc run --release`：`-O2`，不统计分配、不做退出时的泄漏检查（C60）。

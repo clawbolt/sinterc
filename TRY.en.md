@@ -84,6 +84,7 @@ The C compiler is taken from `$CC` (default: `cc`).
   so it must be in a `var` when called (`var f: Fn(I64) -> I64 = |x| x + k`, `f(1)`; for fields and `Vec` elements
   write `fs[i].call(1)`).
 - **References only come from arenas**: `arena |a| { let r = alloc(a, 1) … }`; a reference cannot outlive its arena.
+- **String slices `&str in a`**: `text(a, s)` hands a string to an arena and gives a slice of the whole of it; `v.sub(i, j)`, `v.byte(i)`, `v.find(p, from)`, `v.eq(s)`, `v.len()` do not allocate (out of bounds panics), and `v.to_str()` copies into a `Str`. Like references, slices cannot outlive their arena. String literals do not allocate; they are copied only when modified.
 - **Modules**: one file per module; `use geom` brings in `geom.sn` from the same directory, and `geom.area(…)`
   accesses its `pub` items.
 - **Strings**: `Str` holds UTF-8 bytes. `s.len()` counts bytes, `s.chars()` decodes `Char`s, `s.char_count()`
@@ -109,6 +110,7 @@ Import a module with `use std.name` and call it as `name.function(…)`. The sou
 | `std.option`, `std.result` | `is_some`, `unwrap_or`, `unwrap`, `expect`, … |
 | `std.vec` | `map`, `filter`, `fold`, `any`, `all`, `count`, `sum`, `max`, `min`, `reverse`, `contains`, `range`, `sort`, `sort_by`, `binary_search`, `dedup` |
 | `std.str` | `split`, `join`, `trim`, `find`, `contains`, `starts_with`, `replace`, `lines`, `to_upper`, `to_lower`, `repeat` |
+| `std.view` | `split`, `lines`, `trim`, `starts_with`, `ends_with`, `to_i64` on string slices `&str in a`, without allocating |
 | `std.char` | `is_digit`, `is_alpha`, `is_whitespace`, `to_upper`, `to_digit`, … (ASCII only) |
 | `std.io` | `read_lines`, `write_lines`, `input_lines` |
 | `std.os` | `env`, `list_dir` (sorted by name), `exists`, `is_dir`, `make_dir`, `remove`, `run` (starts a process without a shell and returns its exit code), `output` (also collects its standard output), `exit` |

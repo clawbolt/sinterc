@@ -68,6 +68,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
   要存进变量、字段、`Vec` 或者返回，就用 `Fn(T) -> U`：外面的变量按值拿进闭包（`Str` 这类被移走），闭包可以改自己的环境（计数器），
   所以调用时闭包要在 `var` 里（`var f: Fn(I64) -> I64 = |x| x + k`，`f(1)`；字段、`Vec` 元素写 `fs[i].call(1)`）。
 - **引用只能来自 arena**：`arena |a| { let r = alloc(a, 1) … }`，引用不能活过它的 arena。
+- **字符串切片 `&str in a`**：`text(a, s)` 把字符串交给 arena，得到整段的切片；`v.sub(i, j)`、`v.byte(i)`、`v.find(p, from)`、`v.eq(s)`、`v.len()` 都不分配（越界时 panic），`v.to_str()` 复制成 `Str`。切片和引用一样不能活过它的 arena。字符串字面量不分配，修改时才复制。
 - **模块**：一个文件一个模块，`use geom` 引入同目录的 `geom.sn`，用 `geom.area(…)` 访问标了 `pub` 的条目。
 - **字符串**：`Str` 存 UTF-8 字节。`s.len()` 是字节数，`s.chars()` 逐个解出 `Char`，`s.char_count()` 是字符数，
   `s.push(t)`、`s.push_char(c)`、`s.slice(a, b)`、`s.to_i64()`、`s.to_f64()`。
@@ -90,6 +91,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 | `std.option`、`std.result` | `is_some`、`unwrap_or`、`unwrap`、`expect` 等 |
 | `std.vec` | `map`、`filter`、`fold`、`any`、`all`、`count`、`sum`、`max`、`min`、`reverse`、`contains`、`range`、`sort`、`sort_by`、`binary_search`、`dedup` |
 | `std.str` | `split`、`join`、`trim`、`find`、`contains`、`starts_with`、`replace`、`lines`、`to_upper`、`to_lower`、`repeat` |
+| `std.view` | 字符串切片 `&str in a` 的 `split`、`lines`、`trim`、`starts_with`、`ends_with`、`to_i64`，都不分配 |
 | `std.char` | `is_digit`、`is_alpha`、`is_whitespace`、`to_upper`、`to_digit` 等（只认 ASCII） |
 | `std.io` | `read_lines`、`write_lines`、`input_lines` |
 | `std.os` | `env`、`list_dir`（按名字排好）、`exists`、`is_dir`、`make_dir`、`remove`、`run`（启动子进程，不经过 shell，返回退出码）、`output`（收集标准输出）、`exit` |

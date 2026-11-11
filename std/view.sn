@@ -1,0 +1,87 @@
+// std.view：字符串切片 &str in a（C61）的常用函数。切片不拥有内存，这里的函数都不分配新的字符串，
+// 结果是同一块缓冲区里的切片（Lean M27 的一：子切片仍在缓冲区里）。缓冲区用 text(a, s) 放进区域 a。
+//
+//     arena |a| {
+//         let line = text(a, "x, 42 ,y")
+//         let parts = view.split(line, ",")
+//         print(view.trim(parts[1]).to_str())   // 42
+//     }
+
+// 按 sep 切开（sep 不能为空）：n 个 sep 得到 n + 1 段，段可以是空的
+pub fn split(v: &str in r, sep: Str) -> Vec<&str in r> {
+    if str_len(sep) == 0 { panic("split 的分隔符不能为空") }
+    var out: Vec<&str in r> = vec_new()
+    var start = 0
+    var i = v.find(sep, 0)
+    while i >= 0 {
+        out.push(v.sub(start, i))
+        start = i + str_len(sep)
+        i = v.find(sep, start)
+    }
+    out.push(v.sub(start, v.len()))
+    out
+}
+
+// 按行切开：去掉行尾的 \n 和 \r\n；最后一行后面有没有换行都一样，空的切片没有行
+pub fn lines(v: &str in r) -> Vec<&str in r> {
+    var out: Vec<&str in r> = vec_new()
+    let n = v.len()
+    var start = 0
+    while start < n {
+        var e = v.find("\n", start)
+        if e < 0 { e = n }
+        var stop = e
+        if stop > start && v.byte(stop - 1) == 13 { stop = stop - 1 }
+        out.push(v.sub(start, stop))
+        start = e + 1
+    }
+    out
+}
+
+fn is_space(c: I64) -> Bool { c == 32 || c == 9 || c == 10 || c == 13 }
+
+// 去掉两头的空格、制表符和换行
+pub fn trim(v: &str in r) -> &str in r {
+    var a = 0
+    var b = v.len()
+    while a < b && is_space(v.byte(a)) { a = a + 1 }
+    while b > a && is_space(v.byte(b - 1)) { b = b - 1 }
+    v.sub(a, b)
+}
+
+pub fn starts_with(v: &str in r, p: Str) -> Bool {
+    if str_len(p) > v.len() { return false }
+    v.sub(0, str_len(p)).eq(p)
+}
+
+pub fn ends_with(v: &str in r, p: Str) -> Bool {
+    let n = v.len()
+    let m = str_len(p)
+    if m > n { return false }
+    v.sub(n - m, n).eq(p)
+}
+
+// 十进制整数（可以有一个负号）；格式不对或超出 I64 范围时是 .None，和 Str 的 to_i64 一样。
+// 按负数累加，这样 I64 的最小值也能表示
+pub fn to_i64(v: &str in r) -> Option<I64> {
+    let n = v.len()
+    var i = 0
+    var neg = false
+    if n > 0 && v.byte(0) == 45 {
+        neg = true
+        i = 1
+    }
+    if i == n { return .None }
+    let min = -9223372036854775807 - 1
+    var x = 0
+    while i < n {
+        let d = v.byte(i) - 48
+        if d < 0 || d > 9 { return .None }
+        if x < (min + d) / 10 { return .None }
+        x = x * 10 - d
+        i = i + 1
+    }
+    if neg { return .Some(x) }
+    if x == min { return .None }
+    .Some(-x)
+}

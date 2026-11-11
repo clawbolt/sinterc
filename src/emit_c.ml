@@ -231,6 +231,35 @@ static void *sn_arena_alloc(sn_arena *a, size_t n) {
 static void sn_arena_free(sn_arena *a) { sn_chunk *c = a->head; while (c) { sn_chunk *n = c->next; sn_free(c); c = n; } a->head = 0; }
 /* 可以存起来的闭包 Fn(…)（C59）：堆上的环境、转发到提升出的函数的 code、析构并释放环境的 drop */
 typedef struct { void *env; void (*code)(void); void (*drop)(void *); } sn_fn;
+/* 字符串切片 &str in a（C61，Lean M27 的一、二）：缓冲区里的一段，不拥有内存。缓冲区由 text(a, s) 放进区域 a
+   （字面量本来就在静态存储里，不用复制），区域结束时整块释放；之后不再改动，所以切片一直有效。
+   子切片、下标都检查边界（越界时 panic），结果仍在同一块缓冲区里。 */
+typedef struct { const char *p; int64_t len; } sn_view;
+static sn_view u_text(sn_arena *a, sn_str s) {
+  if (s.lit) return (sn_view){ s.p, s.len };
+  char *q = sn_arena_alloc(a, (size_t)s.len + 1);
+  memcpy(q, s.p, (size_t)s.len); q[s.len] = 0;
+  sn_free(s.p);
+  return (sn_view){ q, s.len };
+}
+static int64_t u_view_len(const sn_view *v) { return v->len; }
+static int64_t u_view_byte(const sn_view *v, int64_t i) { return (unsigned char)v->p[sn_idx(v->len, i)]; }
+static sn_view u_view_sub(const sn_view *v, int64_t a, int64_t b) {
+  if (a < 0 || b < a || b > v->len) sn_panic("下标越界");
+  return (sn_view){ v->p + a, b - a };
+}
+static sn_str u_view_to_str(const sn_view *v) { return sn_str_make(v->p, v->len); }
+static bool u_view_eq(const sn_view *v, const sn_str *s) { return v->len == s->len && memcmp(v->p, s->p, (size_t)v->len) == 0; }
+static bool u_view_eq_view(const sn_view *v, const sn_view *w) { return v->len == w->len && memcmp(v->p, w->p, (size_t)v->len) == 0; }
+/* pat 在 from 及以后第一次出现的位置，没有时是 -1；from 不在 0 到 len 之间时 panic */
+static int64_t u_view_find(const sn_view *v, const sn_str *pat, int64_t from) {
+  if (from < 0 || from > v->len) sn_panic("下标越界");
+  if (pat->len == 0) return from;
+  for (int64_t i = from; i + pat->len <= v->len; i++)
+    if (v->p[i] == pat->p[0] && memcmp(v->p + i, pat->p, (size_t)pat->len) == 0) return i;
+  return -1;
+}
+static void u_view_print_str(const sn_view *v) { fwrite(v->p, 1, (size_t)v->len, stdout); }
 |}
 
 (* 泛型实例（名字里有 <）的 C 名字：编号加上去掉符号的写法，和用户写的名字（S_、u_ 开头）不会重名。 *)
@@ -263,6 +292,7 @@ let rec mangle = function
   | TBool -> "Bool"
   | TStr -> "Str"
   | TBytes -> "Bytes"
+  | TView -> "View"
   | TUnit -> "U"
   | TStruct n -> if is_ident n then n else sname n
   | TBox t -> "B" ^ mangle t
@@ -280,11 +310,13 @@ let rec cty = function
   | TBool -> "bool"
   | TStr -> "sn_str"
   | TBytes -> "sn_str"   (* 字节串（C57）和字符串的表示相同 *)
+  | TView -> "sn_view"
   | TUnit -> "sn_unit"   (* 存值的地方（变量、字段、载荷、Vec 元素）占一个字节；函数返回 () 时仍是 void *)
   | TStruct n -> sname n
   | TBox t -> cty t ^ "*"
   | TResult _ as t -> "S_" ^ mangle t
   | TVec _ as t -> "S_" ^ mangle t
+  | TRef (TView, _) -> "sn_view"   (* 字符串切片（C61）：指针和长度，按值传 *)
   | TRef (t, _) -> cty t ^ "*"
   | TArena _ -> "sn_arena"
   | TOFn _ -> "sn_fn"
@@ -300,7 +332,7 @@ let rec drop_code ty lv =
   | TStr | TBytes -> Printf.sprintf "if (!%s.lit) sn_free(%s.p); " lv lv
   | TOFn _ -> Printf.sprintf "%s.drop(%s.env); " lv lv
   | (TStruct _ | TResult _ | TVec _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
-  | TI64 | TF64 | TChar | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ | TFn _ -> ""
+  | TI64 | TF64 | TChar | TBool | TView | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ | TFn _ -> ""
 
 (* 析构函数的函数体：结构体逐个析构字段；枚举按运行时标签析构对应变体的载荷（Lean M8 的 dropOne）；
    Vec 逐个析构元素，再释放缓冲区（Lean M12）。 *)
@@ -380,7 +412,7 @@ let type_defs (p : program) (fs : Mir.func list) =
           (fun (f : field) -> Buffer.add_string defs (Printf.sprintf " %s f_%s;" (cty f.fty) f.fname))
           fields;
         Buffer.add_string defs " };\n"
-    | (TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _ | TOFn _), _ -> ()
+    | (TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _ | TOFn _), _ -> ()
   in
   List.iter
     (function

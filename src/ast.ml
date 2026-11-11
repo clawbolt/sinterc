@@ -12,6 +12,8 @@ type ty =
   | TBool
   | TStr                (* 字符串：拥有一块堆内存（字节），需要析构，只能移动（C29，Lean M17） *)
   | TBytes              (* 字节串（C57）：任意字节，和 Str 一样拥有一块堆内存、需要析构、只能移动 *)
+  | TView               (* str（C61，Lean M27）：字符串切片指向的内容，只出现在 &str in a 里（TRef (TView, a)）：
+                           切片不拥有内存，缓冲区归区域 a 所有，所以切片就是区域 a 里的一种引用，可以复制 *)
   | TUnit
   | TStruct of string   (* 用户定义的结构体或枚举，按名字区分 *)
   | TBox of ty          (* 拥有一块堆内存 *)
@@ -160,6 +162,7 @@ let rec string_of_ty = function
   | TBool -> "Bool"
   | TStr -> "Str"
   | TBytes -> "Bytes"
+  | TView -> "str"
   | TUnit -> "()"
   | TStruct n -> n
   | TBox t -> "Box<" ^ string_of_ty t ^ ">"

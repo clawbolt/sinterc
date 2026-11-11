@@ -111,7 +111,7 @@ let rec is_linear = function
   | TResult (a, b) -> is_linear a || is_linear b
   | TBox t | TVec t -> is_linear t
   | TParam (_, l) -> l
-  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TRef _ | TArena _ | TApp _ | TFn _ | TOFn _ -> false
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TRef _ | TArena _ | TApp _ | TFn _ | TOFn _ -> false
 
 (* 需要析构（或者是 linear）的类型：这些类型的值只能移动，不能复制。 *)
 let rec needs_drop = function
@@ -128,7 +128,7 @@ let rec needs_drop = function
           | None -> false))
   | TResult (a, b) -> needs_drop a || needs_drop b
   | TParam _ -> true            (* 类型参数按抽象类型检查：可能需要析构，只能移动（Lean M9） *)
-  | TI64 | TF64 | TChar | TBool | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
+  | TI64 | TF64 | TChar | TBool | TView | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
 
 (* 内建函数按值接收可复制的参数，记作 sink；字符串按 let（只读借用）或 inout 传入（C29）。 *)
 let builtins =
@@ -222,8 +222,29 @@ let str_methods =
 (* 字节串的方法调用（C57）：b.get(i) 就是 bytes_get(b, i)。 *)
 let bytes_methods = [ "len"; "get"; "set"; "push"; "append"; "slice"; "clone"; "eq" ]
 
+(* 字符串切片的方法调用（C61）：v.sub(a, b) 就是 view_sub(v, a, b)。 *)
+let view_methods = [ "len"; "byte"; "sub"; "to_str"; "eq"; "eq_view"; "find"; "print_str" ]
+
+(* 字符串切片的内建函数（C61，Lean M27）：text(a, s) 把 s 放进区域 a，得到整段的切片；view_… 是切片的方法。
+   结果里的区域跟着参数走，所以和 alloc 一样单独检查类型（expr）；这里只给降级用的参数约定，区域写 _ *)
+let view_sigs =
+  let v = TRef (TView, "_") in
+  [
+    "text", ([ (MLet, TArena "_"); (MSink, TStr) ], v);
+    "view_len", ([ (MLet, v) ], TI64);
+    "view_byte", ([ (MLet, v); (MSink, TI64) ], TI64);
+    "view_sub", ([ (MLet, v); (MSink, TI64); (MSink, TI64) ], v);
+    "view_to_str", ([ (MLet, v) ], TStr);
+    "view_eq", ([ (MLet, v); (MLet, TStr) ], TBool);
+    "view_eq_view", ([ (MLet, v); (MLet, v) ], TBool);
+    "view_find", ([ (MLet, v); (MLet, TStr); (MSink, TI64) ], TI64);
+    "view_print_str", ([ (MLet, v) ], TUnit);
+  ]
+
 (* 特殊处理的内建函数：参数类型不固定。 *)
-let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "vec_swap"; "panic"; "os_exit" ]
+let special =
+  [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "vec_swap"; "panic"; "os_exit" ]
+  @ List.map fst view_sigs
 
 (* Vec 的内建函数的参数约定（给降级用；类型由类型检查单独处理）。vec_get 是位置，不是调用。 *)
 let vec_sigs =
@@ -317,7 +338,7 @@ let rec mentions r = function
   | TBox t | TVec t -> mentions r t
   | TResult (a, b) -> mentions r a || mentions r b
   | TStruct n -> List.exists (mentions r) (inst_args n)
-  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TApp _ | TParam _ | TFn _ | TOFn _ -> false   (* fn(…)、Fn(…) 里不能有区域（check_ty） *)
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TApp _ | TParam _ | TFn _ | TOFn _ -> false   (* fn(…)、Fn(…) 里不能有区域（check_ty） *)
 
 let rec region_names = function
   | TRef (t, x) -> x :: region_names t
@@ -325,7 +346,7 @@ let rec region_names = function
   | TBox t | TVec t -> region_names t
   | TResult (a, b) -> region_names a @ region_names b
   | TStruct n -> List.concat_map region_names (inst_args n)
-  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TApp _ | TParam _ | TFn _ | TOFn _ -> []
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TApp _ | TParam _ | TFn _ | TOFn _ -> []
 
 let rec rename s = function
   | TRef (t, x) -> TRef (rename s t, Option.value (List.assoc_opt x s) ~default:x)
@@ -579,7 +600,7 @@ let rec params_of = function
   | TBox t | TVec t | TRef (t, _) -> params_of t
   | TResult (a, b) -> params_of a @ params_of b
   | TFn (ps, r) | TOFn (ps, r) -> List.concat_map (fun (_, t) -> params_of t) ps @ params_of r
-  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TArena _ | TApp _ -> []
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TArena _ | TApp _ -> []
 
 (* ---- impl 的查找（C56，Lean M25） ---- *)
 
@@ -685,7 +706,7 @@ and only_cov p t =
             (List.mapi (fun i t -> (not (List.mem p (params_of t))) || (covariant g i && only_cov p t)) ts)
       | None -> true)
   | TBox _ | TVec _ | TRef _ | TFn _ | TOFn _ -> not (List.mem p (params_of t))
-  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TArena _ | TApp _ -> true
+  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TArena _ | TApp _ -> true
 
 let () = covariant_fwd := covariant
 
@@ -1201,6 +1222,36 @@ and expr1 env (x : expr) : t =
       | Never -> Never
       | Ty t -> err a.pos "alloc 的第一个参数必须是区域，%s 不是" (string_of_ty t))
   | Call ("alloc", _) -> err pos "alloc 需要 2 个参数：区域和值"
+  | Call ("text", [ a; s ]) -> (
+      (* text(a, s)（C61）：s 交给区域 a，得到整段的切片 &str in a；之后缓冲区不再改动，区域结束时释放（Lean M27 的二） *)
+      match expr env a with
+      | Ty (TArena r) ->
+          ignore (check env TStr s);
+          Ty (TRef (TView, r))
+      | Never -> Never
+      | Ty t -> err a.pos "text 的第一个参数必须是区域，%s 不是" (string_of_ty t))
+  | Call ("text", _) -> err pos "text 需要 2 个参数：区域和字符串"
+  | Call (f, v :: rest) when List.mem_assoc f view_sigs -> (
+      (* 切片的方法（C61）：子切片和原切片在同一个区域里（Lean M27 的一） *)
+      let int (e : expr) = expect e.pos TI64 (expr env e) in
+      match expr env v with
+      | Never -> Never
+      | Ty (TRef (TView, _) as tv) -> (
+          match f, rest with
+          | "view_len", [] -> Ty TI64
+          | "view_byte", [ i ] -> int i; Ty TI64
+          | "view_sub", [ i; j ] -> int i; int j; Ty tv
+          | "view_to_str", [] -> Ty TStr
+          | "view_eq", [ s ] -> expect s.pos TStr (expr env s); Ty TBool
+          | "view_eq_view", [ w ] -> (
+              match expr env w with
+              | Ty (TRef (TView, _)) | Never -> Ty TBool
+              | Ty t -> err w.pos "eq_view 的参数必须是字符串切片，%s 不是（和 Str 比较用 eq）" (string_of_ty t))
+          | "view_find", [ s; i ] -> expect s.pos TStr (expr env s); int i; Ty TI64
+          | "view_print_str", [] -> Ty TUnit
+          | _ -> err pos "%s 的参数个数不对" f)
+      | Ty t -> err v.pos "%s 的第一个参数必须是字符串切片 &str in …，%s 不是" f (string_of_ty t))
+  | Call (f, []) when List.mem_assoc f view_sigs -> err pos "%s 的参数个数不对" f
   | Call ("vec_new", []) ->
       err pos "无法确定 vec_new() 的元素类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方"
   | Call (("vec_push" | "vec_pop" | "vec_len" | "vec_get" | "vec_swap") as f, v :: rest) -> (
@@ -1235,6 +1286,7 @@ and expr1 env (x : expr) : t =
   | Call (("vec_new" | "vec_push" | "vec_pop" | "vec_len" | "vec_get" | "vec_swap") as f, _) -> err pos "%s 的参数个数不对" f
   | Deref a -> (
       match expr env a with
+      | Ty (TRef (TView, _)) -> err pos "字符串切片不能解引用（要 Str 时用 to_str() 复制一份）"
       | Ty (TBox t | TRef (t, _)) -> Ty t
       | Never -> Never
       | Ty t -> err pos "%s 不是 Box 或引用，不能解引用" (string_of_ty t))
@@ -1285,6 +1337,7 @@ and method_name env (x : expr) f (r : expr) =
     | Ty (TVec _), ("push" | "pop" | "len" | "get" | "swap") -> "vec_" ^ m
     | Ty TStr, m when List.mem m str_methods -> "str_" ^ m
     | Ty TBytes, m when List.mem m bytes_methods -> "bytes_" ^ m
+    | Ty (TRef (TView, _)), m when List.mem m view_methods -> "view_" ^ m
     | Ty TChar, "code" -> "char_code"
     (* x.to_str()，也是字符串插值 "{x}" 用的（C49） *)
     | Ty TI64, "to_str" -> "str_from_i64"
@@ -2219,7 +2272,7 @@ let prepare (p : program) =
     p;
   Hashtbl.reset sigs;
   Hashtbl.iter (Hashtbl.replace sigs) fns;
-  List.iter (fun (f, s) -> Hashtbl.replace sigs f s) (builtins @ vec_sigs);
+  List.iter (fun (f, s) -> Hashtbl.replace sigs f s) (builtins @ vec_sigs @ view_sigs);
   let env0 = { structs = struct_tbl; fns; ret = TUnit; vars = []; guards = []; tbounds = []; clos = [] } in
   (* 字段和载荷的规则；泛型定义按类型参数是抽象类型的实例检查 *)
   let abstract name tparams =

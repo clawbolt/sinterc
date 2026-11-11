@@ -453,6 +453,9 @@ ty:
   | LPAREN t = ty COMMA ts = separated_nonempty_list(COMMA, ty) RPAREN { tuple_ty $startpos (t :: ts) }
   | BOX LT t = ty GT { TBox t }
   | AMP t = ty IN r = IDENT { TRef (t, r) }
+  (* 字符串切片 &str in a（C61）：str 不是关键字，只在 & 后面、in 前面时是类型 *)
+  | AMP n = IDENT IN r = IDENT
+      { if n = "str" then TRef (TView, r) else raise (Syntax (p $startpos(n), Printf.sprintf "未知类型 %s（字符串切片写 &str in 区域）" n)) }
   | RESULT LT t = ty COMMA e = ty GT { TResult (t, e) }
   | FN LPAREN ps = separated_list(COMMA, fn_param) RPAREN r = ret { TFn (ps, r) }
   (* 可以存起来的闭包 Fn(T) -> U（C59）：Fn 不是关键字，写在类型的位置、后面跟括号时才是 *)

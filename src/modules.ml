@@ -100,7 +100,7 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
     | TRef (t, r) -> TRef (ty pos t, r)
     | TFn (ps, r) -> TFn (List.map (fun (m, t) -> (m, ty pos t)) ps, ty pos r)
     | TOFn (ps, r) -> TOFn (List.map (fun (m, t) -> (m, ty pos t)) ps, ty pos r)
-    | (TI64 | TF64 | TChar | TBool | TStr | TBytes | TUnit | TArena _ | TParam _) as t -> t
+    | (TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TArena _ | TParam _) as t -> t
   in
   let binder pos x =
     if List.mem x imported then err pos "变量 %s 和引入的模块同名，换一个名字" x

@@ -290,6 +290,15 @@ let table =
     ("闭包只能直接写在调用的实参里，传给类型是 fn(…) 的参数",
      "a closure can only be written directly as a call argument, for a parameter of type fn(…)");
     (* C59 可以存起来的闭包 Fn(…) *)
+    (* C61 字符串切片 &str in a *)
+    ("未知类型 %s（字符串切片写 &str in 区域）", "unknown type {1} (a string slice is written &str in REGION)");
+    ("text 的第一个参数必须是区域，%s 不是", "the first argument of text must be a region; {1} is not");
+    ("text 需要 2 个参数：区域和字符串", "text takes 2 arguments: a region and a string");
+    ("eq_view 的参数必须是字符串切片，%s 不是（和 Str 比较用 eq）",
+     "the argument of eq_view must be a string slice; {1} is not (use eq to compare with a Str)");
+    ("%s 的第一个参数必须是字符串切片 &str in …，%s 不是", "the first argument of {1} must be a string slice &str in …; {2} is not");
+    ("字符串切片不能解引用（要 Str 时用 to_str() 复制一份）",
+     "a string slice cannot be dereferenced (use to_str() to copy it into a Str)");
     ("无法确定闭包的类型：写在调用的实参里传给 fn(…) 参数，或者写在知道类型的地方（例如 var f: Fn(I64) -> I64 = |x| …）",
      "cannot determine the type of this closure: pass it to a fn(…) parameter, or write it where the type is known (for example var f: Fn(I64) -> I64 = |x| …)");
     ("函数类型 Fn(…) 里暂不能有引用或区域", "function types Fn(…) cannot contain references or regions yet");
