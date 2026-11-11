@@ -17,6 +17,10 @@
 - `std.os`：`env`、`list_dir`、`exists`、`is_dir`、`make_dir`、`remove`，启动子进程 `run`（返回退出码）和 `output`
   （收集标准输出），不经过 shell；`exit(code)`（C58）。
 
+**工具**
+- 编辑器的语法高亮：`editor/vscode`（VS Code，含字符串插值）和 `editor/vim`（T3）。
+- 随机测试 `sh fuzz.sh`：fmt 对空白不敏感、格式化前后记号不变且幂等，编译器对随机改坏的程序不出内部错误；CI 每次换一个种子跑（T5）。
+
 ## 0.2.0-pre（2026-11）
 
 第一个公开的预发布版本，按 MIT 或 Apache-2.0 双许可发布。和 0.1.0 相比：

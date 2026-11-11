@@ -1,10 +1,10 @@
-# sinterc：Sinter 编译器（C58，含 C28、C33）
+# sinterc：Sinter 编译器（C58，含 C28、C33、T3、T5）
 
 版本 0.2.0-pre（预发布）。上手看 [TRY.md](TRY.md)（[English](TRY.en.md)），改动看 [CHANGELOG.md](CHANGELOG.md)。
 证明在单独的仓库 [sinter-formal](https://github.com/clawbolt/sinter-formal)：克隆到本仓库旁边的 `lean` 目录后，
 `sh validate.sh`（翻译验证）和 `sh diff.sh`（三方对照）才能运行。
 
-附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变；C25 试用版命令行（run、build）和上手文档 TRY.md（英文版 TRY.en.md）；C26 用 print 输出文字；C27 英文错误信息（--lang=en）；C29 字符串类型 Str（Lean M17）；C30 for 循环（a..b 和 Vec）；C31 break 和 continue；C32 读取输入（read_line）和字符串的字节、子串、整数解析；C34 模块（use、pub）；C35 标准库第一版（std.math、std.option、std.result、std.vec、std.str）；C36 文件与参数（args、read_file、write_file）；C37 () 作类型实参；C28 一次报多个错误（每个函数报它的第一个，最多 20 个）；C33 for x in inout v（Lean M18：循环体里改元素本身，不能用 v）；C38 panic（Lean M19），std 的 unwrap、expect；C39 std.map（Lean S4）和 vec_swap（Lean M20）；C40 闭包（Lean M21），std.vec 的 map、filter 等；C41 闭包捕获引用（Lean M22）；C42 std.map 的二分查找（Lean S5）；C43 std.treemap（AVL 树，Lean S6），闭包体里的换行重新分隔语句；C44 对照测试加上移动、调用、闭包、泛型（42000 个程序）；C45 元组；C46 match 的 _ 分支和字面量分支（Lean M23）；T1 报错显示源码行和 ^；C47 浮点数 F64；C48 字符 Char 和 UTF-8（Lean S7），std.char，for 遍历函数返回的 Vec；C49 字符串插值；C50 排序 sort、sort_by（Lean S8）；C51 哈希表 std.hashmap（Lean S9）；C52 常用函数和 std.io；C53 下标 v[i] 和按下标赋值（Lean M18），print_str、print_byte；C54 大整数 std.bigint（Lean S10）；C55 嵌套模式（Lean M24、M24b）；C56 内建的 ToStr、默认方法、泛型 impl（Lean M25）；C57 字节串 Bytes 和二进制文件（Lean S11）；C58 std.os：环境变量、目录、子进程、exit；T2 sinterc fmt；T4 CI、文档和 0.2.0-pre。
+附录 F 的里程碑：C0 解析、类型检查、生成 C；C1a 降级为 MIR 控制流图；C1b 所有权；C2 参数约定、投影与排他性；C3 linear 值与出错路径；C4 区域；C5 翻译验证；C6 枚举；C7 按借用的 match；C8 泛型；C9 trait；C10 递归类型；C11 从 Box 里移出值与拆开结构体；C12 Vec；C13 方法调用语法（UFCS）；C14 部分移动；C15 给字段赋值；C16、C17 部分移动和按 drop flag 析构接入翻译验证；C18 多层部分移动；C19 区域和泛型（泛型函数、Vec 的类型实参可以是引用）；C20 含引用的泛型结构体、枚举；C21 含引用的值接入翻译验证；C22 区域错误的反例由 Lean 独立拒绝；C23 带出区域的值在导出时明确标成已结束的区域；C24 含引用的泛型结构体、枚举的协变；C25 试用版命令行（run、build）和上手文档 TRY.md（英文版 TRY.en.md）；C26 用 print 输出文字；C27 英文错误信息（--lang=en）；C29 字符串类型 Str（Lean M17）；C30 for 循环（a..b 和 Vec）；C31 break 和 continue；C32 读取输入（read_line）和字符串的字节、子串、整数解析；C34 模块（use、pub）；C35 标准库第一版（std.math、std.option、std.result、std.vec、std.str）；C36 文件与参数（args、read_file、write_file）；C37 () 作类型实参；C28 一次报多个错误（每个函数报它的第一个，最多 20 个）；C33 for x in inout v（Lean M18：循环体里改元素本身，不能用 v）；C38 panic（Lean M19），std 的 unwrap、expect；C39 std.map（Lean S4）和 vec_swap（Lean M20）；C40 闭包（Lean M21），std.vec 的 map、filter 等；C41 闭包捕获引用（Lean M22）；C42 std.map 的二分查找（Lean S5）；C43 std.treemap（AVL 树，Lean S6），闭包体里的换行重新分隔语句；C44 对照测试加上移动、调用、闭包、泛型（42000 个程序）；C45 元组；C46 match 的 _ 分支和字面量分支（Lean M23）；T1 报错显示源码行和 ^；C47 浮点数 F64；C48 字符 Char 和 UTF-8（Lean S7），std.char，for 遍历函数返回的 Vec；C49 字符串插值；C50 排序 sort、sort_by（Lean S8）；C51 哈希表 std.hashmap（Lean S9）；C52 常用函数和 std.io；C53 下标 v[i] 和按下标赋值（Lean M18），print_str、print_byte；C54 大整数 std.bigint（Lean S10）；C55 嵌套模式（Lean M24、M24b）；C56 内建的 ToStr、默认方法、泛型 impl（Lean M25）；C57 字节串 Bytes 和二进制文件（Lean S11）；C58 std.os：环境变量、目录、子进程、exit；T2 sinterc fmt；T3 编辑器的语法高亮（VS Code、Vim）；T4 CI、文档和 0.2.0-pre；T5 fmt 和编译器的随机测试。
 下面是各个里程碑的约定细节；语言的完整一览（包括 `F64`、`Char`、`Str`、`Bytes`、`Vec`、元组、闭包、模块、标准库）见 [TRY.md](TRY.md)。
 支持 `I64`、`Bool`、`()`、结构体、`Box<T>`、函数、`let` / `var` / 赋值、`if`（可作表达式）、`while`、`return`，
 以及内置的 `print`、`print_i64`、`print_bool`、字符串的 `str_len` / `str_eq` / `str_concat` / `str_push` / `str_clone` / `str_from_i64` / `str_to_i64` / `str_byte` / `str_slice`、`read_line`、`box(e)`、解引用 `*b`、`unbox(b)`（取出 Box 里的值并释放），拆开结构体 `let Node { v, next } = n`。
@@ -32,6 +32,7 @@ eval $(opam env)               # 新开的 shell 里找不到 menhir 时先运�
 ```
 dune build
 dune test                      # 运行 test/*.t 里的端到端测试
+sh fuzz.sh [轮数] [种子]         # 随机测试（T5）：fmt 的空白和随机记号行、编译器对随机改坏的程序不出内部错误
 dune exec sinterc -- 文件.sn -o 文件.c
 cc -std=gnu11 文件.c -o 文件 && ./文件
 ```
@@ -70,6 +71,8 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 - 排序（C50，Lean S8）：`std.vec` 的 `sort(v)`（元素实现 `Ord`）和 `sort_by(v, |a, b| a < b)`（`less` 要是严格弱序），都是 `inout` 原地排序。堆排序，只用 `vec_swap` 交换元素，O(n log n)，不稳定（相等的元素先后可能变）。
 - 哈希表 `std.hashmap`（C51，Lean S9）：`HashMap<K, V>`，键实现 `math.Eq` 和 `hashmap.Hash`（I64、Str 已实现）；`new`、`len`、`contains`、`get(m, k, |v| …)`、`insert`（已有键时返回旧值）、`remove`（返回值）、`for_each`（按插入顺序，删除会把最后一个元素换到被删的位置）。键值紧凑地存在两个 Vec 里，另有槽位表存下标；开放寻址、线性探测不绕回（槽位表长 2 倍容量，元素超过 3/4 容量时翻倍）、删除时后移回填，不需要墓碑。平均 O(1)。
 - 常用函数（C52）：`std.str` 的 `to_upper`、`to_lower`（ASCII）、`replace`、`lines`（去掉行尾的 `\r`）；`std.vec` 的 `range`、`min`、`sum_f64`、`binary_search`（排好序的 Vec，返回第一个匹配的下标）、`dedup`（原地去掉相邻重复）；`std.math` 的 `gcd`、`lcm`；新模块 `std.io` 的 `read_lines`、`write_lines`、`input_lines`。字符串加了 `\r` 转义。
+- 编辑器（T3）：`editor/vscode`（TextMate 语法，含字符串插值）和 `editor/vim`，安装见 `editor/README.md`。`test/t3.t` 检查两份关键字表和词法分析一致。
+- 随机测试（T5，`fuzz/fuzz.ml`）：真实源文件随机改空白（不改“有没有空白”），格式化结果必须和原文件的一样；真实记号随机拼成的行必须满足 `Fmt.check`；示例程序随机删、复制、交换、替换一个记号后走完整个编译器，只能报语法、类型、所有权错误，不能抛别的异常。不一致的输入写到 `_batch/fuzz/`；CI 每次用运行编号作种子跑 20 轮。
 - 格式化 `sinterc fmt`（T2）：按记号格式化，不改变记号和换行的位置，注释、字符串原样保留；按没闭合的括号重新缩进（每层 4 个空格），统一 `,` `:` `=` `==` `=>` `->` 等两边的空格和 `{ }` 里的空格，去掉行尾空白，连续空行合成一个（和 rustfmt、gofmt 一样不额外加空行）。`-w` 写回，`--check` 列出需要格式化的文件（退出码 1）。每次都确认格式化前后记号相同、再格式化一次不变，否则拒绝。`fmtcheck.sh` 检查示例和标准库都已格式化。
   按 IEEE 754，不检查溢出和除以零。`print_f64` / `str_from_f64` 打印能还原的最短写法（整数值带 `.0`），`str_to_f64` / `s.to_f64()` 解析。`std.math` 有 `sqrt floor ceil round fabs fmin fmax is_nan pi powi`。
 - `vec_swap(inout v, i, j)`（也写 `v.swap(i, j)`，C39，Lean M20）：交换两个元素，越界时 panic。

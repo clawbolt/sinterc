@@ -122,6 +122,7 @@ The core algorithms of sorting, binary search, the three maps and big integers a
 - `sinterc fmt [--check | -w] FILE…`: formatting. It only changes whitespace (indentation, spaces around
   operators, blank lines); tokens and line breaks stay where they are, and comments are kept.
 - Errors show the offending line with a `^` under the position.
+- Editors: `editor/` has syntax highlighting for VS Code and Vim; see `editor/README.md` to install.
 
 Fuller examples of each feature are in `test/*.t`: each file starts with what that step added, followed by
 programs that run and programs that must be rejected.
@@ -132,7 +133,7 @@ programs that run and programs that must be rejected.
 - There are no struct patterns yet (`P { x, y }` only works in `let`); patterns cannot look inside a `Box`.
 - `std.char` and case conversion only know ASCII; `sort` is not stable.
 - Type arguments of `Box` and `Vec` are invariant, which is stricter than Rust: some programs Rust accepts are rejected here.
-- The generated C needs GCC or Clang (it uses GNU C extensions). There is no editor plugin or language server yet.
+- The generated C needs GCC or Clang (it uses GNU C extensions). There is no language server yet (editors get syntax highlighting only).
 - Not there yet: trait objects (dynamic dispatch), dividing a big integer by a big integer, regular expressions, threads and networking,
   a package manager. `read_file` does not check UTF-8 (invalid bytes
   come out as U+FFFD when iterating characters); use `read_bytes` with `str_from_utf8` to check. `Bytes` has no
