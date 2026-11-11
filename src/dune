@@ -6,7 +6,7 @@
 (menhir
  (modules parser))
 
-; 标准库的源码编进编译器（C35）
+; 标准库的源码编进编译器
 (rule
  (targets stdlib_src.ml)
  (deps
@@ -15,3 +15,19 @@
   (with-stdout-to
    stdlib_src.ml
    (run %{exe:../gen/embed.exe} %{deps}))))
+
+; C 运行时原样编进编译器：runtime/sinter.h 放在生成的 C 文件开头，runtime/sinter_lib.h 放在类型定义之后
+(rule
+ (targets runtime_src.ml)
+ (deps
+  (:prelude %{project_root}/runtime/sinter.h)
+  (:library %{project_root}/runtime/sinter_lib.h))
+ (action
+  (with-stdout-to
+   runtime_src.ml
+   (progn
+    (echo "(* 由 src/dune 从 runtime/*.h 生成，不要手工修改。 *)\nlet prelude = {sinter_c|")
+    (cat %{prelude})
+    (echo "|sinter_c}\n\nlet library = {sinter_c|")
+    (cat %{library})
+    (echo "|sinter_c}\n")))))

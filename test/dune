@@ -17,3 +17,9 @@
   %{project_root}/editor/vscode/package.json
   %{project_root}/editor/vscode/syntaxes/sinter.tmLanguage.json
   %{project_root}/editor/vim/syntax/sinter.vim))
+
+; C 运行时自己就能编译，生成的 C 文件里原样包含它
+
+(cram
+ (applies_to runtime)
+ (deps %{project_root}/runtime/sinter.h %{project_root}/runtime/sinter_lib.h))

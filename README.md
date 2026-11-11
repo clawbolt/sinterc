@@ -38,6 +38,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 |---|---|
 | `bin/main.ml` | 命令行：`run`、`build`、`fmt`、`--emit=core`、`--batch` |
 | `src/` | 编译器本身，见下面的编译流程 |
+| `runtime/` | C 运行时：`sinter.h`（分配计数、字符串、切片、Vec 的宏、入口）放在生成的 C 文件开头，`sinter_lib.h`（I/O、解析、`std.os`，用到 `Option<Str>` 等内建实例类型）放在类型定义之后 |
 | `std/` | 标准库（Sinter 写的，构建时由 `gen/embed.ml` 编进编译器） |
 | `test/` | 端到端测试，一个文件一个主题，文件名前缀是主题：`own_` 所有权、`region_` 区域、`str_` 字符串、`io_` 输入输出、`std_` 标准库，等等 |
 | `examples/ok`、`examples/bad` | 翻译验证用的程序：`ok` 的每个函数都要被 Lean 接受，`bad` 的要被 Lean 独立拒绝 |
@@ -47,8 +48,8 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 
 ## 编译流程
 
-解析（`lexer.mll`、`parser.mly`）→ 模块（`modules.ml`）→ 类型检查（`typeck.ml`）→ 降级为 MIR 控制流图（`mir.ml`，作用域结束和 `return` 前插入 `Drop`）
-→ 所有权检查与析构展开（`own.ml`）→ 投影锁定与排他性检查（`borrow.ml`）→ 生成 C（`emit_c.ml`，每个基本块一个标签，块之间用 `goto`）。
+解析（`lexer.mll`、`parser.mly`）→ 模块（`modules.ml`）→ 类型检查（`typeck.ml` 和 `typeck_*.ml`）→ 降级为 MIR 控制流图（`mir.ml`，作用域结束和 `return` 前插入 `Drop`）
+→ 所有权检查与析构展开（`own.ml`）→ 投影锁定与排他性检查（`borrow.ml`）→ 生成 C（`emit_c.ml`，每个基本块一个标签，块之间用 `goto`；C 运行时在 `runtime/`）。
 `emit_core.ml` 把 MIR 导出成 Lean 的 CFG（翻译验证），`fmt.ml` 是格式化，`i18n.ml` 是英文错误信息。
 
 `own.ml` 是 `Ownership.Drop` / `FlowGraph.Check` 规则的实现：每个局部变量处于“已初始化 / 未初始化 / 可能已初始化”之一，
