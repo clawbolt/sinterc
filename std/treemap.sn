@@ -1,8 +1,8 @@
 // std.treemap：按键从小到大的映射 TreeMap<K, V>，存成 AVL 树，查找、插入、删除都是对数时间。
-// 键要实现 std.math 的 Ord。规格见 lean/Core/S6.lean：树的中序遍历就是 S4 的有序表，
-// 插入、删除和 S4 的 ins、del 一致，所以 S4 的定律照样成立（键严格递增，插入后查得到，删除后查不到，别的键不受影响）。
-// S6、S6b（Lean）：插入、删除和有序列表上的版本一致，并保持 AVL 平衡（树高是对数）。
-// 值不能直接拿出来，要传闭包（C40）：get(m, k, |v| …)、for_each(m, |k, v| …)。
+// 键要实现 std.math 的 Ord。规格见 lean/Core/Library/TreeMap.lean：树的中序遍历就是 `Library.Map` 的有序表，
+// 插入、删除和 `Library.Map` 的 ins、del 一致，所以 `Library.Map` 的定律照样成立（键严格递增，插入后查得到，删除后查不到，别的键不受影响）。
+// `Library.TreeMap`、`Library.TreeMapAvl`（Lean）：插入、删除和有序列表上的版本一致，并保持 AVL 平衡（树高是对数）。
+// 值不能直接拿出来，要传闭包：get(m, k, |v| …)、for_each(m, |k, v| …)。
 use std.math
 
 struct Node<K, V> { left: Box<Tree<K, V>>, key: K, val: V, h: I64, right: Box<Tree<K, V>> }
@@ -49,7 +49,7 @@ pub fn height<K, V>(m: TreeMap<K, V>) -> I64 {
     r
 }
 
-// 以下对应 S6 的 mk、rotR、rotL、bal
+// 以下对应 `Library.TreeMap` 的 mk、rotR、rotL、bal
 fn mk<K, V>(sink l: Tree<K, V>, sink k: K, sink v: V, sink r: Tree<K, V>) -> Tree<K, V> {
     let h = math.max(ht(l), ht(r)) + 1
     .Br(Node { left: box(l), key: k, val: v, h: h, right: box(r) })
@@ -101,7 +101,7 @@ fn bal<K, V>(sink l: Tree<K, V>, sink k: K, sink v: V, sink r: Tree<K, V>) -> Tr
     }
 }
 
-// S6 的 insT；已有键 k 时换掉值，旧值放进 old
+// `Library.TreeMap` 的 insT；已有键 k 时换掉值，旧值放进 old
 fn ins<K: math.Ord, V>(sink t: Tree<K, V>, sink k: K, sink v: V, inout old: Option<V>) -> Tree<K, V> {
     match t {
         .Br(n) => {
@@ -122,7 +122,7 @@ fn ins<K: math.Ord, V>(sink t: Tree<K, V>, sink k: K, sink v: V, inout old: Opti
 
 struct Popped<K, V> { key: K, val: V, rest: Tree<K, V> }
 
-// S6 的 popK、popT：从以 (l, k, v, r) 组成的树里去掉最小的键
+// `Library.TreeMap` 的 popK、popT：从以 (l, k, v, r) 组成的树里去掉最小的键
 fn pop_min<K, V>(sink l: Tree<K, V>, sink k: K, sink v: V, sink r: Tree<K, V>) -> Popped<K, V> {
     match l {
         .Br(n) => {
@@ -135,7 +135,7 @@ fn pop_min<K, V>(sink l: Tree<K, V>, sink k: K, sink v: V, sink r: Tree<K, V>) -
     }
 }
 
-// S6 的 join：l 的键都小于 r 的键
+// `Library.TreeMap` 的 join：l 的键都小于 r 的键
 fn join<K, V>(sink l: Tree<K, V>, sink r: Tree<K, V>) -> Tree<K, V> {
     match r {
         .Br(n) => {
@@ -148,7 +148,7 @@ fn join<K, V>(sink l: Tree<K, V>, sink r: Tree<K, V>) -> Tree<K, V> {
     }
 }
 
-// S6 的 delT；去掉的值放进 old
+// `Library.TreeMap` 的 delT；去掉的值放进 old
 fn del<K: math.Ord, V>(sink t: Tree<K, V>, k: K, inout old: Option<V>) -> Tree<K, V> {
     match t {
         .Br(n) => {

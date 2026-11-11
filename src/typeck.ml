@@ -5,7 +5,7 @@ open Ast
 
 exception Error of pos * string
 
-(* 一次报多个错误（C28）：每个函数各自的第一个错误，按出现顺序。 *)
+(* 一次报多个错误：每个函数各自的第一个错误，按出现顺序。 *)
 exception Errors of (pos * string) list
 let err pos fmt = Printf.ksprintf (fun m -> raise (Error (pos, m))) fmt
 
@@ -20,22 +20,22 @@ type env = {
   guards : string list;              (* 当前生效的 errdefer 要消费的变量 *)
   tbounds : (string * string) list;  (* 当前泛型函数的类型参数的 trait 约束，(T, Show) 表示 T: Show *)
   clos : (string * (closure * (string * ty) list)) list;
-      (* 特化里 fn(…) 参数绑定的闭包，和这个特化里传它的捕获的参数（名字和类型）（C40） *)
+      (* 特化里 fn(…) 参数绑定的闭包，和这个特化里传它的捕获的参数（名字和类型） *)
 }
 
-(* ---------- 闭包（C40，Lean M21） ----------
+(* ---------- 闭包（Lean `Closures.Param`） ----------
    闭包 |x| e 只能写在实参的位置，传给类型是 fn(…) 的参数；fn(…) 类型的值不能存、不能返回（second-class）。
    闭包用到的外层变量是它的捕获：只读的按 let，赋值、作 inout 实参或改字段的按 inout。
    实现是按闭包特化：闭包提升成一个普通函数（捕获在前，闭包的参数在后）；调用 h(a, |x| …) 换成调用
    h 的特化 h[闭包]，它没有 fn(…) 参数，多出闭包的捕获作参数，函数体里的 f(y) 换成调用提升出的函数。
-   于是捕获就是一层层传下去的额外实参：调用处按 M3n 的规则检查一次（M21 的 inner_ok 说明这就够了），
-   之后的所有权、排他性检查和翻译验证看到的都是普通的函数，不用改。闭包不能逃逸，引用的栈帧总还活着（M21 的 clo_live）。 *)
+   于是捕获就是一层层传下去的额外实参：调用处按 `Calls.NArgs` 的规则检查一次（`Closures.Param` 的 inner_ok 说明这就够了），
+   之后的所有权、排他性检查和翻译验证看到的都是普通的函数，不用改。闭包不能逃逸，引用的栈帧总还活着（`Closures.Param` 的 clo_live）。 *)
 and closure = {
   cname : string;                      (* 提升出来的函数名，按闭包的位置和类型确定 *)
   caps : (mode * string * ty) list;    (* 捕获的外层变量（按第一次用到的顺序）：只读的 let，修改的 inout *)
   rord : (string * string list) list;
       (* 捕获的类型里的区域换成的区域参数 'c00、'c01…（按闭包所在位置的嵌套顺序，外层在前），
-         和比它活得久的区域参数（只取那里真实成立的先后关系，M22） *)
+         和比它活得久的区域参数（只取那里真实成立的先后关系，`Closures.CapRef`） *)
 }
 
 (* 正在检查的闭包：env.vars 最后 outer 个是外层的变量；用到的外层变量（按第一次出现的顺序）；改过的外层变量。 *)
@@ -70,11 +70,11 @@ let sigs : (string, (mode * ty) list * ty) Hashtbl.t = Hashtbl.create 16
 let struct_tbl : (string, field list) Hashtbl.t = Hashtbl.create 16
 let linear_tbl : (string, unit) Hashtbl.t = Hashtbl.create 16
 
-(* 枚举定义：变体按声明顺序，下标就是运行时的标签（Lean M8）。 *)
+(* 枚举定义：变体按声明顺序，下标就是运行时的标签（Lean `Datatypes.Enum`）。 *)
 let enum_tbl : (string, (string * ty option) list) Hashtbl.t = Hashtbl.create 16
 
 (* 一个类型的变体（不是枚举时为 None）。Result<T, E> 就是变体 Ok(T)、Err(E) 的枚举。
-   () 载荷是真的载荷（C37：泛型代码里 T 可以是 ()），只是写的时候可以省略：Ok 就是 Ok(())，分支可以写 Ok => …。 *)
+   () 载荷是真的载荷（泛型代码里 T 可以是 ()），只是写的时候可以省略：Ok 就是 Ok(())，分支可以写 Ok => …。 *)
 let variants = function
   | TStruct n -> Hashtbl.find_opt enum_tbl n
   | TResult (t, e) -> Some [ ("Ok", Some t); ("Err", Some e) ]
@@ -91,7 +91,7 @@ let variant ty v =
 (* 报错时变体的写法：Ok / Err 不带点。 *)
 let vname v = if v = "Ok" || v = "Err" then v else "." ^ v
 
-(* match 的分支（C46）：第 v 个变体用写了它的分支，没写的用 _ 分支（Lean M23 的 expand）。
+(* match 的分支：第 v 个变体用写了它的分支，没写的用 _ 分支（Lean `Matching.Wildcard` 的 expand）。
    返回 (载荷绑定的变量, 分支体)；_ 分支在带载荷（不是 ()）的变体上把载荷绑到 _#（用户写不出这个名字），
    分支结束时随作用域析构。 *)
 let wild_var = "_#"
@@ -115,7 +115,7 @@ let rec is_linear = function
 
 (* 需要析构（或者是 linear）的类型：这些类型的值只能移动，不能复制。 *)
 let rec needs_drop = function
-  | TBox _ | TVec _ | TStr | TBytes | TOFn _ -> true   (* Fn(…)（C59）拥有堆上的环境 *)
+  | TBox _ | TVec _ | TStr | TBytes | TOFn _ -> true   (* Fn(…)拥有堆上的环境 *)
   | TStruct n -> (
       Hashtbl.mem linear_tbl n
       ||
@@ -127,20 +127,20 @@ let rec needs_drop = function
           | Some vs -> List.exists (function _, Some t -> needs_drop t | _, None -> false) vs
           | None -> false))
   | TResult (a, b) -> needs_drop a || needs_drop b
-  | TParam _ -> true            (* 类型参数按抽象类型检查：可能需要析构，只能移动（Lean M9） *)
+  | TParam _ -> true            (* 类型参数按抽象类型检查：可能需要析构，只能移动（Lean `Generics.Check`） *)
   | TI64 | TF64 | TChar | TBool | TView | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
 
-(* 内建函数按值接收可复制的参数，记作 sink；字符串按 let（只读借用）或 inout 传入（C29）。 *)
+(* 内建函数按值接收可复制的参数，记作 sink；字符串按 let（只读借用）或 inout 传入。 *)
 let builtins =
   [
     "print_i64", ([ (MSink, TI64) ], TUnit);
     "print_bool", ([ (MSink, TBool) ], TUnit);
     "print", ([ (MLet, TStr) ], TUnit);
-    (* C53：不换行的输出。print_str 原样写出字符串的字节；print_byte 写一个原始字节（0 到 255，否则 panic）。
+    (* 不换行的输出。print_str 原样写出字符串的字节；print_byte 写一个原始字节（0 到 255，否则 panic）。
        输出经过 C 的缓冲，read_line 之前、panic 和程序结束时都会刷新 *)
     "print_str", ([ (MLet, TStr) ], TUnit);
     "print_byte", ([ (MSink, TI64) ], TUnit);
-    (* C60：写到标准错误。eprint 末尾加换行，eprint_str 不加；写之前先刷新标准输出 *)
+    (* 写到标准错误。eprint 末尾加换行，eprint_str 不加；写之前先刷新标准输出 *)
     "eprint", ([ (MLet, TStr) ], TUnit);
     "eprint_str", ([ (MLet, TStr) ], TUnit);
     "str_len", ([ (MLet, TStr) ], TI64);
@@ -150,7 +150,7 @@ let builtins =
     "str_clone", ([ (MLet, TStr) ], TStr);
     "str_from_i64", ([ (MSink, TI64) ], TStr);
     "str_from_bool", ([ (MSink, TBool) ], TStr);
-    (* C47：F64。print_f64 按能还原的最短写法打印（整数值带 .0）；to_f64 把 I64 换成 F64，
+    (* F64。print_f64 按能还原的最短写法打印（整数值带 .0）；to_f64 把 I64 换成 F64，
        to_i64 向零取整（NaN 或超出 I64 范围时 panic）；str_to_f64 解析（格式不对时 .None）。
        f64_* 是 std.math 里 sqrt 等函数用的内建函数 *)
     "print_f64", ([ (MSink, TF64) ], TUnit);
@@ -163,7 +163,7 @@ let builtins =
     "f64_ceil", ([ (MSink, TF64) ], TF64);
     "f64_round", ([ (MSink, TF64) ], TF64);
     "f64_is_nan", ([ (MSink, TF64) ], TBool);
-    (* C48（Lean S7）：字符。char_from 在不是合法码点时返回 .None；str_chars 按 S7 的 decode1 逐个解码
+    (* 字符（Lean `Library.Utf8`）。char_from 在不是合法码点时返回 .None；str_chars 按 `Library.Utf8` 的 decode1 逐个解码
        （不合法的字节解成 U+FFFD），结果是新的 Vec<Char>；str_char_count 是字符的个数 *)
     "print_char", ([ (MSink, TChar) ], TUnit);
     "char_code", ([ (MSink, TChar) ], TI64);
@@ -172,20 +172,20 @@ let builtins =
     "str_push_char", ([ (MInout, TStr); (MSink, TChar) ], TUnit);
     "str_chars", ([ (MLet, TStr) ], TVec TChar);
     "str_char_count", ([ (MLet, TStr) ], TI64);
-    (* C32：读一行（读到末尾时 .None，去掉行尾的换行）、解析整数（格式不对或超出范围时 .None）、
+    (* 读一行（读到末尾时 .None，去掉行尾的换行）、解析整数（格式不对或超出范围时 .None）、
        第 i 个字节、[a, b) 的子串（新的 Str）；下标越界时 panic *)
     "read_line", ([], TApp ("Option", [ TStr ]));
     "str_to_i64", ([ (MLet, TStr) ], TApp ("Option", [ TI64 ]));
     "str_byte", ([ (MLet, TStr); (MSink, TI64) ], TI64);
     "str_slice", ([ (MLet, TStr); (MSink, TI64); (MSink, TI64) ], TStr);
     "choose", ([], TBool);       (* 对照测试用：按运行时给定的选择序列返回真假 *)
-    (* C36（Lean S3）：命令行参数（不含程序名）；读整个文件；把文件换成 s（先写临时文件再 rename，失败时原文件不变）。
+    (* 文件与参数（Lean `Library.FileIO`）：命令行参数（不含程序名）；读整个文件；把文件换成 s（先写临时文件再 rename，失败时原文件不变）。
        出错时 Err(说明)，返回的字符串都是新分配的 *)
     "args", ([], TVec TStr);
     "read_file", ([ (MLet, TStr) ], TResult (TStr, TStr));
     "write_file", ([ (MLet, TStr); (MLet, TStr) ], TResult (TUnit, TStr));
-    (* C57：字节串 Bytes（任意字节）。get、set、push 的字节是 0 到 255 的 I64（push、set 超出时 panic），
-       下标越界时 panic；str_to_bytes 复制字符串的字节；str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean S11）；
+    (* 字节串 Bytes（任意字节）。get、set、push 的字节是 0 到 255 的 I64（push、set 超出时 panic），
+       下标越界时 panic；str_to_bytes 复制字符串的字节；str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`）；
        read_bytes、write_bytes 和 read_file、write_file 一样（write_bytes 也是先写临时文件再 rename）；print_bytes 原样输出 *)
     "bytes_new", ([], TBytes);
     "bytes_len", ([ (MLet, TBytes) ], TI64);
@@ -201,7 +201,7 @@ let builtins =
     "read_bytes", ([ (MLet, TStr) ], TResult (TBytes, TStr));
     "write_bytes", ([ (MLet, TStr); (MLet, TBytes) ], TResult (TUnit, TStr));
     "print_bytes", ([ (MLet, TBytes) ], TUnit);
-    (* C58：std.os 用的内建函数（名字带 os_，不占用户的名字）。和 C36 一样只读外部的状态、返回新的值（Lean S3 的形状）：
+    (* std.os 用的内建函数（名字带 os_，不占用户的名字）。和文件读写一样只读外部的状态、返回新的值（Lean `Library.FileIO` 的形状）：
        环境变量；目录里的名字（不含 . 和 ..，按字节从小到大排好）；路径是否存在、是不是目录；建目录、删文件或空目录；
        os_run 启动子进程（不经过 shell，参数原样传过去，标准输入输出和父进程共用），返回退出码（被信号结束时是 128 + 信号）；
        os_output 另外收集子进程的标准输出，退出码不是 0 时是 Err。os_exit 见 expr（和 panic 一样不返回） *)
@@ -219,13 +219,13 @@ let builtins =
 let str_methods =
   [ "len"; "eq"; "concat"; "push"; "clone"; "to_i64"; "to_f64"; "byte"; "slice"; "chars"; "char_count"; "push_char"; "to_bytes" ]
 
-(* 字节串的方法调用（C57）：b.get(i) 就是 bytes_get(b, i)。 *)
+(* 字节串的方法调用：b.get(i) 就是 bytes_get(b, i)。 *)
 let bytes_methods = [ "len"; "get"; "set"; "push"; "append"; "slice"; "clone"; "eq" ]
 
-(* 字符串切片的方法调用（C61）：v.sub(a, b) 就是 view_sub(v, a, b)。 *)
+(* 字符串切片的方法调用：v.sub(a, b) 就是 view_sub(v, a, b)。 *)
 let view_methods = [ "len"; "byte"; "sub"; "to_str"; "eq"; "eq_view"; "find"; "print_str" ]
 
-(* 字符串切片的内建函数（C61，Lean M27）：text(a, s) 把 s 放进区域 a，得到整段的切片；view_… 是切片的方法。
+(* 字符串切片的内建函数（Lean `Strings.Slice`）：text(a, s) 把 s 放进区域 a，得到整段的切片；view_… 是切片的方法。
    结果里的区域跟着参数走，所以和 alloc 一样单独检查类型（expr）；这里只给降级用的参数约定，区域写 _ *)
 let view_sigs =
   let v = TRef (TView, "_") in
@@ -239,7 +239,7 @@ let view_sigs =
     "view_eq_view", ([ (MLet, v); (MLet, v) ], TBool);
     "view_find", ([ (MLet, v); (MLet, TStr); (MSink, TI64) ], TI64);
     "view_print_str", ([ (MLet, v) ], TUnit);
-    (* 流式读入（C62）：读到的字节放进区域 a 里新的缓冲区（Lean M27 的 fresh_valid），得到它的切片，不经过 Str *)
+    (* 流式读入：读到的字节放进区域 a 里新的缓冲区（Lean `Strings.Slice` 的 fresh_valid），得到它的切片，不经过 Str *)
     "read_file_in", ([ (MLet, TArena "_"); (MLet, TStr) ], TResult (v, TStr));
     "read_stdin_in", ([ (MLet, TArena "_") ], v);
     "read_chunk", ([ (MLet, TArena "_"); (MSink, TI64) ], v);
@@ -295,16 +295,16 @@ let inout_place env (a : expr) =
 
 let show = function Ty t -> string_of_ty t | Never -> "!"
 
-(* ---------- 区域（Lean M5、M7（四）） ----------
+(* ---------- 区域（Lean `Regions.Model`、`Unified.RegionDefs`） ----------
    当前可见的区域，内层在前；每个区域记下比它活得久的区域。
    函数的区域参数（a: Arena，以及参数类型里出现的其他区域名）之间没有顺序（D3）；
    arena 块引入的区域比所有外层区域和区域参数都活得短。 *)
 let regions : (string * string list) list ref = ref []
 
-(* --unchecked（C22）：不检查区域的先后和 R3，照样导出，看 Lean 是否独立地拒绝。 *)
+(* --unchecked：不检查区域的先后和 R3，照样导出，看 Lean 是否独立地拒绝。 *)
 let lax_regions = ref false
 
-(* 当前所在的循环有几层：break / continue 只能用在循环里（C31）。 *)
+(* 当前所在的循环有几层：break / continue 只能用在循环里。 *)
 let loop_depth = ref 0
 
 let outlives x y =
@@ -317,7 +317,7 @@ let inst_tbl : (string, string * ty list) Hashtbl.t = Hashtbl.create 16
 let covariant_fwd : (string -> int -> bool) ref = ref (fun _ _ -> false)
 
 (* got 能不能当作 want 用：外层区域的引用可以当作内层区域的引用（D2 协变），其余要求相同。
-   同一个泛型结构体、枚举的两个实例：能协变的类型参数逐个按 sub 比较，其他的要求相同（C24，Lean M16）。 *)
+   同一个泛型结构体、枚举的两个实例：能协变的类型参数逐个按 sub 比较，其他的要求相同（Lean `Regions.DataVariance`）。 *)
 let rec sub got want =
   match got, want with
   | TRef (t, x), TRef (t', y) -> t = t' && outlives x y
@@ -330,7 +330,7 @@ let rec sub got want =
       | _ -> false)
   | _ -> got = want
 
-(* 泛型结构体、枚举的实例的类型实参（不是实例时为空）。区域名的收集、换名都要看进类型实参（C20，Lean M15）。 *)
+(* 泛型结构体、枚举的实例的类型实参（不是实例时为空）。区域名的收集、换名都要看进类型实参（Lean `Regions.Data`）。 *)
 let inst_args n = match Hashtbl.find_opt inst_tbl n with Some (_, ts) -> ts | None -> []
 
 (* 换名之后重新实例化（instantiate 在后面定义）。 *)
@@ -408,7 +408,7 @@ let rec check_ty ?(param = false) env pos = function
       List.iter (fun (_, t) -> check_ty env pos t) ps;
       check_ty env pos r
   | TOFn (ps, r) ->
-      (* Fn(…)（C59，Lean M26）：可以存、可以返回，所以里面不能有引用或区域（环境里也不能有，见 pack） *)
+      (* Fn(…)（Lean `Closures.Stored`）：可以存、可以返回，所以里面不能有引用或区域（环境里也不能有，见 pack） *)
       if List.exists (fun (_, t) -> region_names t <> []) ps || region_names r <> [] then
         err pos "函数类型 Fn(…) 里暂不能有引用或区域";
       List.iter (fun (_, t) -> check_ty env pos t) ps;
@@ -420,7 +420,7 @@ let rec check_ty ?(param = false) env pos = function
       check_ty env pos t
   | _ -> ()
 
-(* ---------- 泛型（Lean M9） ----------
+(* ---------- 泛型（Lean `Generics.Check`） ----------
    泛型结构体和枚举按用到的类型实参实例化成具体的类型，名字就是写法本身（例如 "Option<I64>"），
    登记到 struct_tbl / enum_tbl，之后的检查、降级、代码生成都把它当普通类型。
    泛型函数里的类型参数记作 TParam，按抽象类型检查：值只能移动，普通的 T 可以自动析构，
@@ -434,11 +434,11 @@ let gtypes : (string, string list * item) Hashtbl.t = Hashtbl.create 16
 let gparams : (string, (string * bool) list) Hashtbl.t = Hashtbl.create 16
 let gfns : (string, item) Hashtbl.t = Hashtbl.create 16
 
-(* trait（Lean M10）：每个方法当作带一个类型参数 Self 的泛型函数，Self 换成实现的类型。
+(* trait（Lean `Traits.Static`）：每个方法当作带一个类型参数 Self 的泛型函数，Self 换成实现的类型。
    traits：trait → 方法名；methods：方法名 → trait；impls：trait → 它的每个 impl；
    gbounds：泛型函数（和方法）的类型参数要满足的 trait 约束。
    impl 里的方法是普通的具体函数，名字记作 方法<类型>（和泛型函数的实例同一种写法），单态化时直接调用它。
-   C56（Lean M25）：impl 可以是泛型的（头部 Vec<T>，约束 T: ToStr），它的方法是以 impl 的类型参数为类型参数的泛型函数，
+   泛型 impl（Lean `Traits.ImplSearch`）：impl 可以是泛型的（头部 Vec<T>，约束 T: ToStr），它的方法是以 impl 的类型参数为类型参数的泛型函数，
    名字是 方法<头部>；trait 的方法可以有默认的函数体（defaults），它是泛型函数 方法（类型参数 Self）。 *)
 type impl_info = {
   head : ty;   (* 实现的类型，impl 的类型参数是 TParam *)
@@ -453,10 +453,10 @@ let impls : (string, impl_info) Hashtbl.t = Hashtbl.create 16
 let gbounds : (string, (string * string) list) Hashtbl.t = Hashtbl.create 16
 let defaults : (string, unit) Hashtbl.t = Hashtbl.create 16
 
-(* 泛型 impl 的方法的实例（C56）：实例名 方法<具体类型> → (泛型函数 方法<头部>, impl 的类型实参)。 *)
+(* 泛型 impl 的方法的实例：实例名 方法<具体类型> → (泛型函数 方法<头部>, impl 的类型实参)。 *)
 let minst : (string, string * ty list) Hashtbl.t = Hashtbl.create 16
 
-(* 内建类型的 ToStr（C56）：实例名 to_str<I64> 等直接调用内建函数，降级时换名。 *)
+(* 内建类型的 ToStr：实例名 to_str<I64> 等直接调用内建函数，降级时换名。 *)
 let aliases : (string, string) Hashtbl.t = Hashtbl.create 16
 
 (* 每个泛型调用（按调用表达式的 id）推出的类型实参，给降级时找实例的名字用。 *)
@@ -468,7 +468,7 @@ let requested : (string, unit) Hashtbl.t = Hashtbl.create 16
 
 let inst_name g ts = Ast.app_name g (List.map string_of_ty ts)
 
-(* 闭包（C40）：当前检查的函数会不会生成代码（不是泛型函数、没有 fn(…) 参数；泛型实例、特化、提升出的闭包都是）。
+(* 闭包：当前检查的函数会不会生成代码（不是泛型函数、没有 fn(…) 参数；泛型实例、特化、提升出的闭包都是）。
    只有这时才提升闭包、登记特化、改写调用；其他函数里的闭包只检查。 *)
 let concrete = ref false
 let cur_fn = ref ""
@@ -477,7 +477,7 @@ let cur_fn = ref ""
 let skip_lower : (string, unit) Hashtbl.t = Hashtbl.create 16
 
 (* 还没检查的提升出的闭包和特化：条目、特化里 fn(…) 参数绑定的闭包、这些 fn(…) 参数的名字和类型（仍可在函数体里用）、
-   区域参数的先后关系（M22）。 *)
+   区域参数的先后关系（`Closures.CapRef`）。 *)
 let pending_items :
     (item * (string * (closure * (string * ty) list)) list * (string * ty) list * (string * string list) list) Queue.t =
   Queue.create ()
@@ -485,21 +485,21 @@ let pending_items :
 (* 调用的改写：调用表达式的 id → 新的函数名和实参，检查完之后换上（和方法调用的名字一样）。 *)
 let rewrites : (int, string * expr list) Hashtbl.t = Hashtbl.create 16
 
-(* ---------- 可以存起来的闭包 Fn(…)（C59，Lean M26） ----------
-   写在需要 Fn(pts) -> r 的地方（let 标注、返回值、实参、字段、Vec 元素）的闭包：照 C40 提升成普通函数
+(* ---------- 可以存起来的闭包 Fn(…)（Lean `Closures.Stored`） ----------
+   写在需要 Fn(pts) -> r 的地方（let 标注、返回值、实参、字段、Vec 元素）的闭包：和当实参传的闭包一样提升成普通函数
    （捕获在前，只读的按 let、修改的按 inout），闭包表达式换成调用内建的 Fn#提升出的函数名(捕获…)，
    捕获按 sink 传入（按值：会移动的值被移走，可复制的值复制），存进堆上的环境。调用 f(x) 换成 call#类型(f, x)，
-   闭包按 inout：闭包体访问的环境和实参不重叠（M26 的 env_disjoint），所以提升出的函数照常检查就够了。
-   Fn 值需要析构（析构环境），只能移动；环境里不能有引用、区域和 fn(…) 参数（M26 的 ok：存起来也不会悬空）。
+   闭包按 inout：闭包体访问的环境和实参不重叠（`Closures.Stored` 的 env_disjoint），所以提升出的函数照常检查就够了。
+   Fn 值需要析构（析构环境），只能移动；环境里不能有引用、区域和 fn(…) 参数（`Closures.Stored` 的 ok：存起来也不会悬空）。
    packs：Fn#… → (闭包, 它的类型)；fcalls：call#… → 闭包的类型。代码生成为它们写 C 函数。 *)
 let packs : (string, closure * ty) Hashtbl.t = Hashtbl.create 16
 let fcalls : (string, ty) Hashtbl.t = Hashtbl.create 16
 
 
-(* 带嵌套模式的 match 展开后的表达式（按 PMatch 的 id，C55）：map_body 把 PMatch 换成它，之后的阶段只看到 Match、If、Destruct。 *)
+(* 带嵌套模式的 match 展开后的表达式（按 PMatch 的 id）：map_body 把 PMatch 换成它，之后的阶段只看到 Match、If、Destruct。 *)
 let pdesugar : (int, expr) Hashtbl.t = Hashtbl.create 16
 
-(* 当前函数按 let 传入的参数（借来的）：在它们上面的嵌套模式按借用拆开，和 match let 一样（C55） *)
+(* 当前函数按 let 传入的参数（借来的）：在它们上面的嵌套模式按借用拆开，和 match let 一样 *)
 let let_params : string list ref = ref []
 
 (* 解析过类型的非泛型函数，特化时复制。 *)
@@ -515,15 +515,15 @@ let rec has_arena = function
   | TResult (a, b) -> has_arena a || has_arena b
   | _ -> false
 
-(* 类型实参的共同限制。泛型函数和 Vec 的类型实参可以含引用（C19）：实例的区域参数就是实参里的区域名（Lean M14）；
-   可以是 ()（C37）：() 是 copy 类别，换进任何类型参数都满足约束，实例照样安全（Lean M9u）。 *)
+(* 类型实参的共同限制。泛型函数和 Vec 的类型实参可以含引用：实例的区域参数就是实参里的区域名（Lean `Regions.Generic`）；
+   可以是 ()：() 是 copy 类别，换进任何类型参数都满足约束，实例照样安全（Lean `Generics.UnitArg`）。 *)
 let type_arg pos t =
   if has_arena t then err pos "类型实参不能是 Arena"
 
 let lin_arg pos t =
   if is_linear t then err pos "泛型结构体、枚举的类型实参暂不能是 linear 值（%s）" (string_of_ty t)
 
-(* 泛型结构体、枚举的类型实参可以含引用（C20，Lean M15），还不能是 linear 值（字段和载荷的 linear 规则还没有和泛型一起证明）。 *)
+(* 泛型结构体、枚举的类型实参可以含引用（Lean `Regions.Data`），还不能是 linear 值（字段和载荷的 linear 规则还没有和泛型一起证明）。 *)
 let data_arg pos t =
   type_arg pos t;
   lin_arg pos t
@@ -606,12 +606,12 @@ let rec params_of = function
   | TFn (ps, r) | TOFn (ps, r) -> List.concat_map (fun (_, t) -> params_of t) ps @ params_of r
   | TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TArena _ | TApp _ -> []
 
-(* ---- impl 的查找（C56，Lean M25） ---- *)
+(* ---- impl 的查找（Lean `Traits.ImplSearch`） ---- *)
 
 (* 泛型类型的实例 Pair<I64> 记作名字，这里拆回 (Pair, [I64])；元组也一样。 *)
 let app_of n = Hashtbl.find_opt inst_tbl n
 
-(* 头部 p 对类型 t 的匹配（M25 的 mtch）：vs 是 impl 的类型参数，s 是已经匹配出的类型实参。
+(* 头部 p 对类型 t 的匹配（`Traits.ImplSearch` 的 mtch）：vs 是 impl 的类型参数，s 是已经匹配出的类型实参。
    t 里的类型参数（当前泛型函数的）当作普通的类型。 *)
 let rec tmatch vs p t s =
   match p, t with
@@ -632,7 +632,7 @@ and tmatch_list vs ps ts s =
   | p :: ps, t :: ts -> Option.bind (tmatch vs p t s) (tmatch_list vs ps ts)
   | _ -> None
 
-(* 两个头部可能有共同的实例（M25 的 compat，保守：类型参数和什么都相容）。 *)
+(* 两个头部可能有共同的实例（`Traits.ImplSearch` 的 compat，保守：类型参数和什么都相容）。 *)
 let rec compat p q =
   match p, q with
   | TParam _, _ | _, TParam _ -> true
@@ -651,7 +651,7 @@ let find_impl tr t =
     (fun i -> Option.map (fun s -> (i, s)) (tmatch i.itps i.head t []))
     (Hashtbl.find_all impls tr)
 
-(* t: tr 成立吗（M25 的 solve）：类型参数查当前函数的约束 tb，否则找 impl，再查它的约束。
+(* t: tr 成立吗（`Traits.ImplSearch` 的 solve）：类型参数查当前函数的约束 tb，否则找 impl，再查它的约束。
    impl 的头部不是单独的类型参数，约束里的类型都是 t 的真子项，所以递归一定会停。 *)
 let rec has_impl tb tr t =
   match t with
@@ -673,7 +673,7 @@ let rec why_not tb tr t =
           | None -> (tr, t))
       | None -> (tr, t))
 
-(* 协变（C24，Lean M16）：泛型结构体、枚举 g 的第 i 个类型参数只出现在只读的位置时，
+(* 协变（Lean `Regions.DataVariance`）：泛型结构体、枚举 g 的第 i 个类型参数只出现在只读的位置时，
    g<…外层…> 可以当作 g<…内层…> 用。只读的位置：字段、载荷直接是这个参数，
    或者在 Result 里，或者是另一个实例里能协变的类型实参。
    Box、Vec 里的保守地算不变（实例之间不比较）；可以修改的 inout 实参本来就要求类型完全相同。 *)
@@ -729,7 +729,7 @@ let rec unify s p t =
       | _ -> ())
   | _ -> ()
 
-(* 调用 Fn(…) 类型 t 的闭包的内建函数 call#t（C59）：闭包按 inout，其余参数按类型里写的约定。 *)
+(* 调用 Fn(…) 类型 t 的闭包的内建函数 call#t：闭包按 inout，其余参数按类型里写的约定。 *)
 let fcall_name (fns : (string, (mode * ty) list * ty) Hashtbl.t) t =
   match t with
   | TOFn (pts, r) ->
@@ -744,7 +744,7 @@ let fcall_name (fns : (string, (mode * ty) list * ty) Hashtbl.t) t =
   | _ -> assert false
 
 (* 改写函数体里写出的类型（let 标注、var 声明），方法调用换成解析出的函数名（检查过的才有）。
-   fresh：表达式换新的 id（复制出实例时用）；不是 fresh 时还换上记下的调用改写（C40）。 *)
+   fresh：表达式换新的 id（复制出实例时用）；不是 fresh 时还换上记下的调用改写。 *)
 let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
   let rec ex (x : expr) =
     let e =
@@ -770,7 +770,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | If (c, a, b) -> If (ex c, blk a, Option.map blk b)
       | Block b -> Block (blk b)
       | Lambda (ps, a) -> (
-          (* 需要 Fn(…) 的地方的闭包（C59）：换成 Fn#…(捕获…) *)
+          (* 需要 Fn(…) 的地方的闭包：换成 Fn#…(捕获…) *)
           match if fresh then None else Hashtbl.find_opt rewrites x.id with
           | Some (g, args) -> Call (g, List.map ex args)
           | None -> Lambda (ps, ex a))
@@ -802,7 +802,7 @@ let vec_inst (x : expr) b t =
   if params_of t = [] then Hashtbl.replace vec_calls (inst_name ("vec_" ^ b) [ t ]) (b, t)
 
 (* 泛型函数 f 按类型实参 ts 的实例：复制函数体（表达式换新的 id），类型参数换成具体类型。
-   泛型 impl 的方法（C56）：方法<具体类型> 是 方法<头部> 按匹配出的类型实参的实例。 *)
+   泛型 impl 的方法：方法<具体类型> 是 方法<头部> 按匹配出的类型实参的实例。 *)
 let instance (f, ts) =
   let name = inst_name f ts in
   let f, ts = Option.value (Hashtbl.find_opt minst name) ~default:(f, ts) in
@@ -821,7 +821,7 @@ let instance (f, ts) =
         }
   | it -> it
 
-(* trait 的方法 f 对具体类型 t 第一次被调用（C56）：impl 里写了的就是函数 f<t>；
+(* trait 的方法 f 对具体类型 t 第一次被调用：impl 里写了的就是函数 f<t>；
    内建类型的 to_str 换成内建函数；否则生成实例（泛型 impl 的方法，或者默认方法）。 *)
 let method_inst f t =
   let name = inst_name f [ t ] in
@@ -840,7 +840,7 @@ let method_inst f t =
         | Some _ -> Queue.add (f, [ t ]) pending
         | None -> ())
 
-(* 改写调用时新加的实参：变量 v（类型是 t），类型直接记下（C40）。 *)
+(* 改写调用时新加的实参：变量 v（类型是 t），类型直接记下。 *)
 let var_expr pos v t =
   let id = fresh_id () in
   Hashtbl.replace types id (Ty t);
@@ -850,7 +850,7 @@ let var_expr pos v t =
 (* 算术的类型：左边是 F64 时按 F64，否则按 I64（右边、报错都跟着它）。 *)
 let num = function Ty TF64 -> TF64 | _ -> TI64
 
-(* ---- 嵌套模式（C55，Lean M24、M24b） ---- *)
+(* ---- 嵌套模式（Lean `Matching.Nested`、`Matching.Coverage`） ---- *)
 
 let pm_count = ref 0
 let fresh_pvar () = incr pm_count; "#p" ^ string_of_int !pm_count
@@ -888,7 +888,7 @@ let rec pvars (q : pat) =
   | PTuple qs -> List.concat_map pvars qs
   | PWild | PLit _ | PVariant (_, None) -> []
 
-(* M24b 的 depth、lits *)
+(* `Matching.Coverage` 的 depth、lits *)
 let rec pat_depth (q : pat) =
   match q.p with
   | PWild | PBind _ -> 0
@@ -936,7 +936,7 @@ let rec check_pat env ty (q : pat) =
       | Some ts when List.length ts = List.length qs -> List.iter2 (check_pat env) ts qs
       | _ -> err q.ppos "%s 不是 %d 个元素的元组，不能用元组模式" (string_of_ty ty) (List.length qs))
 
-(* M24b 的代表值：Other 代表“不等于任何写出的字面量的值”，Any 代表深度用完以后的任意值。 *)
+(* `Matching.Coverage` 的代表值：Other 代表“不等于任何写出的字面量的值”，Any 代表深度用完以后的任意值。 *)
 type aval = AAny | AOther | ALit of string | ATag of string * aval option | ATup of aval list
 
 exception Too_many
@@ -987,7 +987,7 @@ let rec amatch (q : pat) r =
   | PTuple qs, ATup rs -> List.length qs = List.length rs && List.for_all2 amatch qs rs
   | _ -> false
 
-(* M24b 的 aselect：第一个匹配的分支 *)
+(* `Matching.Coverage` 的 aselect：第一个匹配的分支 *)
 let first_arm arms r =
   let rec go i = function [] -> None | (q, _) :: rest -> if amatch q r then Some i else go (i + 1) rest in
   go 0 arms
@@ -1001,7 +1001,7 @@ let rec show_aval = function
 
 let unreachable pos = mkx pos (Call ("panic", [ mkx pos (Str "match 走到了不可能的分支（编译器的错误）") ]))
 
-(* M24 的 test：按借用检查是否匹配（match let、==）；None 表示总是匹配 *)
+(* `Matching.Nested` 的 test：按借用检查是否匹配（match let、==）；None 表示总是匹配 *)
 let rec ptest env pos ty (mkp : unit -> expr) (q : pat) : expr option =
   match q.p with
   | PWild | PBind _ -> None
@@ -1035,7 +1035,7 @@ let rec ptest env pos ty (mkp : unit -> expr) (q : pat) : expr option =
       | [] -> None
       | a :: rest -> Some (List.fold_left (fun acc b -> mkx pos (Binop (And, acc, b))) a rest))
 
-(* M24 的 extract：只对选中的分支拆开、绑定变量（按移动，match let 时按借用）；标签不对的位置走不到 *)
+(* `Matching.Nested` 的 extract：只对选中的分支拆开、绑定变量（按移动，match let 时按借用）；标签不对的位置走不到 *)
 let rec pextract env pos borrow ty (mkp : unit -> expr) (q : pat) (k : expr) : expr =
   let blockx stmts tail = mkx pos (Block { stmts; tail = Some tail }) in
   match q.p with
@@ -1156,13 +1156,13 @@ and expr1 env (x : expr) : t =
       let ta = expr env a in
       let tb = expr env b in
       match op with
-      (* 算术和大小比较：两边都是 I64，或者都是 F64（C47，不做隐式转换，用 to_f64 / to_i64）；% 只用于 I64 *)
+      (* 算术和大小比较：两边都是 I64，或者都是 F64（不做隐式转换，用 to_f64 / to_i64）；% 只用于 I64 *)
       | Rem -> expect a.pos TI64 ta; expect b.pos TI64 tb; Ty TI64
       | Add | Sub | Mul | Div ->
           let t = num ta in
           expect a.pos t ta; expect b.pos t tb; Ty t
       | Lt | Le | Gt | Ge ->
-          let t = match ta with Ty TChar -> TChar | _ -> num ta in   (* 字符按码点比较（C48） *)
+          let t = match ta with Ty TChar -> TChar | _ -> num ta in   (* 字符按码点比较 *)
           expect a.pos t ta; expect b.pos t tb; Ty TBool
       | Eq | Ne -> (
           match ta, tb with
@@ -1179,12 +1179,12 @@ and expr1 env (x : expr) : t =
       expect a.pos t ta; Ty t
   | Unop (Not, a) -> expect a.pos TBool (expr env a); Ty TBool
   | Call ("panic", [ a ]) ->
-      (* panic(msg)（C38，Lean M19）：说明按借用读；不会返回，类型是 Never（和 return 一样） *)
+      (* panic(msg)（Lean `FlowGraph.Panic`）：说明按借用读；不会返回，类型是 Never（和 return 一样） *)
       expect a.pos TStr (expr env a);
       Never
   | Call ("panic", _) -> err pos "panic 需要 1 个参数（说明文字）"
   | Call ("os_exit", [ a ]) ->
-      (* os_exit(code)（C58）：和 panic 一样结束进程、不析构任何值（Lean M19），退出码是 code 的低 8 位 *)
+      (* os_exit(code)：和 panic 一样结束进程、不析构任何值（Lean `FlowGraph.Panic`），退出码是 code 的低 8 位 *)
       expect a.pos TI64 (expr env a);
       Never
   | Call ("os_exit", _) -> err pos "os_exit 需要 1 个参数（退出码）"
@@ -1196,7 +1196,7 @@ and expr1 env (x : expr) : t =
   | Call ("consume", [ a ]) -> (
       match expr env a with
       | Ty (TStruct n) when Hashtbl.mem linear_tbl n ->
-          (* 只能在定义这个 linear 类型的文件里消费（C34）：别的模块只能交给它的 pub 函数 *)
+          (* 只能在定义这个 linear 类型的文件里消费：别的模块只能交给它的 pub 函数 *)
           let base = match String.index_opt n '<' with Some i -> String.sub n 0 i | None -> n in
           (match Hashtbl.find_opt Ast.type_file base with
           | Some fi when fi <> Ast.file_of pos ->
@@ -1207,7 +1207,7 @@ and expr1 env (x : expr) : t =
       | Never -> Never
       | Ty t -> err pos "consume 只能用于 linear 结构体，%s 不是" (string_of_ty t))
   | Call ("unbox", [ a ]) -> (
-      (* 取出 Box 里的值：Box 按 sink 交出，堆内存释放（Lean M11 的 unbox） *)
+      (* 取出 Box 里的值：Box 按 sink 交出，堆内存释放（Lean `Datatypes.Recursive` 的 unbox） *)
       match expr env a with
       | Ty (TBox t) -> Ty t
       | Never -> Never
@@ -1227,7 +1227,7 @@ and expr1 env (x : expr) : t =
       | Ty t -> err a.pos "alloc 的第一个参数必须是区域，%s 不是" (string_of_ty t))
   | Call ("alloc", _) -> err pos "alloc 需要 2 个参数：区域和值"
   | Call ("text", [ a; s ]) -> (
-      (* text(a, s)（C61）：s 交给区域 a，得到整段的切片 &str in a；之后缓冲区不再改动，区域结束时释放（Lean M27 的二） *)
+      (* text(a, s)：s 交给区域 a，得到整段的切片 &str in a；之后缓冲区不再改动，区域结束时释放（Lean `Strings.Slice`） *)
       match expr env a with
       | Ty (TArena r) ->
           ignore (check env TStr s);
@@ -1236,7 +1236,7 @@ and expr1 env (x : expr) : t =
       | Ty t -> err a.pos "text 的第一个参数必须是区域，%s 不是" (string_of_ty t))
   | Call ("text", _) -> err pos "text 需要 2 个参数：区域和字符串"
   | Call ((("read_file_in" | "read_stdin_in" | "read_chunk") as f), a :: rest) -> (
-      (* 流式读入（C62）：结果是区域 a 里的切片，和 text 一样 *)
+      (* 流式读入：结果是区域 a 里的切片，和 text 一样 *)
       match expr env a with
       | Ty (TArena r) -> (
           let v = TRef (TView, r) in
@@ -1248,7 +1248,7 @@ and expr1 env (x : expr) : t =
       | Never -> Never
       | Ty t -> err a.pos "%s 的第一个参数必须是区域，%s 不是" f (string_of_ty t))
   | Call (f, v :: rest) when List.mem_assoc f view_sigs -> (
-      (* 切片的方法（C61）：子切片和原切片在同一个区域里（Lean M27 的一） *)
+      (* 切片的方法：子切片和原切片在同一个区域里（Lean `Strings.Slice`） *)
       let int (e : expr) = expect e.pos TI64 (expr env e) in
       match expr env v with
       | Never -> Never
@@ -1286,7 +1286,7 @@ and expr1 env (x : expr) : t =
           vec_inst x "len" t;
           Ty TI64
       | Ty (TVec t), "vec_swap", [ i; j ] ->
-          (* 交换第 i、j 个元素：只调换顺序，拥有关系不变（Lean M20），越界时 panic *)
+          (* 交换第 i、j 个元素：只调换顺序，拥有关系不变（Lean `Datatypes.VecSwap`），越界时 panic *)
           inout_place env v;
           expect i.pos TI64 (expr env i);
           expect j.pos TI64 (expr env j);
@@ -1355,13 +1355,13 @@ and method_name env (x : expr) f (r : expr) =
     | Ty TBytes, m when List.mem m bytes_methods -> "bytes_" ^ m
     | Ty (TRef (TView, _)), m when List.mem m view_methods -> "view_" ^ m
     | Ty TChar, "code" -> "char_code"
-    (* x.to_str()，也是字符串插值 "{x}" 用的（C49） *)
+    (* x.to_str()，也是字符串插值 "{x}" 用的 *)
     | Ty TI64, "to_str" -> "str_from_i64"
     | Ty TF64, "to_str" -> "str_from_f64"
     | Ty TChar, "to_str" -> "str_from_char"
     | Ty TBool, "to_str" -> "str_from_bool"
     | Ty TStr, "to_str" -> "str_clone"
-    | Ty (TOFn _ as t), "call" -> fcall_name env.fns t   (* f.call(x)：字段、Vec 元素里的闭包也能这样调用（C59） *)
+    | Ty (TOFn _ as t), "call" -> fcall_name env.fns t   (* f.call(x)：字段、Vec 元素里的闭包也能这样调用 *)
     | _ -> m
   in
   Hashtbl.replace method_res x.id g;
@@ -1370,7 +1370,7 @@ and method_name env (x : expr) f (r : expr) =
 and call env want (x : expr) f args : t =
   match List.assoc_opt f env.vars with
   | Some (TFn (pts, r), _) ->
-      (* 调用 fn(…) 参数：实参按参数约定检查；在特化里换成调用绑定的闭包提升出的函数，前面接上捕获（C40） *)
+      (* 调用 fn(…) 参数：实参按参数约定检查；在特化里换成调用绑定的闭包提升出的函数，前面接上捕获 *)
       note env.vars f;
       if List.length pts <> List.length args then
         err x.pos "%s 需要 %d 个参数，实际给了 %d 个" f (List.length pts) (List.length args);
@@ -1386,14 +1386,14 @@ and call env want (x : expr) f args : t =
          | None -> ());
       Ty r
   | Some ((TOFn _ as t), _) ->
-      (* 调用 Fn(…) 类型的变量 f（C59）：就是 call#…(f, …)，闭包按 inout（M26 的 env_disjoint） *)
+      (* 调用 Fn(…) 类型的变量 f：就是 call#…(f, …)，闭包按 inout（`Closures.Stored` 的 env_disjoint） *)
       let g = fcall_name env.fns t in
       let args = var_expr x.pos f t :: args in
       Hashtbl.replace rewrites x.id (g, args);
       call_named env want x g args
   | _ -> call_named env want x f args
 
-(* 需要 Fn(pts) -> r 的地方的闭包（C59，Lean M26）：照 C40 检查、提升，捕获按值存进环境。 *)
+(* 需要 Fn(pts) -> r 的地方的闭包（Lean `Closures.Stored`）：和当实参传的闭包一样检查、提升，捕获按值存进环境。 *)
 and pack env (x : expr) ys body want : t =
   match want with
   | TOFn (pts, r) ->
@@ -1411,7 +1411,7 @@ and pack env (x : expr) ys body want : t =
       Ty want
   | _ -> assert false
 
-(* 闭包 |ys| body 作 fn(pts) -> r 类型的参数的实参（C40）：参数的类型取 pts，在原地检查函数体，找出捕获。
+(* 闭包 |ys| body 作 fn(pts) -> r 类型的参数的实参：参数的类型取 pts，在原地检查函数体，找出捕获。
    r 为 None 时只推出函数体的类型（泛型函数的类型实参还没确定时）。会生成代码时把闭包提升成普通函数：
    捕获在前、闭包的参数在后；名字按位置和类型确定，同一个闭包只提升一次。 *)
 and lambda env (a : expr) ys body pts r : closure * t =
@@ -1446,7 +1446,7 @@ and lambda env (a : expr) ys body pts r : closure * t =
       !(fr.used)
   in
   (* 捕获的类型里的区域换成区域参数 'c00、'c01…：按这里的嵌套顺序编号（外层在前），
-     先后关系只取这里真实成立的（M22 的 capture_mono；调用时这些区域都活着是 capture_below） *)
+     先后关系只取这里真实成立的（`Closures.CapRef` 的 capture_mono；调用时这些区域都活着是 capture_below） *)
   let outer_first = List.rev_map fst !regions in
   let idx r = Option.value (List.find_index (( = ) r) outer_first) ~default:max_int in
   let rs =
@@ -1482,7 +1482,7 @@ and fn_arg env f p pts pr (a : expr) : closure * expr list =
   match a.e with
   | Lambda (ys, body) ->
       let c, _ = lambda env a ys body pts (Some pr) in
-      (* 闭包写在这里：捕获的实参是外层变量本身（真实的区域；类型检查不再比较，由 M22 保证、Lean 复核） *)
+      (* 闭包写在这里：捕获的实参是外层变量本身（真实的区域；类型检查不再比较，由 `Closures.CapRef` 保证、Lean 复核） *)
       (c, List.map (fun v -> var_expr a.pos v (fst (List.assoc v env.vars))) (List.map (fun (_, v, _) -> v) c.caps))
   | Var g -> (
       note env.vars g;
@@ -1493,7 +1493,7 @@ and fn_arg env f p pts pr (a : expr) : closure * expr list =
           | Some (c, caps) -> (c, List.map (fun (n, t) -> var_expr a.pos n t) caps)
           | None -> ({ cname = ""; caps = []; rord = [] }, []))
       | Some ((TOFn (qs, u) as t), _) ->
-          (* Fn(…) 变量传给 fn(…) 参数（C59）：当作闭包 |a…| g(a…)，它按 inout 捕获 g *)
+          (* Fn(…) 变量传给 fn(…) 参数：当作闭包 |a…| g(a…)，它按 inout 捕获 g *)
           if TFn (qs, u) <> p then err a.pos "类型不匹配：需要 %s，实际是 %s" (string_of_ty p) (string_of_ty t);
           let ys = List.mapi (fun i _ -> Printf.sprintf "#a%d" i) pts in
           let body = mkx a.pos (Call (g, List.map (fun y -> mkx a.pos (Var y)) ys)) in
@@ -1502,7 +1502,7 @@ and fn_arg env f p pts pr (a : expr) : closure * expr list =
   | _ -> bad ()
 
 (* 调用带 fn(…) 参数的函数 f：换成调用 f 对这些闭包的特化（第一次用到时生成，名字是 f[闭包, …]），
-   去掉 fn(…) 参数，后面接上每个闭包的捕获（M21：捕获当作额外的实参，排他性在这里一起检查）。 *)
+   去掉 fn(…) 参数，后面接上每个闭包的捕获（`Closures.Param`：捕获当作额外的实参，排他性在这里一起检查）。 *)
 and specialize (x : expr) f args ps cls =
   let ts = Hashtbl.find_opt call_inst x.id in
   let base = match ts with Some ts -> inst_name f ts | None -> f in
@@ -1543,7 +1543,7 @@ and call_named env want (x : expr) f args : t =
     | None -> (
         match List.assoc_opt f builtins with
         | Some (ps, r) ->
-            (* 内建函数签名里的 Option<…> 在这里换成实例（C32） *)
+            (* 内建函数签名里的 Option<…> 在这里换成实例 *)
             (List.map (fun (m, t) -> (m, resolve [] pos t)) ps, resolve [] pos r)
         | None -> err pos "未定义的函数 %s" f)
   in
@@ -1551,7 +1551,7 @@ and call_named env want (x : expr) f args : t =
     err pos "%s 需要 %d 个参数，实际给了 %d 个" f (List.length ps) (List.length args);
   let has_fn = List.exists (fun (_, p) -> is_fn p) ps in
   (* 泛型函数：从期望的返回类型和实参类型推出类型实参，检查约束（普通的 T 不能是 linear 类型），
-     然后按具体类型检查实参；类型实参都是具体类型时登记这个实例（Lean M9 的 Respects） *)
+     然后按具体类型检查实参；类型实参都是具体类型时登记这个实例（Lean `Generics.Check` 的 Respects） *)
   let ps, r =
     match Hashtbl.find_opt gparams f with
     | None -> (ps, r)
@@ -1559,7 +1559,7 @@ and call_named env want (x : expr) f args : t =
         let s = ref [] in
         Option.iter (fun w -> unify s r w) want;
         (* .A(e) / .B 自己推不出类型，留到类型实参确定之后按期望类型检查；
-           fn(…) 参数：传下去的函数参数按它的类型推，闭包等别的实参推完之后再推（C40） *)
+           fn(…) 参数：传下去的函数参数按它的类型推，闭包等别的实参推完之后再推 *)
         List.iter2
           (fun (_, p) (a : expr) ->
             if List.exists (fun n -> not (List.mem_assoc n !s)) (params_of p) then
@@ -1601,8 +1601,8 @@ and call_named env want (x : expr) f args : t =
                   t)
             tps
         in
-        (* trait 约束：类型参数要在当前函数里写了同样的约束，具体类型要有 impl（Lean M10 的 RespectsT；
-           泛型 impl 按 M25 递归地查） *)
+        (* trait 约束：类型参数要在当前函数里写了同样的约束，具体类型要有 impl（Lean `Traits.Static` 的 RespectsT；
+           泛型 impl 按 `Traits.ImplSearch` 递归地查） *)
         let named = List.combine (List.map fst tps) ts in
         List.iter
           (fun (n, tr) ->
@@ -1611,13 +1611,13 @@ and call_named env want (x : expr) f args : t =
               let tr0, t0 = why_not env.tbounds tr t in
               match Hashtbl.mem methods f, t with
               | _ when t0 <> t -> (
-                  (* 泛型 impl 的约束不满足：报最里面那个（C56） *)
+                  (* 泛型 impl 的约束不满足：报最里面那个 *)
                   match t0 with
                   | TParam (m, _) ->
                       err pos "%s 没有写约束 %s，而 %s 的 %s 要用到它（要写 %s: %s）" m tr0 (string_of_ty t) tr m tr0
                   | _ -> err pos "%s 没有实现 %s，而 %s 的 %s 要用到它" (string_of_ty t0) tr0 (string_of_ty t) tr)
               | true, _ when tr = "ToStr" && params_of t = [] ->
-                  (* 插值 "{p}"、p.to_str() 落到这里：p 的类型不是内建的那几种，也没有写 to_str（C49） *)
+                  (* 插值 "{p}"、p.to_str() 落到这里：p 的类型不是内建的那几种，也没有写 to_str *)
                   err pos "%s 没有实现 ToStr，不能在字符串里插值或调用 to_str（先写 fn to_str(x: %s) -> Str）"
                     (string_of_ty t) (string_of_ty t)
               | true, TParam (m, _) -> err pos "%s 没有写约束 %s，不能调用 %s（要写 %s: %s）" m tr f m tr
@@ -1625,7 +1625,7 @@ and call_named env want (x : expr) f args : t =
               | false, TParam (m, _) -> err pos "%s 要求 %s: %s，但 %s 没有写约束 %s" f n tr m tr
               | false, _ -> err pos "%s 没有实现 %s（%s 要求 %s: %s）" (string_of_ty t) tr f n tr)
           (Option.value (Hashtbl.find_opt gbounds f) ~default:[]);
-        (* 含引用的类型实参（C19）：类型参数要出现在参数类型里，实例的区域才能从实参得到；
+        (* 含引用的类型实参：类型参数要出现在参数类型里，实例的区域才能从实参得到；
            区域名换成按出现顺序编号的 '0、'1…，不同调用处的同一种实例只生成一份，也不会和函数体里 arena 的名字冲突 *)
         List.iter2
           (fun (n, _) t ->
@@ -1638,7 +1638,7 @@ and call_named env want (x : expr) f args : t =
         in
         let ts = List.map (rename (List.mapi (fun i r -> (r, "'" ^ string_of_int i)) rs)) ts in
         Hashtbl.replace call_inst x.id ts;
-        (* 方法调用直接用 impl 里的函数；impl 没写、用默认方法的，或者 impl 是泛型的，生成实例（C56）；
+        (* 方法调用直接用 impl 里的函数；impl 没写、用默认方法的，或者 impl 是泛型的，生成实例；
            带 fn(…) 参数的函数生成的是特化 *)
         if List.for_all (fun t -> params_of t = []) ts
            && (not has_fn)
@@ -1650,7 +1650,7 @@ and call_named env want (x : expr) f args : t =
         let s = List.combine (List.map fst tps) ts in
         (List.map (fun (m, p) -> (m, subst s p)) ps, subst s r)
   in
-  (* 区域参数按实参实例化（M5（四））：Arena 参数取实参的区域，
+  (* 区域参数按实参实例化（`Regions.Params`）：Arena 参数取实参的区域，
      参数类型里的其他区域名取实参类型里对应位置的区域 *)
   let s = ref [] in
   let rec bind p t =
@@ -1757,10 +1757,10 @@ and arena env want pos r (b : block) : t =
   | _ -> ());
   t
 
-(* 枚举（含 Result）的 match（Lean M8）：必须穷尽，每个变体恰好一个分支；带载荷的变体绑定载荷。
-   borrow：match let s { … }，s 必须是位置（Lean M8（二））。 *)
-(* 带嵌套模式的 match（C55）：检查模式的类型；覆盖性（Lean M24b：每个代表值都有分支匹配，每个分支都是某个代表值
-   第一个匹配的）；然后展开（Lean M24）：
+(* 枚举（含 Result）的 match（Lean `Datatypes.Enum`）：必须穷尽，每个变体恰好一个分支；带载荷的变体绑定载荷。
+   borrow：match let s { … }，s 必须是位置（Lean `Matching.Borrow`）。 *)
+(* 带嵌套模式的 match：检查模式的类型；覆盖性（Lean `Matching.Coverage`：每个代表值都有分支匹配，每个分支都是某个代表值
+   第一个匹配的）；然后展开（Lean `Matching.Nested`）：
      { [let #pN = s]  if test₀ { extract₀ } else if test₁ { extract₁ } … else { extract_last } }
    test 按借用（match let、==），extract 只对选中的分支按移动拆开（match let 时按借用）。返回展开后的表达式，
    调用的地方按它检查类型；map_body 再把 PMatch 换成它。 *)
@@ -1829,7 +1829,7 @@ and enum_match env want pos ty vs arms : t =
     (fun (v, _, (a : expr)) ->
       if v <> "_" && not (List.mem_assoc v vs) then err a.pos "%s 没有变体 %s" (string_of_ty ty) (vname v))
     arms;
-  (* 通配分支 _（C46，Lean M23 的 covers）：最多一个，只能在最后，而且确实还有没写到的变体 *)
+  (* 通配分支 _（Lean `Matching.Wildcard` 的 covers）：最多一个，只能在最后，而且确实还有没写到的变体 *)
   (match List.filter (fun (v, _, _) -> v = "_") arms with
   | _ :: (_, _, (a : expr)) :: _ -> err a.pos "match 有两个 _ 分支"
   | [ (_, _, (a : expr)) ] ->
@@ -1943,8 +1943,8 @@ and block ?want env (b : block) : t =
             ignore (check env fty e);
             go env rest
         | SetPlace (a, e) ->
-            (* for x in inout v 里的 x = e（C33）：a 是 vec_get(v, #j)。和给字段赋值一样：v 以可修改的变量为根，
-               路径上不经过引用；旧值由 own.ml 先析构（M18 的 replace_reach） *)
+            (* for x in inout v 里的 x = e：a 是 vec_get(v, #j)。和给字段赋值一样：v 以可修改的变量为根，
+               路径上不经过引用；旧值由 own.ml 先析构（`Datatypes.VecInout` 的 replace_reach） *)
             let rec path (x : expr) =
               match x.e with
               | Var _ -> ()
@@ -2078,7 +2078,7 @@ let prepare (p : program) =
   Hashtbl.reset defaults;
   Hashtbl.reset minst;
   Hashtbl.reset aliases;
-  (* 内建的 trait ToStr（C56）：fn to_str(x: Self) -> Str，字符串插值 "{x}" 用它；I64、F64、Char、Bool、Str 已经实现 *)
+  (* 内建的 trait ToStr：fn to_str(x: Self) -> Str，字符串插值 "{x}" 用它；I64、F64、Char、Bool、Str 已经实现 *)
   Hashtbl.add traits "ToStr" [ "to_str" ];
   Hashtbl.replace methods "to_str" "ToStr";
   Hashtbl.replace fns "to_str" ([ (MLet, TParam ("Self", true)) ], TStr);
@@ -2154,7 +2154,7 @@ let prepare (p : program) =
           Hashtbl.add traits name (List.map (fun (m : msig) -> m.mname) ms)
       | Impl _ -> ())
     p;
-  (* 结构体、枚举不能不经过 Box 包含自己（大小是无限的）；经过 Box 的递归可以（Lean M11）。
+  (* 结构体、枚举不能不经过 Box 包含自己（大小是无限的）；经过 Box 的递归可以（Lean `Datatypes.Recursive`）。
      泛型类型的实参也算包含（保守：实参只放在 Box 里时也拒绝）。 *)
   let rec visit path n =
     if List.mem n path then
@@ -2216,7 +2216,7 @@ let prepare (p : program) =
           end;
           Hashtbl.replace fns name (ps, ret)
       | Trait { name; methods = ms; _ } ->
-          (* Self 可以是任何类型（包括 linear 的），调用处的效果只由参数约定决定（Lean M10） *)
+          (* Self 可以是任何类型（包括 linear 的），调用处的效果只由参数约定决定（Lean `Traits.Static`） *)
           let sc = [ ("Self", TParam ("Self", true)) ] in
           List.iter
             (fun (m : msig) ->
@@ -2251,13 +2251,13 @@ let prepare (p : program) =
           | TFn _ | TOFn _ -> err ipos "不能为函数类型实现 trait"
           | TParam (t, _) -> err ipos "不能为类型参数 %s 本身实现 trait（impl<%s> … for %s 会和所有的 impl 重叠）" t t t
           | _ -> ());
-          (* M25 的 WF：impl 的类型参数都要出现在头部里（实例的类型实参由匹配得到） *)
+          (* `Traits.ImplSearch` 的 WF：impl 的类型参数都要出现在头部里（实例的类型实参由匹配得到） *)
           List.iter
             (fun (t, _) ->
               if not (List.mem t (params_of st)) then
                 err ipos "impl 的类型参数 %s 没有出现在 %s 里" t (string_of_ty st))
             tparams;
-          (* M25 的 Coherent：同一个 trait 的两个 impl 不能有共同的实例 *)
+          (* `Traits.ImplSearch` 的 Coherent：同一个 trait 的两个 impl 不能有共同的实例 *)
           List.iter
             (fun i ->
               if compat i.head st then
@@ -2319,7 +2319,7 @@ let prepare (p : program) =
                   if is_linear t then err ipos "%s 的变体 %s：载荷暂不能是 linear 值" name v)
             (Hashtbl.find enum_tbl (abstract name tparams))
       | Impl { trait = tr; tparams; self; fns = ms; ipos; _ } ->
-          (* impl 和 trait 一致：方法一样，每个方法的参数约定和类型相同（Self 换成实现的类型，Lean M10 的 Conforms） *)
+          (* impl 和 trait 一致：方法一样，每个方法的参数约定和类型相同（Self 换成实现的类型，Lean `Traits.Static` 的 Conforms） *)
           let st = resolve (List.map (fun (t, lin) -> (t, TParam (t, lin))) tparams) ipos self in
           check_ty env0 ipos st;
           let what = Printf.sprintf "impl %s for %s" tr (string_of_ty st) in
@@ -2384,8 +2384,8 @@ let resolve_item = function
   | it -> it
 
 (* 整个程序的条目逐个解析：impl 换成它的方法（普通函数，名字是 方法<类型>，Self 换成实现的类型）；
-   泛型 impl 的方法是泛型函数，类型参数和约束是 impl 的（C56）。
-   trait 的签名已经登记过，不再留在程序里；默认方法是泛型函数 方法，类型参数 Self、约束 Self: trait（C56）。 *)
+   泛型 impl 的方法是泛型函数，类型参数和约束是 impl 的。
+   trait 的签名已经登记过，不再留在程序里；默认方法是泛型函数 方法，类型参数 Self、约束 Self: trait。 *)
 let resolve_items = function
   | Fn _ as it -> [ resolve_item it ]
   | Impl { tparams; bounds; self; fns; ipos; _ } ->
@@ -2432,8 +2432,8 @@ let resolve_items = function
         ms
   | (Struct _ | Enum _) as it -> [ it ]
 
-(* 检查一个函数。特化（C40）：clos 是 fn(…) 参数绑定的闭包，fvars 是这些参数（已经从参数里去掉，函数体里仍按名字用）。
-   rord：闭包捕获的区域参数之间的先后关系（M22）；其余区域参数之间没有顺序（D3）。 *)
+(* 检查一个函数。特化：clos 是 fn(…) 参数绑定的闭包，fvars 是这些参数（已经从参数里去掉，函数体里仍按名字用）。
+   rord：闭包捕获的区域参数之间的先后关系（`Closures.CapRef`）；其余区域参数之间没有顺序（D3）。 *)
 let check_fn ?(clos = []) ?(fvars = []) ?(rord = []) env0 = function
   | Fn { name; tparams; params; ret; body; ipos; bounds } ->
       cur_fn := name;
@@ -2465,7 +2465,7 @@ let check_main env0 =
   | Some _ -> err { line = 1; col = 1 } "main 必须是 fn main()，没有参数、没有返回值、没有类型参数"
   | None -> err { line = 1; col = 1 } "缺少 fn main()"
 
-(* fn to_str(x: P) -> Str 是 impl ToStr for P { … } 的简写（C49 的写法；C56 起可以给多种类型各写一个），
+(* fn to_str(x: P) -> Str 是 impl ToStr for P { … } 的简写（可以给多种类型各写一个），
    fn to_str<T: ToStr>(v: Vec<T>) -> Str 是泛型 impl 的简写。
    模块里的 m.to_str(x: P) -> Str 照常是函数，另外为 P 实现 ToStr（调用它），"{x}" 也就能用了。 *)
 let sugar_to_str (p : program) =
@@ -2490,14 +2490,14 @@ let sugar_to_str (p : program) =
 
 (* 检查整个程序。返回解析过类型的程序（impl 换成它的方法），后面接上用到的泛型函数实例（单态化），每个实例照常检查。
    方法调用在检查之后换成解析出的函数名；实例是从检查过的泛型函数复制的，复制时已经换好。
-   闭包（C40）：提升出的闭包和特化也接在后面、照常检查；调用的改写在全部检查完之后换上。
+   闭包：提升出的闭包和特化也接在后面、照常检查；调用的改写在全部检查完之后换上。
    带 fn(…) 参数的函数本身不输出（只输出它的特化），函数体里有闭包的泛型函数不在定义处降级。 *)
 let program (p : program) : program =
   let p = sugar_to_str p in
   let env0 = prepare p in
   let p = List.concat_map resolve_items p in
   List.iter (function Fn f as it -> Hashtbl.replace fn_items f.name it | _ -> ()) p;
-  (* C28：函数之间互不影响，每个函数报它的第一个错误；有错误时不再生成泛型实例（免得同一个错误报好几次） *)
+  (* 函数之间互不影响，每个函数报它的第一个错误；有错误时不再生成泛型实例（免得同一个错误报好几次） *)
   let errs = ref [] in
   let guard g x =
     try g x with Error (pos, msg) ->

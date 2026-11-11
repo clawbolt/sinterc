@@ -1,10 +1,10 @@
-(* 投影锁定与调用排他性（对应 Lean M3（二）、M4（一）–（四））。在 own.ml 展开析构之后运行。
-   - 活跃性：后向数据流，算出每个程序点之后还会用到哪些投影（M4（二）、M4（四）：
+(* 投影锁定与调用排他性（对应 Lean `Calls.NArgs`、`Projection.Lock` –（四））。在 own.ml 展开析构之后运行。
+   - 活跃性：后向数据流，算出每个程序点之后还会用到哪些投影（`Projection.Liveness`、`Projection.Dataflow`：
      投影的锁在最后一次使用之后结束，不必等到作用域结束）。
    - 锁定：投影 q 指向局部 z 的内部。q 之后还会用到时，z 不能被移动、修改、
-     以 inout 传入或析构；只读使用照常允许（M4（一））。调用时 q 本身作为实参，
-     同一次调用也不能修改 z（M4（三·下））。
-   - 排他性：同一次调用里，同一个局部出现两次时，两次都必须是只读的（M3（二））。 *)
+     以 inout 传入或析构；只读使用照常允许（`Projection.Lock`）。调用时 q 本身作为实参，
+     同一次调用也不能修改 z（`Projection.CallArg`）。
+   - 排他性：同一次调用里，同一个局部出现两次时，两次都必须是只读的（`Calls.NArgs`）。 *)
 open Mir
 
 let err (at : Ast.pos) fmt = Printf.ksprintf (fun m -> raise (Typeck.Error (at, m))) fmt

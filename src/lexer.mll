@@ -3,7 +3,7 @@ open Parser
 
 exception Error of Ast.pos * string
 
-(* 圆括号里的换行不算语句分隔。花括号里重新算（C43）：f(m, |x| { a \n b }) 里闭包体的换行分隔语句，
+(* 圆括号里的换行不算语句分隔。花括号里重新算：f(m, |x| { a \n b }) 里闭包体的换行分隔语句，
    saved 记下外层的圆括号层数，遇到 } 时恢复。 *)
 let depth = ref 0
 let saved : int list ref = ref []
@@ -20,7 +20,7 @@ let keywords = [
   "break", BREAK; "continue", CONTINUE; "use", USE; "pub", PUB;
 ]
 
-(* 字符串插值（C49）："x = {x}" 拆成记号 #fmt("x = ", (x).to_str())，由 parser 展开。
+(* 字符串插值："x = {x}" 拆成记号 #fmt("x = ", (x).to_str())，由 parser 展开。
    pending：一次拆出来的其余记号（带各自的位置），next 依次交给 parser。 *)
 let pending : (token * Lexing.position * Lexing.position) list ref = ref []
 let token_ref : (Lexing.lexbuf -> token) ref = ref (fun _ -> EOF)
@@ -85,7 +85,7 @@ rule token = parse
   | "//" [^ '\n']*        { token lexbuf }
   | '\n'                  { Lexing.new_line lexbuf;
                             if !depth > 0 then token lexbuf else NL }
-  (* 浮点数（C47）：1.5、2.0e-3、1e9。紧跟在 . 后面时（t.0.1 取嵌套元组的元素）只读整数部分，
+  (* 浮点数：1.5、2.0e-3、1e9。紧跟在 . 后面时（t.0.1 取嵌套元组的元素）只读整数部分，
      . 和后面的数字留给下一个记号 *)
   | (digit+ '.' digit+ (['e' 'E'] ['+' '-']? digit+)? | digit+ ['e' 'E'] ['+' '-']? digit+) as s
       { let st = lexbuf.Lexing.lex_start_pos in
@@ -105,7 +105,7 @@ rule token = parse
                             | Some k -> k
                             | None -> IDENT s }
   | upper alnum* as s     { match s with "Box" -> BOX | "Result" -> RESULT | _ -> UIDENT s }
-  (* 另一个模块里的类型或 trait（C34）：geom.Point，中间没有空格。字段名都是小写，不会和它混淆 *)
+  (* 另一个模块里的类型或 trait：geom.Point，中间没有空格。字段名都是小写，不会和它混淆 *)
   | (lower alnum* '.' upper alnum*) as s { UIDENT s }
   | "->"  { ARROW }   | "=>"  { FATARROW }
   | '?'   { QUESTION }
@@ -136,7 +136,7 @@ rule token = parse
             | [] -> STRING ""
             | [ `Lit s ] -> STRING s
             | _ -> interp start lexbuf.Lexing.lex_curr_p parts }
-  (* 字符字面量（C48）：'a'、'中'、'😀'，转义 '\n'、'\t'、'\\'、'\''、'\0'。引号里正好一个字符 *)
+  (* 字符字面量：'a'、'中'、'😀'，转义 '\n'、'\t'、'\\'、'\''、'\0'。引号里正好一个字符 *)
   | "'\\n'" { CHAR 10 }   | "'\\t'" { CHAR 9 }   | "'\\\\'" { CHAR 92 }
   | "'\\''" { CHAR 39 }   | "'\\0'" { CHAR 0 }
   | '\'' ([^ '\\' '\'' '\n'] ['\128'-'\191']* as s) '\''
@@ -148,8 +148,8 @@ rule token = parse
   | eof   { EOF }
   | _ as c { raise (Error (pos lexbuf, Printf.sprintf "无法识别的字符 '%c'" c)) }
 
-(* 字符串字面量（C26）：转义有换行、回车（C52）、制表符、反斜杠和双引号；不能跨行。 *)
-(* C49：{ 表达式 } 是插值，{{ 和 }} 是 { 和 } 本身。 *)
+(* 字符串字面量：转义有换行、回车、制表符、反斜杠和双引号；不能跨行。 *)
+(* 字符串插值：{ 表达式 } 是插值，{{ 和 }} 是 { 和 } 本身。 *)
 and str p buf parts = parse
   | '"'         { List.rev (flush buf parts) }
   | "{{"        { Buffer.add_char buf '{'; str p buf parts lexbuf }
@@ -161,7 +161,7 @@ and str p buf parts = parse
   | '}'         { raise (Error (pos lexbuf, "字符串里的 } 要写成 }}")) }
   | "\\n"       { Buffer.add_char buf '\n'; str p buf parts lexbuf }
   | "\\t"       { Buffer.add_char buf '\t'; str p buf parts lexbuf }
-  | "\\r"       { Buffer.add_char buf '\r'; str p buf parts lexbuf }   (* C52：Windows 换行 \r\n *)
+  | "\\r"       { Buffer.add_char buf '\r'; str p buf parts lexbuf }   (* Windows 换行 \r\n *)
   | "\\\\"      { Buffer.add_char buf '\\'; str p buf parts lexbuf }
   | "\\\""      { Buffer.add_char buf '"'; str p buf parts lexbuf }
   | '\\' _      { raise (Error (pos lexbuf, "字符串里只能用 \\n、\\r、\\t、\\\\、\\\" 这几种转义")) }

@@ -1,4 +1,4 @@
-" Vim 的 Sinter 语法高亮（T3）。和 editor/vscode 的语法用同一份关键字表，test/t3.t 检查它和词法分析一致。
+" Vim 的 Sinter 语法高亮。和 editor/vscode 的语法用同一份关键字表，test/editor_syntax.t 检查它和词法分析一致。
 if exists("b:current_syntax")
   finish
 endif

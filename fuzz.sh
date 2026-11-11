@@ -1,5 +1,5 @@
 #!/bin/sh
-# T5：fmt 和编译器的随机测试（见 fuzz/fuzz.ml）。用法：sh fuzz.sh [轮数] [种子]，默认 20 轮、种子 1。
+# fmt 和编译器的随机测试（见 fuzz/fuzz.ml）。用法：sh fuzz.sh [轮数] [种子]，默认 20 轮、种子 1。
 # 不一致的输入写到 _batch/fuzz/。
 cd "$(dirname "$0")"
 dune build 2>&1 | head -20

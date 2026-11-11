@@ -4,16 +4,16 @@
      sinterc 源文件.sn [-o 输出.c]     只生成 C（不给 -o 时写到标准输出）
      sinterc --version / --help
    build 和 run 调用系统的 C 编译器：环境变量 CC，默认 cc。
-   --lang=en（或环境变量 SINTER_LANG=en）：错误信息和运行时的 panic 用英文（C27），默认中文。
-   开发用的选项：--emit=core 生成给 Lean 复核的 CFG（附录 F 的 C5）；
+   --lang=en（或环境变量 SINTER_LANG=en）：错误信息和运行时的 panic 用英文，默认中文。
+   开发用的选项：--emit=core 生成给 Lean 复核的 CFG（附录 F 的 `Checking.Validate`）；
    --unchecked 只和 --emit=core 一起用：跳过所有权与投影检查、区域的先后和 R3 检查，照样导出，看 Lean 是否独立地拒绝；
    --batch：对照测试，见下面。
-   出错时打印“文件:行:列: 错误：…”和出错的那一行（T1），退出码 1。 *)
+   出错时打印“文件:行:列: 错误：…”和出错的那一行，退出码 1。 *)
 open Sinter
 
 let version = "0.2.0-pre"
 
-(* 报错时显示出错的那一行，下一行用 ^ 标出列（T1）：
+(* 报错时显示出错的那一行，下一行用 ^ 标出列：
      ok.sn:4:11: 错误：s 已被移动，不能再使用
        4 |     print(s.0)
          |           ^
@@ -69,7 +69,7 @@ let snippet path line col =
       Printf.eprintf " %s | %s\n%s | %s^\n" num text gutter (caret_pad text col)
   | _ -> ()
 
-(* 位置可能在引入的模块里（C34）：换回那个文件的名字和行号。 *)
+(* 位置可能在引入的模块里：换回那个文件的名字和行号。 *)
 let report file (pos : Ast.pos) msg =
   let file, line = Ast.locate file pos in
   Printf.eprintf "%s:%d:%d: %s%s\n" file line pos.col (I18n.pick "错误：" "error: ") (I18n.msg msg);
@@ -79,7 +79,7 @@ let fail file pos msg =
   report file pos msg;
   exit 1
 
-(* 一次报多个错误（C28）：按位置排序（行号里含文件的序号，所以先按文件），最多显示 20 个。 *)
+(* 一次报多个错误：按位置排序（行号里含文件的序号，所以先按文件），最多显示 20 个。 *)
 let max_errors = 20
 
 let fail_many file errs =
@@ -120,7 +120,7 @@ let usage () =
   prerr_string (help ());
   exit 2
 
-(* 把生成的 C 交给系统的 C 编译器。release（C60）：-O2，并定义 SN_RELEASE（不统计分配次数、不做退出时的泄漏检查）。 *)
+(* 把生成的 C 交给系统的 C 编译器。release：-O2，并定义 SN_RELEASE（不统计分配次数、不做退出时的泄漏检查）。 *)
 let cc ~release c_file exe =
   let cc = Option.value (Sys.getenv_opt "CC") ~default:"cc" in
   let opt = if release then "-O2 -DSN_RELEASE" else "-O1" in
@@ -133,7 +133,7 @@ let cc ~release c_file exe =
     exit 1
   end
 
-(* sinterc fmt [--check | -w] 文件…（T2）：默认把格式化的结果打印出来；-w 写回文件；
+(* sinterc fmt [--check | -w] 文件…：默认把格式化的结果打印出来；-w 写回文件；
    --check 只列出需要格式化的文件，有的话退出码是 1。 *)
 let fmt_main argv =
   let check = List.mem "--check" argv and write = List.mem "-w" argv in
@@ -204,7 +204,7 @@ let () =
     | ("--help" | "-h") :: _ -> print_string (help ()); exit 0
     | _ -> (Emit, argv)
   in
-  (* run：源文件后面的都是给程序的参数（C36 的 args()） *)
+  (* run：源文件后面的都是给程序的参数（args() 读到的） *)
   let prog_args = ref [] in
   let rec args = function
     | [] -> ()
@@ -224,7 +224,7 @@ let () =
   if mode <> Emit && (!core || !batch) then usage ();
   (* 只生成 C 时没有 C 编译这一步，--release 没有意义（自己编译时加 -DSN_RELEASE） *)
   if mode = Emit && !release then usage ();
-  (* 读主文件和它用 use 引入的模块（C34），合成一个程序 *)
+  (* 读主文件和它用 use 引入的模块，合成一个程序 *)
   let prog =
     try Modules.load file with
     | Sys_error _ ->
@@ -234,7 +234,7 @@ let () =
   in
   if !batch then begin
     (* 对照测试：名字形如 p123_y / p123_n 的函数逐个检查，y / n 是 Lean（acceptsG）的结论。
-       要求 Lean 接受的 sinterc 都接受；sinterc 接受的生成 C，运行时检查（附录 F 的 C5）。 *)
+       要求 Lean 接受的 sinterc 都接受；sinterc 接受的生成 C，运行时检查（附录 F 的 `Checking.Validate`）。 *)
     let env0 = try Typeck.prepare prog with Typeck.Error (pos, msg) -> fail file pos msg in
     let lean_says name =
       let n = String.length name in
@@ -298,8 +298,8 @@ let () =
     exit (if !only_lean = [] && !internal = [] then 0 else 1)
   end;
   (* 类型检查、降级、所有权检查、投影与排他性检查都可能报错。
-     泛型函数本身也降级并检查（定义处检查，Lean M9），但只输出它的实例。
-     C28：类型检查有错误时报出所有函数的类型错误就停下；都通过时，每个函数各自降级、检查，报出所有函数的所有权错误 *)
+     泛型函数本身也降级并检查（定义处检查，Lean `Generics.Check`），但只输出它的实例。
+     类型检查有错误时报出所有函数的类型错误就停下；都通过时，每个函数各自降级、检查，报出所有函数的所有权错误 *)
   let prog, fs =
     try
       Typeck.lax_regions := !unchecked;

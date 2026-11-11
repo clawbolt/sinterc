@@ -4,7 +4,7 @@
    由 own.ml 的数据流检查决定每个 Drop 是直接析构、按 drop flag 析构，还是去掉（linear 值则报错）。
    let / inout 实参传地址（Ref / RefMut）；let 绑定一个不能整个移走的位置时建投影（Proj），
    由 borrow.ml 检查锁定和排他性。
-   出错返回（`?` 的出错分支和 `return Err(…)`）之前，按登记的相反顺序执行生效的 errdefer（M7（三））。 *)
+   出错返回（`?` 的出错分支和 `return Err(…)`）之前，按登记的相反顺序执行生效的 errdefer（`Unified.Errdefer`）。 *)
 open Ast
 
 type local = int
@@ -19,7 +19,7 @@ type proj =
 type place = { base : local; proj : proj list; at : pos }
 
 type const = CInt of int64 | CF64 of float | CChar of int | CBool of bool | CStr of string   (* CStr：字符串字面量的字节，只作为 str_lit 的实参 *)
-  | CUnit   (* ()：只有一个值，所以 () 类型的表达式求完副作用后的值总是它（C37） *)
+  | CUnit   (* ()：只有一个值，所以 () 类型的表达式求完副作用后的值总是它 *)
 
 type operand =
   | Const of const
@@ -35,10 +35,10 @@ type rvalue =
   | Call of string * operand list
   | Agg of string * (string * operand) list   (* 结构体字面量 *)
   | BoxNew of ty * operand                (* box(e)：分配堆内存并存入 e *)
-  | Unbox of ty * operand                 (* unbox(b)：取出 Box 里的值，释放堆内存（Lean M11 的 unbox） *)
+  | Unbox of ty * operand                 (* unbox(b)：取出 Box 里的值，释放堆内存（Lean `Datatypes.Recursive` 的 unbox） *)
   | Consume of ty * operand               (* consume(x)：消费 linear 值，析构它的字段 *)
   | Alloc of ty * place * operand         (* alloc(a, e)：在区域 a 里分配并存入 e *)
-  | MkEnum of ty * int * operand option   (* .A(e) / .B：第 i 个变体（Lean M8 的 mk） *)
+  | MkEnum of ty * int * operand option   (* .A(e) / .B：第 i 个变体（Lean `Datatypes.Enum` 的 mk） *)
   | Payload of operand * int              (* 取出第 i 个变体的载荷；没有载荷时只把枚举标记为已移走 *)
   | TagIs of operand * int                (* 枚举的标签是不是 i（只读） *)
 
@@ -64,7 +64,7 @@ type term =
   | Goto of int
   | Branch of operand * int * int
   | Return
-  | Halt                                  (* panic（C38，Lean M19）：进程结束；没有后继，不析构、不要求消费线性值 *)
+  | Halt                                  (* panic（Lean `FlowGraph.Panic`）：进程结束；没有后继，不析构、不要求消费线性值 *)
   | Unterminated                          (* 降级过程中的临时状态 *)
 
 type block = { mutable stmts : stmt list; mutable term : term }   (* 降级时 stmts 倒序存放 *)
@@ -130,7 +130,7 @@ type st = {
   mutable guards : (local * string * (string * local) list * expr) list;
       (* 生效的 errdefer：要消费的局部、它的名字、登记时的环境、调用表达式；内层在前 *)
   mutable loops : (int * int * int * int) list;
-      (* 所在的循环，内层在前：条件块、出口块、进入循环时作用域和区域的层数（C31 的 break / continue） *)
+      (* 所在的循环，内层在前：条件块、出口块、进入循环时作用域和区域的层数（break / continue） *)
 }
 
 let new_local ?(lref = false) ?(pos = nopos) st lname lty =
@@ -235,7 +235,7 @@ let rec expr st env (x : expr) : operand option =
             match p.proj, (info st p.base).lty with
             | proj, TStruct n
               when Hashtbl.mem Typeck.struct_tbl n && List.for_all (function PField _ -> true | _ -> false) proj ->
-                (* 部分移动（Lean M13）：移走变量里一条字段路径上的值（p.a、p.a.b），own.ml 按叶子跟踪 *)
+                (* 部分移动（Lean `Ownership.Partial`）：移走变量里一条字段路径上的值（p.a、p.a.b），own.ml 按叶子跟踪 *)
                 if (info st p.base).lref then
                   raise
                     (Typeck.Error
@@ -278,7 +278,7 @@ let rec expr st env (x : expr) : operand option =
       st.cur <- new_block st;
       dummy
   | Call ("os_exit", [ a ]) ->
-      (* os_exit（C58）：和 panic 一样 *)
+      (* os_exit：和 panic 一样 *)
       let o = arg st env MSink a in
       emit st (Eval (Call ("os_exit", [ o ])));
       terminate st Halt;
@@ -302,7 +302,7 @@ let rec expr st env (x : expr) : operand option =
       let ty = match ty_of v with Some t -> t | None -> TI64 in
       value st x (Alloc (ty, pa, ov))
   | Call (f, args) ->
-      (* 泛型函数调用的是推出的类型实参对应的实例；内建类型的 to_str 直接是内建函数（C56），
+      (* 泛型函数调用的是推出的类型实参对应的实例；内建类型的 to_str 直接是内建函数，
          这时实参按内建函数的签名传（I64 按值，不按 Self 的借用） *)
       let g = match Hashtbl.find_opt Typeck.call_inst x.id with Some ts -> Typeck.inst_name f ts | None -> f in
       let f, g = match Hashtbl.find_opt Typeck.aliases g with Some b -> (b, b) | None -> (f, g) in
@@ -345,8 +345,8 @@ let rec expr st env (x : expr) : operand option =
       st.cur <- join;
       result t ty x.pos
   | Block b -> block st env b
-  | Lambda _ -> failwith "闭包在类型检查之后已经换成提升出来的函数（C40）"
-  | PMatch _ -> failwith "嵌套模式在类型检查时已经展开（C55）"
+  | Lambda _ -> failwith "闭包在类型检查之后已经换成提升出来的函数"
+  | PMatch _ -> failwith "嵌套模式在类型检查时已经展开"
   | Arena (r, b) ->
       (* 块的值先存进块外的临时变量，再释放区域：值的类型不含这个区域（R3），可以安全带出 *)
       let l = new_local ~pos:x.pos st r (TArena r) in
@@ -393,7 +393,7 @@ let rec expr st env (x : expr) : operand option =
           ignore (expr st env s);
           dummy)
 
-(* 枚举（含 Result）的 match（Lean M8（一）、M8（二））：按标签依次比较，跳到对应分支，最后一个变体不用比较。
+(* 枚举（含 Result）的 match（Lean `Datatypes.Enum`、`Matching.Borrow`）：按标签依次比较，跳到对应分支，最后一个变体不用比较。
    按移动：分支开始时把载荷移进分支变量（枚举整个变成已移走）；没有载荷的变体也把枚举标记为已移走。
    各分支结束时状态不同的变量由 own.ml 合并成“可能已初始化”，按 drop flag 析构。
    按借用（match let，或者被匹配的位置不能整个移走，和 let 绑定投影的规则相同）：
@@ -478,7 +478,7 @@ and unwrap st o ty i pos =
   end
 
 (* 离开函数（返回值已经放好）。出错返回时先执行生效的 errdefer，内层的先执行；
-   然后析构所有作用域里的局部，再释放穿过的区域（M7（四））。之后的代码走不到。 *)
+   然后析构所有作用域里的局部，再释放穿过的区域（`Unified.RegionDefs`）。之后的代码走不到。 *)
 and exit_fn st at why =
   if why = Err then begin
     emit st Raise;
@@ -619,7 +619,7 @@ and block st env (b : Ast.block) : operand option =
             | None -> ());
             go env rest
         | SetPlace (a, e) ->
-            (* 元素整体赋值（C33）：和字段赋值一样，先算右边再算位置；own.ml 在赋值前析构旧值 *)
+            (* 元素整体赋值：和字段赋值一样，先算右边再算位置；own.ml 在赋值前析构旧值 *)
             (match expr_v st env e with
             | Some o ->
                 let p = place st env a in
@@ -684,7 +684,7 @@ and block st env (b : Ast.block) : operand option =
             (match o with Move _ -> emit st (Eval (Use o)) | _ -> ());
             go env' rest
         | Errdefer e ->
-            (* 登记：要消费的值此刻必须还活着（M7（六）的登记规则） *)
+            (* 登记：要消费的值此刻必须还活着（`FlowGraph.Lower` 的登记规则） *)
             let v = Hashtbl.find Typeck.errdefer_targets e.id in
             let l = List.assoc v env in
             emit st (Live (l, s.spos, Printf.sprintf "errdefer 登记时 %s 必须是还没有被消费的 linear 值" v));

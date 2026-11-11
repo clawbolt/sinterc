@@ -1,4 +1,4 @@
-(* C0 子集的语法树：整数、布尔、结构体、函数。 *)
+(* 语法树。 *)
 
 type pos = { line : int; col : int }
 
@@ -7,24 +7,24 @@ type mode = MLet | MInout | MSink
 
 type ty =
   | TI64
-  | TF64                (* 64 位浮点数（C47）：可以复制，不涉及所有权 *)
-  | TChar               (* 一个 Unicode 标量值（C48，Lean S7）：可以复制 *)
+  | TF64                (* 64 位浮点数：可以复制，不涉及所有权 *)
+  | TChar               (* 一个 Unicode 标量值（Lean `Library.Utf8`）：可以复制 *)
   | TBool
-  | TStr                (* 字符串：拥有一块堆内存（字节），需要析构，只能移动（C29，Lean M17） *)
-  | TBytes              (* 字节串（C57）：任意字节，和 Str 一样拥有一块堆内存、需要析构、只能移动 *)
-  | TView               (* str（C61，Lean M27）：字符串切片指向的内容，只出现在 &str in a 里（TRef (TView, a)）：
+  | TStr                (* 字符串：拥有一块堆内存（字节），需要析构，只能移动（Lean `Datatypes.Str`） *)
+  | TBytes              (* 字节串：任意字节，和 Str 一样拥有一块堆内存、需要析构、只能移动 *)
+  | TView               (* str（Lean `Strings.Slice`）：字符串切片指向的内容，只出现在 &str in a 里（TRef (TView, a)）：
                            切片不拥有内存，缓冲区归区域 a 所有，所以切片就是区域 a 里的一种引用，可以复制 *)
   | TUnit
   | TStruct of string   (* 用户定义的结构体或枚举，按名字区分 *)
   | TBox of ty          (* 拥有一块堆内存 *)
-  | TVec of ty          (* 内建的动态数组 Vec<T>：拥有一块连续的堆内存（Lean M12） *)
+  | TVec of ty          (* 内建的动态数组 Vec<T>：拥有一块连续的堆内存（Lean `Datatypes.Vec`） *)
   | TResult of ty * ty  (* Result<T, E>：变体为 Ok(T)、Err(E) 的枚举（还没有泛型，单独记） *)
   | TRef of ty * string (* &T in a：区域 a 里的只读引用 *)
   | TArena of string    (* 区域本身，只能作为函数参数类型或 arena 块引入的名字 *)
   | TApp of string * ty list   (* Option<I64>：泛型结构体或枚举加类型实参；类型检查时换成具体的 TStruct *)
-  | TParam of string * bool    (* 泛型函数里的类型参数 T；true：T: linear（Lean M9） *)
-  | TFn of (mode * ty) list * ty   (* fn(T) -> U：只能作为函数参数的类型，实参是闭包（C40，Lean M21） *)
-  | TOFn of (mode * ty) list * ty  (* Fn(T) -> U：可以存、可以返回的闭包（C59，Lean M26）：拥有堆上的环境，需要析构、只能移动 *)
+  | TParam of string * bool    (* 泛型函数里的类型参数 T；true：T: linear（Lean `Generics.Check`） *)
+  | TFn of (mode * ty) list * ty   (* fn(T) -> U：只能作为函数参数的类型，实参是闭包（Lean `Closures.Param`） *)
+  | TOFn of (mode * ty) list * ty  (* Fn(T) -> U：可以存、可以返回的闭包（Lean `Closures.Stored`）：拥有堆上的环境，需要析构、只能移动 *)
 
 type binop =
   | Add | Sub | Mul | Div | Rem
@@ -37,11 +37,11 @@ type expr = { e : expr_desc; pos : pos; id : int }   (* id：每个表达式唯�
 
 and expr_desc =
   | Int of int64
-  | Float of float      (* 浮点数字面量 1.5、2e-3（C47） *)
-  | Char of int         (* 字符字面量 'a'、'中'（C48）：码点 *)
+  | Float of float      (* 浮点数字面量 1.5、2e-3 *)
+  | Char of int         (* 字符字面量 'a'、'中'：码点 *)
   | Bool of bool
   | Unit
-  | Str of string       (* 字符串字面量：每次求值分配一个新的 Str（C29） *)
+  | Str of string       (* 字符串字面量：每次求值分配一个新的 Str *)
   | Var of string
   | Binop of binop * expr * expr
   | Unop of unop * expr
@@ -57,12 +57,12 @@ and expr_desc =
   | Arena of string * block   (* arena |a| { … } *)
   | If of expr * block * block option
   | Block of block
-  | Lambda of string list * expr   (* |x, y| e：闭包，写在类型是 fn(…) 的参数的实参位置（C40），或者需要 Fn(…) 的地方（C59） *)
+  | Lambda of string list * expr   (* |x, y| e：闭包，写在类型是 fn(…) 的参数的实参位置，或者需要 Fn(…) 的地方 *)
   | PMatch of bool * expr * (pat * expr) list
-      (* 带嵌套模式的 match（C55，Lean M24、M24b）：类型检查时检查覆盖性，再展开成 Match、If、Destruct，
+      (* 带嵌套模式的 match（Lean `Matching.Nested`、`Matching.Coverage`）：类型检查时检查覆盖性，再展开成 Match、If、Destruct，
          之后的阶段看不到它。true：match let *)
 
-(* 模式（C55）：_、变量、字面量、变体 .V / .V(p)、元组 (p, q, …) *)
+(* 模式：_、变量、字面量、变体 .V / .V(p)、元组 (p, q, …) *)
 and pat = { p : pat_desc; ppos : pos }
 
 and pat_desc =
@@ -79,13 +79,13 @@ and stmt_desc =
   | Decl of string * ty     (* var x: T，先不给初值；读之前必须赋值 *)
   | Assign of string * expr
   | SetField of expr * string * expr   (* a.f = e：给变量里的一个字段赋值（a 是位置） *)
-  | SetPlace of expr * expr   (* p = e：给 Vec 的一个元素整体赋值；for x in inout v 的展开（C33）和 v[i] = e（C53） *)
+  | SetPlace of expr * expr   (* p = e：给 Vec 的一个元素整体赋值；for x in inout v 的展开和 v[i] = e *)
   | While of expr * block
   | Return of expr option
   | Expr of expr
   | Errdefer of expr        (* 出错返回时执行的调用 *)
-  | Break                   (* 跳出最内层的循环（C31） *)
-  | Continue                (* 进入最内层循环的下一轮（C31） *)
+  | Break                   (* 跳出最内层的循环 *)
+  | Continue                (* 进入最内层循环的下一轮 *)
   | Destruct of string * (string * string) list * expr
       (* let Node { v, next: n } = e：把结构体的每个字段移进各自的变量（字段名, 变量名），结构体本身被移走 *)
 
@@ -112,23 +112,23 @@ type item =
   | Trait of { name : string; methods : msig list; ipos : pos }   (* 方法签名里可以用 Self *)
   | Impl of {
       trait : string;
-      tparams : (string * bool) list;   (* 泛型 impl（C56）：impl<T: ToStr> ToStr for Vec<T> *)
+      tparams : (string * bool) list;   (* 泛型 impl：impl<T: ToStr> ToStr for Vec<T> *)
       bounds : (string * string) list;
       self : ty;
       fns : item list;
       ipos : pos;
     }   (* fns 都是 Fn *)
 
-(* mbody：默认方法的函数体（C56），impl 没写这个方法时用它 *)
+(* mbody：默认方法的函数体，impl 没写这个方法时用它 *)
 and msig = { mname : string; mparams : (mode * string * ty) list; mret : ty; mbody : block option; mpos : pos }
 
 type program = item list
 
-(* 一个源文件解析的结果（C34）：开头的 use，和每个条目（true：标了 pub）。
+(* 一个源文件解析的结果：开头的 use，和每个条目（true：标了 pub）。
    use m 引入同目录的 m.sn；use m { a, B } 另外把这几个名字直接引入。 *)
 type source = { uses : (string * string list option * pos) list; items : (bool * item) list }
 
-(* 多个文件的位置（C34）：第 i 个文件（0 是主文件）的行号从 i * line_base + 1 开始，
+(* 多个文件的位置：第 i 个文件（0 是主文件）的行号从 i * line_base + 1 开始，
    位置照常是一个 pos，报错时再换回文件名和文件里的行号。 *)
 let line_base = 1_000_000
 let files : string array ref = ref [||]
@@ -148,7 +148,7 @@ exception Syntax of pos * string
 let next_id = ref 0
 let fresh_id () = incr next_id; !next_id
 
-(* 元组（C45）：(A, B) 是内建的泛型结构体 Tuple#2<A, B>（名字里有 #，用户写不出来），字段名是 0、1、…；
+(* 元组：(A, B) 是内建的泛型结构体 Tuple#2<A, B>（名字里有 #，用户写不出来），字段名是 0、1、…；
    实例的名字直接写成 (A, B)。2 到 max_tuple 个元素。 *)
 let max_tuple = 6
 let tuple_name n = "Tuple#" ^ string_of_int n

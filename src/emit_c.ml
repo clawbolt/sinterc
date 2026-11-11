@@ -15,10 +15,10 @@ let prelude = {|#include <stdint.h>
 #include <sys/wait.h>
 extern char **environ;
 
-/* () 的值（C37）：只有一个值，存成一个字节的 0。 */
+/* () 的值：只有一个值，存成一个字节的 0。 */
 typedef char sn_unit;
 static void sn_panic(const char *m) { fflush(stdout); fprintf(stderr, "panic: %s\n", m); exit(101); }
-/* 命令行参数（C36）：main 里记下来，args() 读。 */
+/* 命令行参数：main 里记下来，args() 读。 */
 static int sn_argc = 0;
 static char **sn_argv = 0;
 static int64_t sn_i_add(int64_t a, int64_t b) { int64_t r; if (__builtin_add_overflow(a, b, &r)) sn_panic("整数溢出"); return r; }
@@ -27,7 +27,7 @@ static int64_t sn_i_mul(int64_t a, int64_t b) { int64_t r; if (__builtin_mul_ove
 static int64_t sn_i_div(int64_t a, int64_t b) { if (b == 0) sn_panic("除以零"); if (a == INT64_MIN && b == -1) sn_panic("整数溢出"); return a / b; }
 static int64_t sn_i_rem(int64_t a, int64_t b) { if (b == 0) sn_panic("除以零"); if (a == INT64_MIN && b == -1) sn_panic("整数溢出"); return a % b; }
 static int64_t sn_i_neg(int64_t a) { if (a == INT64_MIN) sn_panic("整数溢出"); return -a; }
-/* F64（C47）：按 IEEE 754，不检查溢出（得到 inf）和除以零（得到 inf 或 NaN）。
+/* F64：按 IEEE 754，不检查溢出（得到 inf）和除以零（得到 inf 或 NaN）。
    运算符按操作数的 C 类型选整数或浮点数的版本（类型检查保证两边相同）。 */
 static double sn_f_add(double a, double b) { return a + b; }
 static double sn_f_sub(double a, double b) { return a - b; }
@@ -42,7 +42,7 @@ static double sn_f_neg(double a) { return -a; }
 #define sn_neg(a) _Generic((a), double: sn_f_neg, default: sn_i_neg)(a)
 static void u_print_i64(int64_t x) { printf("%lld\n", (long long)x); }
 static void u_print_bool(bool b) { puts(b ? "true" : "false"); }
-/* F64 的文字（C47）：能还原成同一个值的最短写法；1e-5 到 1e16 之间用定点写法（1500.0、0.1），
+/* F64 的文字：能还原成同一个值的最短写法；1e-5 到 1e16 之间用定点写法（1500.0、0.1），
    其余用指数写法（1e+20）；整数值带 .0。 */
 static int sn_fmt_f64(char *b, size_t n, double x) {
   if (x != x) return snprintf(b, n, "NaN");
@@ -72,7 +72,7 @@ static bool u_f64_is_nan(double x) { return x != x; }
 static const char *sn_seq = "";
 static bool u_choose(void) { if (*sn_seq) return *sn_seq++ == '1'; return false; }
 /* 原型阶段统计还没释放的 Box，程序结束时检查有没有泄漏。
-   --release（C60）定义 SN_RELEASE：不计数，sn_live 一直是 0，退出时的检查也就总是通过。 */
+   --release定义 SN_RELEASE：不计数，sn_live 一直是 0，退出时的检查也就总是通过。 */
 static long long sn_live = 0;
 #ifdef SN_RELEASE
 #define SN_COUNT(e)
@@ -82,8 +82,8 @@ static long long sn_live = 0;
 static void *sn_alloc(size_t n) { void *p = malloc(n); if (!p) sn_panic("内存不足"); SN_COUNT(sn_live++); return p; }
 static void sn_free(void *p) { free(p); SN_COUNT(sn_live--); }
 static void *sn_realloc(void *p, size_t n) { if (!p) return sn_alloc(n); void *q = realloc(p, n); if (!q) sn_panic("内存不足"); return q; }
-/* 字符串（C29）：末尾多一个 0；let 参数传指针，inout 参数传指针并可以改。
-   静态字面量（C61，Lean M27 的三）：lit 是 1 时 p 指向程序里的字符串常量，不占堆——不分配，复制还是字面量，
+/* 字符串：末尾多一个 0；let 参数传指针，inout 参数传指针并可以改。
+   静态字面量（Lean `Strings.Slice`）：lit 是 1 时 p 指向程序里的字符串常量，不占堆——不分配，复制还是字面量，
    析构什么都不做；要修改时先用 sn_str_own 复制到堆上。lit 是 0 时拥有一块堆内存。
    lit 和 len 共用 8 个字节（位域），结构体和加标记之前一样是 16 字节，Vec<Str> 不因此变大 */
 typedef struct { char *p; int64_t len : 63; uint64_t lit : 1; } sn_str;
@@ -95,11 +95,11 @@ static sn_str sn_str_cstr(const char *s) { return sn_str_make(s, (int64_t)strlen
 static void sn_str_own(sn_str *s) { if (s->lit) *s = sn_str_make(s->p, s->len); }
 static void u_print(const sn_str *s) { fwrite(s->p, 1, (size_t)s->len, stdout); putchar('\n'); }
 static void u_print_str(const sn_str *s) { fwrite(s->p, 1, (size_t)s->len, stdout); }
-/* 标准错误（C60）：先刷新标准输出，这样两者在终端里的先后顺序和程序里一样；stderr 本身不缓冲。 */
+/* 标准错误：先刷新标准输出，这样两者在终端里的先后顺序和程序里一样；stderr 本身不缓冲。 */
 static void u_eprint(const sn_str *s) { fflush(stdout); fwrite(s->p, 1, (size_t)s->len, stderr); fputc('\n', stderr); }
 static void u_eprint_str(const sn_str *s) { fflush(stdout); fwrite(s->p, 1, (size_t)s->len, stderr); }
 static void u_print_byte(int64_t b) { if (b < 0 || b > 255) sn_panic("print_byte 的参数不在 0 到 255 之间"); putchar((int)b); }
-/* panic(msg)（C38，Lean M19）：打印说明后结束进程，不析构任何值。 */
+/* panic(msg)（Lean `FlowGraph.Panic`）：打印说明后结束进程，不析构任何值。 */
 static void u_panic(const sn_str *m) { sn_panic(m->p); }
 static int64_t u_str_len(const sn_str *s) { return s->len; }
 static bool u_str_eq(const sn_str *a, const sn_str *b) { return a->len == b->len && memcmp(a->p, b->p, (size_t)a->len) == 0; }
@@ -115,7 +115,7 @@ static void u_str_push(sn_str *s, const sn_str *t) {
 }
 static sn_str u_str_from_i64(int64_t x) { char b[24]; int n = snprintf(b, sizeof b, "%lld", (long long)x); return sn_str_make(b, n); }
 static sn_str u_str_from_bool(bool b) { return b ? sn_str_make("true", 4) : sn_str_make("false", 5); }
-/* UTF-8（C48，Lean S7）：sn_utf8_put 是 S7 的 encode，sn_utf8_get 是 decode1——解出一个字符，*k 是吃掉的字节数；
+/* UTF-8（Lean `Library.Utf8`）：sn_utf8_put 是 `Library.Utf8` 的 encode，sn_utf8_get 是 decode1——解出一个字符，*k 是吃掉的字节数；
    不合法的字节（多余的续字节、过长的编码、代理区、超出范围、截断）解成 U+FFFD，只吃一个字节。 */
 static int sn_utf8_put(char *b, uint32_t c) {
   if (c < 0x80) { b[0] = (char)c; return 1; }
@@ -165,13 +165,13 @@ static int64_t u_str_char_count(const sn_str *s) {
 }
 /* Vec 的下标检查：越界时 panic，不读内存。 */
 static int64_t sn_idx(int64_t n, int64_t i) { if (i < 0 || i >= n) sn_panic("下标越界"); return i; }
-/* 字符串的第 i 个字节、[a, b) 的子串（C32）：越界时 panic，不读内存。 */
+/* 字符串的第 i 个字节、[a, b) 的子串：越界时 panic，不读内存。 */
 static int64_t u_str_byte(const sn_str *s, int64_t i) { return (unsigned char)s->p[sn_idx(s->len, i)]; }
 static sn_str u_str_slice(const sn_str *s, int64_t a, int64_t b) {
   if (a < 0 || b < a || b > s->len) sn_panic("下标越界");
   return sn_str_make(s->p + a, b - a);
 }
-/* 字节串（C57）：和字符串的表示相同（末尾也多一个 0），内容可以是任意字节。字节是 0 到 255 的 I64。 */
+/* 字节串：和字符串的表示相同（末尾也多一个 0），内容可以是任意字节。字节是 0 到 255 的 I64。 */
 static int64_t sn_byte(int64_t x) { if (x < 0 || x > 255) sn_panic("字节不在 0 到 255 之间"); return x; }
 static sn_str u_bytes_new(void) { return u_str_lit(""); }
 static int64_t u_bytes_len(const sn_str *b) { return b->len; }
@@ -188,7 +188,7 @@ static sn_str u_bytes_clone(const sn_str *b) { return u_str_clone(b); }
 static bool u_bytes_eq(const sn_str *a, const sn_str *b) { return u_str_eq(a, b); }
 static sn_str u_str_to_bytes(const sn_str *s) { return u_str_clone(s); }
 static void u_print_bytes(const sn_str *b) { fwrite(b->p, 1, (size_t)b->len, stdout); }
-/* 合法的 UTF-8（Lean S11 的 valid）：每一轮解出一个字符，编码回去要正好是吃掉的那几个字节。 */
+/* 合法的 UTF-8（Lean `Library.Utf8Check` 的 valid）：每一轮解出一个字符，编码回去要正好是吃掉的那几个字节。 */
 static bool sn_utf8_valid(const unsigned char *p, int64_t n) {
   int64_t i = 0, k; char e[4];
   while (i < n) {
@@ -199,7 +199,7 @@ static bool sn_utf8_valid(const unsigned char *p, int64_t n) {
   }
   return true;
 }
-/* std.os（C58）：结束进程（和 panic 一样先刷新输出、不析构）；路径是否存在、是不是目录；
+/* std.os：结束进程（和 panic 一样先刷新输出、不析构）；路径是否存在、是不是目录；
    字符串按字节比较（给 os_list_dir 排序用）；子进程的参数表（argv[0] 是程序名，不经过 shell）和退出码。 */
 static void u_os_exit(int64_t c) { fflush(stdout); exit((int)(c & 255)); }
 static bool u_os_exists(const sn_str *p) { struct stat s; return stat(p->p, &s) == 0; }
@@ -231,9 +231,9 @@ static void *sn_arena_alloc(sn_arena *a, size_t n) {
   return p;
 }
 static void sn_arena_free(sn_arena *a) { sn_chunk *c = a->head; while (c) { sn_chunk *n = c->next; sn_free(c); c = n; } a->head = 0; }
-/* 可以存起来的闭包 Fn(…)（C59）：堆上的环境、转发到提升出的函数的 code、析构并释放环境的 drop */
+/* 可以存起来的闭包 Fn(…)：堆上的环境、转发到提升出的函数的 code、析构并释放环境的 drop */
 typedef struct { void *env; void (*code)(void); void (*drop)(void *); } sn_fn;
-/* 字符串切片 &str in a（C61，Lean M27 的一、二）：缓冲区里的一段，不拥有内存。缓冲区由 text(a, s) 放进区域 a
+/* 字符串切片 &str in a（Lean `Strings.Slice`）：缓冲区里的一段，不拥有内存。缓冲区由 text(a, s) 放进区域 a
    （字面量本来就在静态存储里，不用复制），区域结束时整块释放；之后不再改动，所以切片一直有效。
    子切片、下标都检查边界（越界时 panic），结果仍在同一块缓冲区里。 */
 typedef struct { const char *p; int64_t len; } sn_view;
@@ -267,11 +267,11 @@ static void u_view_print_str(const sn_view *v) { fwrite(v->p, 1, (size_t)v->len,
 (* 泛型实例（名字里有 <）的 C 名字：编号加上去掉符号的写法，和用户写的名字（S_、u_ 开头）不会重名。 *)
 let gen_names : (string, string) Hashtbl.t = Hashtbl.create 16
 
-(* 名字本身就是 C 的标识符（只有字母、数字、下划线）时直接用；元组（C45）的实例 (I64, Bool) 等另起名字 *)
+(* 名字本身就是 C 的标识符（只有字母、数字、下划线）时直接用；元组的实例 (I64, Bool) 等另起名字 *)
 let is_ident n = String.for_all (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true | _ -> false) n
 
 let cname prefix n =
-  (* 泛型实例（Option<I64>）和别的模块里的名字（geom.area，C34）不是 C 的标识符，另起一个名字 *)
+  (* 泛型实例（Option<I64>）和别的模块里的名字（geom.area）不是 C 的标识符，另起一个名字 *)
   if is_ident n then prefix ^ n
   else
     match Hashtbl.find_opt gen_names n with
@@ -311,21 +311,21 @@ let rec cty = function
   | TChar -> "uint32_t"
   | TBool -> "bool"
   | TStr -> "sn_str"
-  | TBytes -> "sn_str"   (* 字节串（C57）和字符串的表示相同 *)
+  | TBytes -> "sn_str"   (* 字节串和字符串的表示相同 *)
   | TView -> "sn_view"
   | TUnit -> "sn_unit"   (* 存值的地方（变量、字段、载荷、Vec 元素）占一个字节；函数返回 () 时仍是 void *)
   | TStruct n -> sname n
   | TBox t -> cty t ^ "*"
   | TResult _ as t -> "S_" ^ mangle t
   | TVec _ as t -> "S_" ^ mangle t
-  | TRef (TView, _) -> "sn_view"   (* 字符串切片（C61）：指针和长度，按值传 *)
+  | TRef (TView, _) -> "sn_view"   (* 字符串切片：指针和长度，按值传 *)
   | TRef (t, _) -> cty t ^ "*"
   | TArena _ -> "sn_arena"
   | TOFn _ -> "sn_fn"
   | TApp _ | TParam _ | TFn _ -> failwith "泛型的类型参数和函数类型不会出现在生成的 C 里"
 
 (* 析构一个值：先析构 Box 里面的值，再释放 Box；字符串释放它的字节；结构体、枚举（含 Result）调用这个类型的析构函数。
-   析构函数每个类型一个（type_defs 生成），所以经过 Box 的递归类型（链表、树）的析构是递归调用（Lean M11）。 *)
+   析构函数每个类型一个（type_defs 生成），所以经过 Box 的递归类型（链表、树）的析构是递归调用（Lean `Datatypes.Recursive`）。 *)
 let drop_fn t = "sn_drop_" ^ cty t
 
 let rec drop_code ty lv =
@@ -336,8 +336,8 @@ let rec drop_code ty lv =
   | (TStruct _ | TResult _ | TVec _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
   | TI64 | TF64 | TChar | TBool | TView | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ | TFn _ -> ""
 
-(* 析构函数的函数体：结构体逐个析构字段；枚举按运行时标签析构对应变体的载荷（Lean M8 的 dropOne）；
-   Vec 逐个析构元素，再释放缓冲区（Lean M12）。 *)
+(* 析构函数的函数体：结构体逐个析构字段；枚举按运行时标签析构对应变体的载荷（Lean `Datatypes.Enum` 的 dropOne）；
+   Vec 逐个析构元素，再释放缓冲区（Lean `Datatypes.Vec`）。 *)
 let drop_body ty lv =
   match ty, Typeck.variants ty with
   | _, Some vs ->
@@ -432,29 +432,29 @@ let type_defs (p : program) (fs : Mir.func list) =
       visit (TVec e);
       if b = "pop" then visit (Typeck.instantiate "Option" [ e ]))
     Typeck.vec_calls;
-  (* read_line、str_to_i64 返回的 Option<Str>、Option<I64>（C32）：辅助函数总是生成，类型也总要有 *)
+  (* read_line、str_to_i64 返回的 Option<Str>、Option<I64>：辅助函数总是生成，类型也总要有 *)
   let opt_str = Typeck.instantiate "Option" [ TStr ] and opt_i64 = Typeck.instantiate "Option" [ TI64 ] in
   let opt_f64 = Typeck.instantiate "Option" [ TF64 ] in
   visit opt_f64;
-  (* 字符（C48）：char_from 返回的 Option<Char>，str_chars 返回的 Vec<Char>：辅助函数总是生成，类型也总要有 *)
+  (* 字符：char_from 返回的 Option<Char>，str_chars 返回的 Vec<Char>：辅助函数总是生成，类型也总要有 *)
   let opt_char = Typeck.instantiate "Option" [ TChar ] in
   visit opt_char;
   visit (TVec TChar);
   visit opt_str;
   visit opt_i64;
-  (* args、read_file、write_file 的返回类型（C36） *)
+  (* args、read_file、write_file 的返回类型 *)
   let vstr = TVec TStr and rstr = TResult (TStr, TStr) and runit = TResult (TUnit, TStr) in
   visit vstr;
   visit rstr;
   visit runit;
-  (* read_bytes 的返回类型（C57） *)
+  (* read_bytes 的返回类型 *)
   let rbytes = TResult (TBytes, TStr) in
   visit rbytes;
-  (* std.os 的返回类型（C58） *)
+  (* std.os 的返回类型 *)
   let rvstr = TResult (TVec TStr, TStr) and ri64 = TResult (TI64, TStr) in
   visit rvstr;
   visit ri64;
-  (* read_file_in 的返回类型（C62） *)
+  (* read_file_in 的返回类型 *)
   let rview = TResult (TRef (TView, "_"), TStr) in
   visit rview;
   while not (Queue.is_empty later) do
@@ -509,7 +509,7 @@ let type_defs (p : program) (fs : Mir.func list) =
         }\n"
        oc oc oc vc vc);
   let os = cty opt_str and oi = cty opt_i64 and of64 = cty opt_f64 in
-  (* 解析浮点数（C47）：整个字符串都要是 strtod 认得的写法，不能有前后的空白 *)
+  (* 解析浮点数：整个字符串都要是 strtod 认得的写法，不能有前后的空白 *)
   Buffer.add_string helpers
     (Printf.sprintf
        "static %s u_str_to_f64(const sn_str *s) {\n\
@@ -548,7 +548,7 @@ let type_defs (p : program) (fs : Mir.func list) =
        \  return (%s){ .tag = 0, .u.v0 = n };\n\
         }\n"
        os os os oi oi oi oi oi);
-  (* 文件与参数（C36，Lean S3）。出错说明是“路径：系统的说明”。
+  (* 文件与参数（Lean `Library.FileIO`）。出错说明是“路径：系统的说明”。
      write_file 先写到 path.sinter-tmp，写完、关闭都成功后 rename 换上去（原子的）；任何一步失败都删掉临时文件、原文件不变。 *)
   let vs = cty vstr and rs = cty rstr and ru = cty runit in
   Buffer.add_string helpers
@@ -591,8 +591,8 @@ let type_defs (p : program) (fs : Mir.func list) =
        \  return (%s){ .tag = 0 };\n\
         }\n"
        vs vs rs rs rs rs ru ru ru ru ru);
-  (* 字节串（C57）：read_bytes 就是 read_file 换一个结果类型（表示相同），write_bytes 就是 write_file；
-     str_from_utf8 检查过（Lean S11）才复制成字符串 *)
+  (* 字节串：read_bytes 就是 read_file 换一个结果类型（表示相同），write_bytes 就是 write_file；
+     str_from_utf8 检查过（Lean `Library.Utf8Check`）才复制成字符串 *)
   let rb = cty rbytes in
   Buffer.add_string helpers
     (Printf.sprintf
@@ -607,7 +607,7 @@ let type_defs (p : program) (fs : Mir.func list) =
        \  return (%s){ .tag = 0, .u.v0 = u_str_clone(b) };\n\
         }\n"
        rb rs rb ru os os os);
-  (* 流式读入（C62，Lean M27 的二：只在区域后面追加新的缓冲区）。sn_read_all_in 把 f 剩下的内容读进区域里的一块缓冲区：
+  (* 流式读入（Lean `Strings.Slice` 的二：只在区域后面追加新的缓冲区）。sn_read_all_in 把 f 剩下的内容读进区域里的一块缓冲区：
      普通文件按 fstat 的大小分配（多留一个字节，读完再读一次才知道到头），大小没变时只分配一次、不复制；
      满了就换一块两倍大的（旧的留在区域里，区域结束时一起释放）。read_chunk 最多读 n 个字节，到头时得到空的切片 *)
   let rvw = cty rview in
@@ -641,7 +641,7 @@ let type_defs (p : program) (fs : Mir.func list) =
        \  return (sn_view){ p, (int64_t)k };\n\
         }\n"
        rvw rvw rvw rvw);
-  (* std.os（C58）。出错说明和文件读写一样是“路径：系统的说明”；os_output 的退出码不是 0 时是“程序：退出码 n” *)
+  (* std.os。出错说明和文件读写一样是“路径：系统的说明”；os_output 的退出码不是 0 时是“程序：退出码 n” *)
   let rv = cty rvstr and ri = cty ri64 in
   Buffer.add_string helpers
     (Printf.sprintf
@@ -872,7 +872,7 @@ let func b (f : Mir.func) =
     f.blocks;
   add "}\n"
 
-(* Fn(…)（C59，Lean M26）：每个造闭包的 Fn#… 一个环境结构体（捕获按值存进去）、一个转发函数（把环境的字段按指针
+(* Fn(…)（Lean `Closures.Stored`）：每个造闭包的 Fn#… 一个环境结构体（捕获按值存进去）、一个转发函数（把环境的字段按指针
    交给提升出的函数，后面接上调用的实参）、一个析构函数（析构每个捕获，释放环境）；每种 Fn 类型一个 call#…，
    按类型的签名经过 code 调用。let / inout 参数在 C 里是指针，sink 参数是值。 *)
 let closures () =

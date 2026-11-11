@@ -1,4 +1,4 @@
-(* 错误信息的语言（C27）。编译器各处照常用中文报错；--lang=en（或环境变量 SINTER_LANG=en）时，
+(* 错误信息的语言。编译器各处照常用中文报错；--lang=en（或环境变量 SINTER_LANG=en）时，
    在输出之前按下面的表把整条信息换成英文。表里的中文和代码里的格式串一样，%s、%d 是填进去的部分，
    英文里用 {1}、{2}… 按顺序引用它们。表里没有的信息原样输出中文。
    填进去的部分如果是固定的中文短语（例如“作用域结束时”“临时值”），也换成英文（见 words）。 *)
@@ -108,7 +108,6 @@ let table =
     ("按字面量 match 时最后要有 _ 分支（字面量写不全）", "a match on literals needs a final _ arm (literals cannot be exhaustive)");
     ("分支的模式不能是变量 %s（要匹配所有其余情况时写 _）", "an arm pattern cannot be the variable {1} (write _ to match everything else)");
     ("空枚举不能 match", "cannot match on an empty enum");
-    ("C0 不支持 () 类型的变量 %s", "variable {1} cannot have type ()");
     ("区域不能存进变量", "a region cannot be stored in a variable");
     ("%s 的初值不会返回，无法推断类型", "the initializer of {1} never returns, so its type cannot be inferred");
     ("%s 是用 let 声明的变量或参数，不能重新赋值（需要的话改用 var / inout）",
@@ -158,7 +157,6 @@ let table =
     ("impl 里的方法暂不能有类型参数", "methods in an impl cannot have type parameters yet");
     ("结构体字段 %s 不能含引用或区域（区域类型还没有实现）",
      "struct field {1} cannot contain references or regions directly (make the struct generic and pass the reference type as a type argument)");
-    ("C0 不支持 () 类型的字段 %s", "field {1} cannot have type ()");
     ("%s 的字段 %s 是 linear 的，%s 也必须标 linear", "field {2} of {1} is linear, so {3} must be marked linear too");
     ("%s 的变体 %s 的载荷不能含引用或区域（区域类型还没有实现）",
      "the payload of variant {2} of {1} cannot contain references or regions directly (make the enum generic instead)");
@@ -173,8 +171,6 @@ let table =
      "parameter {3} of method {2} in {1} is passed as {4}, but the trait declares {5}");
     ("%s 的方法 %s 的第 %d 个参数类型是 %s，应为 %s", "parameter {3} of method {2} in {1} has type {4}, expected {5}");
     ("%s 的方法 %s 返回 %s，应为 %s", "method {2} in {1} returns {3}, expected {4}");
-    ("C0 不支持 () 类型的参数 %s", "parameter {1} cannot have type ()");
-    ("C0 不支持 () 类型的参数", "a parameter cannot have type ()");
     ("区域参数 %s 只能按 let 传入", "region parameter {1} can only be passed as let");
     ("main 必须是 fn main()，没有参数、没有返回值、没有类型参数",
      "main must be fn main(), with no parameters, no return value, and no type parameters");
@@ -228,7 +224,7 @@ let table =
     ("字符串里的 {} 中间要写一个表达式", "the {} in a string must contain an expression");
     ("语法错误（在 '%s' 附近）", "syntax error near '{1}'");
     ("结构体和枚举的类型参数暂不能写 trait 约束", "type parameters of structs and enums cannot have trait bounds yet");
-    (* 模块（C34） *)
+    (* 模块 *)
     ("%s 定义在模块 %s 里，只能在那里 consume（可以让模块 %s 提供一个 pub 的函数来消费它）",
      "{1} is defined in module {2} and can only be consumed there (module {3} can provide a pub function that consumes it)");
     ("模块 %s 里没有 %s", "module {1} has no item named {2}");
@@ -250,12 +246,12 @@ let table =
      "the body of for {1} in inout {2} cannot use {3} ({4} is lent to the loop: no push, pop, read or reborrow)");
     ("%s 不可修改，不能给它的元素赋值（需要 var 变量或 inout / sink 参数）",
      "{1} is not mutable, cannot assign to its element (needs a var variable or an inout / sink parameter)");
-    (* C53 *)
+    (* 下标 *)
     ("只能给变量、字段或 Vec 的元素（v[i]）赋值",
      "only a variable, a field or an element of a Vec (v[i]) can be assigned to");
-    (* C57 字节串 *)
+    (* 字节串 *)
     ("字节串用 a.eq(b) 比较", "compare byte strings with a.eq(b)");
-    (* C56 trait：ToStr、默认方法、泛型 impl *)
+    (* trait：ToStr、默认方法、泛型 impl *)
     ("%s 没有实现 ToStr，不能在字符串里插值或调用 to_str（先写 fn to_str(x: %s) -> Str）",
      "{1} does not implement ToStr, so it cannot be interpolated or passed to to_str (write fn to_str(x: {2}) -> Str first)");
     ("%s 没有写约束 %s，而 %s 的 %s 要用到它（要写 %s: %s）",
@@ -269,7 +265,7 @@ let table =
     ("impl 的类型参数 %s 没有出现在 %s 里", "the impl type parameter {1} does not appear in {2}");
     ("impl %s for %s 和已有的 impl %s for %s 重叠（有的类型两个都能匹配）",
      "impl {1} for {2} overlaps the existing impl {3} for {4} (some type matches both)");
-    (* C55 嵌套模式 *)
+    (* 嵌套模式 *)
     ("模式 %s 的类型是 %s，这里的值是 %s", "the pattern {1} has type {2}, but the value here is {3}");
     ("%s 不是枚举，不能用变体模式 %s", "{1} is not an enum; the variant pattern {2} cannot be used");
     ("%s 没有载荷，不能写 %s(…)", "{1} has no payload; {2}(…) cannot be written");
@@ -281,7 +277,7 @@ let table =
     ("match 没有覆盖所有情况，例如 %s", "the match does not cover every case, for example {1}");
     ("这个分支永远匹配不到（前面的分支已经覆盖了它能匹配的值）",
      "this arm can never match (the arms before it already cover every value it matches)");
-    (* C40 闭包 *)
+    (* 闭包 *)
     ("函数类型 fn(…) 只能作为函数参数的类型（闭包不能存进变量、字段、Vec，也不能返回）",
      "a function type fn(…) can only be the type of a function parameter (closures cannot be stored in variables, fields or Vecs, or returned)");
     ("函数类型 fn(…) 里暂不能有引用或区域", "function types fn(…) cannot contain references or regions yet");
@@ -289,8 +285,8 @@ let table =
      "{1} is a function parameter: it can only be called ({2}(…)) or passed on to a parameter of type fn(…)");
     ("闭包只能直接写在调用的实参里，传给类型是 fn(…) 的参数",
      "a closure can only be written directly as a call argument, for a parameter of type fn(…)");
-    (* C59 可以存起来的闭包 Fn(…) *)
-    (* C61 字符串切片 &str in a *)
+    (* 可以存起来的闭包 Fn(…) *)
+    (* 字符串切片 &str in a *)
     ("未知类型 %s（字符串切片写 &str in 区域）", "unknown type {1} (a string slice is written &str in REGION)");
     ("text 的第一个参数必须是区域，%s 不是", "the first argument of text must be a region; {1} is not");
     ("text 需要 2 个参数：区域和字符串", "text takes 2 arguments: a region and a string");

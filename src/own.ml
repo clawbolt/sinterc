@@ -1,12 +1,12 @@
-(* 所有权检查（对应 Lean M2 / M7（五））和析构展开。
+(* 所有权检查（对应 Lean `Ownership.Drop` / `FlowGraph.Check`）和析构展开。
    每个局部变量在每个程序点处于三种状态之一：已初始化、未初始化、可能已初始化（不同路径结果不同）。
    前向数据流，分支汇合取并，循环迭代到不动点。之后：
    - 读取未初始化或可能已初始化的变量报错（移动后使用）；
    - 降级插入的 Drop：已初始化 → 直接析构；未初始化 → 去掉；可能已初始化 → 按 drop flag 析构；
    - 给需要析构的变量重新赋值前，同样先析构旧值。
-   linear 值（M6、M7（三））不能被隐式析构：Drop 处如果还拥有它就报错，
+   linear 值（`Linearity.Linear`、`Unified.Errdefer`）不能被隐式析构：Drop 处如果还拥有它就报错，
    这包括作用域结束、return 和出错返回三种出口；也不能在还拥有时被重新赋值。
-   部分移动（Lean M13）：移走过字段（Move p.f）的结构体局部 p，它需要析构的每个字段各占一个槽，
+   部分移动（Lean `Ownership.Partial`）：移走过字段（Move p.f）的结构体局部 p，它需要析构的每个字段各占一个槽，
    单独记状态和 drop flag；p 自己的状态表示结构体整体还在不在。移走一个字段只改这个字段的槽；
    整体读取、移动要求每个字段都在；析构、重新赋值前只析构还在的字段。 *)
 open Mir
@@ -188,7 +188,7 @@ let step check f sp flag need st s =
   match s with
   | Assign (p, rv) when p.proj <> [] -> (
       (* 给字段赋值：结构体本身要还在。目标（只经过字段）下面有部分移动过的叶子时，按叶子的槽析构旧值
-         （M13 的 freeField + 移进这个字段）；其他位置的旧值一定还在，需要析构的直接析构 *)
+         （`Ownership.Partial` 的 freeField + 移进这个字段）；其他位置的旧值一定还在，需要析构的直接析构 *)
       let clear = reads rv in
       if check then begin
         match st.(p.base) with

@@ -1,4 +1,4 @@
-// std.hashmap：开放寻址的哈希表（C51，Lean S9）。键要实现 math.Eq 和这里的 Hash。
+// std.hashmap：开放寻址的哈希表（Lean `Library.HashMap`）。键要实现 math.Eq 和这里的 Hash。
 // 键、值紧凑地存在 keys、vals 里（按插入顺序，删除时最后一个元素换到被删的位置）；
 // slots 是槽位表，每个槽位是 -1（空）或 keys 里的下标，长度 2 * cap。
 // 键的起始位置是 hash(k) % cap，线性探测不绕回；元素个数超过 3/4 cap 时容量翻倍，
@@ -56,7 +56,7 @@ pub fn new<K, V>() -> HashMap<K, V> {
 
 pub fn len<K, V>(m: HashMap<K, V>) -> I64 { vec_len(m.keys) }
 
-// 从 hash(k) % cap 往后第一个空位或 k 所在的槽位（S9 的 slot）。
+// 从 hash(k) % cap 往后第一个空位或 k 所在的槽位（`Library.HashMap` 的 slot）。
 fn find_slot<K: math.Eq + Hash, V>(m: HashMap<K, V>, k: K) -> I64 {
     var p = hash(k) % m.cap
     var go = true
@@ -73,7 +73,7 @@ fn find_slot<K: math.Eq + Hash, V>(m: HashMap<K, V>, k: K) -> I64 {
     p
 }
 
-// k 在 keys 里的下标；没有时是 -1（S9 的 lookup）。
+// k 在 keys 里的下标；没有时是 -1（`Library.HashMap` 的 lookup）。
 fn entry<K: math.Eq + Hash, V>(m: HashMap<K, V>, k: K) -> I64 {
     vec_get(m.slots, find_slot(m, k))
 }
@@ -122,7 +122,7 @@ pub fn remove<K: math.Eq + Hash, V>(inout m: HashMap<K, V>, k: K) -> Option<V> {
     let p = find_slot(m, k)
     let e = vec_get(m.slots, p)
     if e == -1 { return .None }
-    // 后移回填（S9 的 shift）：起始位置不在空位后面的元素搬进空位
+    // 后移回填（`Library.HashMap` 的 shift）：起始位置不在空位后面的元素搬进空位
     set_slot(m.slots, p, -1)
     var hole = p
     var j = p + 1

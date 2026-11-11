@@ -1,4 +1,4 @@
-// std.vec：Vec<T> 的常用函数。比较元素用 std.math 的 Eq；map、filter 等接收闭包（C40）。
+// std.vec：Vec<T> 的常用函数。比较元素用 std.math 的 Eq；map、filter 等接收闭包。
 use std.math
 
 pub fn sum(v: Vec<I64>) -> I64 {
@@ -49,7 +49,7 @@ pub fn reverse<T>(inout v: Vec<T>) {
     v = out
 }
 
-// 下面几个函数接收闭包（C40，Lean M21）：闭包只能当实参传，可以读、改外面的变量，例如
+// 下面几个函数接收闭包（Lean `Closures.Param`）：闭包只能当实参传，可以读、改外面的变量，例如
 //   vec.map(v, |x| x * k)、vec.for_each(v, |x| { total = total + x })。
 
 // 对每个元素调用 f，结果按顺序放进新的 Vec。
@@ -114,10 +114,10 @@ pub fn fold<T, A>(v: Vec<T>, sink init: A, f: fn(A, T) -> A) -> A {
     acc
 }
 
-// 排序（C50，Lean S8）：堆排序，只用 vec_swap 交换元素，O(n log n)。不稳定：相等的元素先后可能变。
+// 排序（Lean `Library.HeapSort`）：堆排序，只用 vec_swap 交换元素，O(n log n)。不稳定：相等的元素先后可能变。
 // less(a, b) 为真表示 a 要排在 b 前面，要是严格弱序（例如 |a, b| a < b、|p, q| p.age < q.age）。
 
-// v 的前 m 个元素里，从 i0 往下调整成堆：取较大的孩子，比自己大就交换、继续往下（S8 的 siftDown）。
+// v 的前 m 个元素里，从 i0 往下调整成堆：取较大的孩子，比自己大就交换、继续往下（`Library.HeapSort` 的 siftDown）。
 fn sift<T>(inout v: Vec<T>, m: I64, i0: I64, less: fn(T, T) -> Bool) {
     var i = i0
     var go = true
@@ -135,13 +135,13 @@ fn sift<T>(inout v: Vec<T>, m: I64, i0: I64, less: fn(T, T) -> Bool) {
 
 pub fn sort_by<T>(inout v: Vec<T>, less: fn(T, T) -> Bool) {
     let n = vec_len(v)
-    // 建堆（S8 的 heapify）
+    // 建堆（`Library.HeapSort` 的 heapify）
     var k = n / 2
     while k > 0 {
         k = k - 1
         sift(v, n, k, less)
     }
-    // 依次把堆顶换到末尾（S8 的 extract）
+    // 依次把堆顶换到末尾（`Library.HeapSort` 的 extract）
     var m = n
     while m > 1 {
         m = m - 1
@@ -155,7 +155,7 @@ pub fn sort<T: math.Ord>(inout v: Vec<T>) {
     sort_by(v, |a, b| cmp(a, b) == -1)
 }
 
-// 常用函数（C52）。
+// 常用函数。
 
 // 0, 1, …, n - 1。
 pub fn range(n: I64) -> Vec<I64> {
@@ -185,7 +185,7 @@ pub fn sum_f64(v: Vec<F64>) -> F64 {
 }
 
 // 在从小到大排好的 v 里找 x：找到时是 .Some(下标)（有多个时是第一个），否则 .None。
-// 和 std.map 的查找一样是二分（Lean S5）。
+// 和 std.map 的查找一样是二分（Lean `Library.MapSearch`）。
 pub fn binary_search<T: math.Ord>(v: Vec<T>, x: T) -> Option<I64> {
     var lo = 0
     var hi = vec_len(v)

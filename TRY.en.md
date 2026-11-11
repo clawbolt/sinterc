@@ -119,7 +119,7 @@ Import a module with `use std.name` and call it as `name.function(…)`. The sou
 | `std.hashmap` | hash map (open addressing; keys implement `Eq` and `hashmap.Hash`; I64 and Str already do) |
 | `std.bigint` | arbitrary-size integers: `from_i64`, `parse`, `to_str`, `add`, `sub`, `mul`, `pow`, `divmod_small` (division by a number up to 10^9); implements `Eq` and `Ord` |
 
-The core algorithms of sorting, binary search, the three maps (including AVL balance) and big integers are proved in Lean (S4–S11 and S6b in the sinter-formal README).
+The core algorithms of sorting, binary search, the three maps (including AVL balance) and big integers are proved in Lean (`Core/Library/` in the sinter-formal repository).
 
 ## Tools
 

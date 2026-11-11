@@ -98,7 +98,7 @@ pub fn repeat(s: Str, n: I64) -> Str {
     out
 }
 
-// 大小写转换（C52）：只转换 ASCII 字母，别的字符原样保留。
+// 大小写转换：只转换 ASCII 字母，别的字符原样保留。
 pub fn to_upper(s: Str) -> Str {
     var r = ""
     for c in s.chars() {

@@ -1,5 +1,5 @@
 #!/bin/sh
-# T2：用 sinterc fmt --check 检查仓库里的 Sinter 源码（示例、标准库）都已经格式化。
+# 用 sinterc fmt --check 检查仓库里的 Sinter 源码（示例、标准库）都已经格式化。
 # fmt 自己会确认格式化前后记号相同、再格式化一次不变，否则以退出码 3 拒绝。
 cd "$(dirname "$0")"
 dune build 2>&1 | head -20

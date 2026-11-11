@@ -1,4 +1,4 @@
-(* 把标准库的源码 std/*.sn 编进编译器（C35）：生成 stdlib_src.ml，里面是 (模块名, 源码) 的表。
+(* 把标准库的源码 std/*.sn 编进编译器：生成 stdlib_src.ml，里面是 (模块名, 源码) 的表。
    用法：embed 文件…，结果写到标准输出。 *)
 let read path =
   let ic = open_in_bin path in

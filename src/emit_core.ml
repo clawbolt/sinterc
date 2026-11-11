@@ -1,19 +1,19 @@
-(* --emit=core：把检查、展开之后的 MIR 翻译成 Lean M7（五·下）的 CFG（Core.M7h），
-   交给 Lean 用已证明健全的 cfgOk 复核（附录 F 的 C5，翻译验证）。注解由 Lean 自己推断（M7（六）的 acceptsF），
+(* --emit=core：把检查、展开之后的 MIR 翻译成 Lean `FlowGraph.Region` 的 CFG（Core.FlowGraph.Region），
+   交给 Lean 用已证明健全的 cfgOk 复核（附录 F 的 `Checking.Validate`，翻译验证）。注解由 Lean 自己推断（`FlowGraph.Lower` 的 acceptsF），
    编译器的推断结果不参与判断。
 
    跟踪三类局部，各自重新编号成 Lean 的变量 0 … N-1：
-   - 所有权（M2b）：自己拥有、需要析构、不是 linear 的局部。读 → use，移走 → free 或调用里的 sink，
-     析构 → free，得到新值 → alloc，整个移进另一个局部 → move。调用整体导出成带约定的 call（M3）。
-     按 drop flag 析构（DropIf、DropFieldIf）导出成 M4D 的 dropIf：flag 为真才释放，之后状态是“没有”，
+   - 所有权（`Ownership.Branch`）：自己拥有、需要析构、不是 linear 的局部。读 → use，移走 → free 或调用里的 sink，
+     析构 → free，得到新值 → alloc，整个移进另一个局部 → move。调用整体导出成带约定的 call（`Calls.Modes`）。
+     按 drop flag 析构（DropIf、DropFieldIf）导出成 `Projection.CallArg` 的 dropIf：flag 为真才释放，之后状态是“没有”，
      所以只在某些路径上移走之后还可以重新赋值。
-     部分移动过的结构体（C14、C15）每个需要析构的字段各是一个所有权变量（Lean M13 的位置编码）：
+     部分移动过的结构体每个需要析构的字段各是一个所有权变量（Lean `Ownership.Partial` 的位置编码）：
      整体的读、移走、析构、得到新值对每个字段各做一次，移走、放回一个字段只动这个字段。
-   - 线性值（M6）：自己拥有的 linear 局部。得到新值 → lnew，移走 → consume，整个移进另一个局部 → lmove。
-   - 区域引用（M5（二））：引用类型的局部。在它的区域进入后 decl，分配 → ralloc，复制 → copy，读 → read。
+   - 线性值（`Linearity.Linear`）：自己拥有的 linear 局部。得到新值 → lnew，移走 → consume，整个移进另一个局部 → lmove。
+   - 区域引用（`Regions.Variance`）：引用类型的局部。在它的区域进入后 decl，分配 → ralloc，复制 → copy，读 → read。
      区域参数在函数入口按顺序 enter（Lean 里有了顺序，比编译器的 D3 宽），每个出口前 leave。
-     含引用的结构体、枚举（C20 的 Option<&I64 in a>、Pair<…>，C21）：每个引用的位置各是一个引用变量
-     （Lean M15 的“值的类型里的区域都算上”）。整体复制、取载荷、造结构体和变体时按位置 copy；
+     含引用的结构体、枚举（Option<&I64 in a>、Pair<…>）：每个引用的位置各是一个引用变量
+     （Lean `Regions.Data` 的“值的类型里的区域都算上”）。整体复制、取载荷、造结构体和变体时按位置 copy；
      来源不知道的位置（调用的结果、没有载荷的变体等）当作在这个位置的类型的区域里 ralloc，只会更严。
    投影不导出锁表：通过投影读取导出成对源对象的 use。Box、Vec、Result 里的引用不跟踪。返回值局部不跟踪（值交给了调用者）。 *)
 open Ast
@@ -82,7 +82,7 @@ let func (f : func) =
   in
   let np = List.length pregions in
   (* 局部 l 的类型里的区域名 r 的深度：arena 块排在区域参数之后。
-     既不是区域参数、局部创建时也不在 r 的块里：r 已经结束，值是从块里带出来的（违反 R3，C22）。
+     既不是区域参数、局部创建时也不在 r 的块里：r 已经结束，值是从块里带出来的（违反 R3）。
      这时给一个比任何时候的深度都大的值，Lean 的 decl 规则（区域必须比变量先存在）一定拒绝 *)
   let ended = np + List.length f.arenas in
   let depth l r =
@@ -108,9 +108,9 @@ let func (f : func) =
           | t when Typeck.needs_drop t -> Some Own
           | _ -> None)
   in
-  (* 部分移动（C14、C15）：移走过字段的结构体局部不占一个 Lean 变量，而是它需要析构的每个字段各占一个
-     （Lean M13 的位置编码：整体操作对每个字段各做一次）。槽和 own.ml 的相同。
-     含引用的结构体、枚举（C21）：每个引用的位置各占一个引用变量，区域是这个位置的类型里的区域 *)
+  (* 部分移动：移走过字段的结构体局部不占一个 Lean 变量，而是它需要析构的每个字段各占一个
+     （Lean `Ownership.Partial` 的位置编码：整体操作对每个字段各做一次）。槽和 own.ml 的相同。
+     含引用的结构体、枚举：每个引用的位置各占一个引用变量，区域是这个位置的类型里的区域 *)
   let sp, _ = Own.field_slots f in
   let idx = Array.make n (-1) and fidx = Hashtbl.create 8 and didx = Hashtbl.create 8 and next = ref 0 in
   Array.iteri
@@ -235,7 +235,7 @@ let func (f : func) =
     | Assign (p, Use (Move q)) when whole_target p && kind p.base = Some Lin && kind q.base = Some Lin ->
         [ op_lin (Printf.sprintf ".lmove %d %d" (ix q.base) (ix p.base)) ]
     | Assign (p, rv) when (not f.locals.(p.base).lref) && reg_slots p.base <> [] ->
-        (* 引用的目标（C21）：路径 sfx 上的引用从右边对应位置的引用变量复制（copy），
+        (* 引用的目标：路径 sfx 上的引用从右边对应位置的引用变量复制（copy），
            找不到时（调用的结果、取自 Box / Vec、没有载荷的变体）当作在它的类型的区域里新分配（ralloc） *)
         let from_op o sfx =
           match o with Copy q | Move q -> leaf_var q.base (q.proj @ sfx) | _ -> None
@@ -324,7 +324,7 @@ let func (f : func) =
     | Branch (o, a, c) -> (ops @ operand o, `Goto [ a; c ])
     | Return | Unterminated ->
         (ops @ List.map (fun _ -> ".leave") pregions, `Exit (List.mem Raise b.stmts))
-    | Halt -> (ops, `Halt)   (* panic：写成指向自己的空节点（Lean M19 的编码），不是出口 *)
+    | Halt -> (ops, `Halt)   (* panic：写成指向自己的空节点（Lean `FlowGraph.Panic` 的编码），不是出口 *)
   in
   let blocks = Array.mapi (fun i b -> if seen.(i) then Some (body b) else None) f.blocks in
   (* 编号：入口代码在前，然后各块依次排开；每块的节点数是操作数加 1 *)
@@ -354,13 +354,13 @@ let func (f : func) =
     blocks;
   (max 1 !next, List.rev !nodes)
 
-(* 生成一个 Lean 文件：每个函数一个 CFG，最后用 Core.C5.report 复核。
+(* 生成一个 Lean 文件：每个函数一个 CFG，最后用 Core.Checking.Validate.report 复核。
    expect_ok：编译器正常检查过时，要求全部接受；--unchecked 时，要求 Lean 至少拒绝一个函数。 *)
 let program ~expect_ok (fs : Mir.func list) =
   let b = Buffer.create 4096 in
   let add = Buffer.add_string b in
   add "-- 由 sinterc --emit=core 生成，不要手工修改。\n";
-  add "import Core.C5\nset_option maxRecDepth 100000\nopen Core.M7h\n\n";
+  add "import Core.Checking.Validate\nset_option maxRecDepth 100000\nopen Core.FlowGraph.Region\n\n";
   List.iteri
     (fun i (f : Mir.func) ->
       let _, nodes = func f in
@@ -375,7 +375,7 @@ let program ~expect_ok (fs : Mir.func list) =
               nodes));
       add "]\n\n")
     fs;
-  add "#eval Core.C5.report [";
+  add "#eval Core.Checking.Validate.report [";
   add
     (String.concat ", "
        (List.mapi

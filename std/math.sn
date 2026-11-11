@@ -6,7 +6,7 @@ pub trait Eq {
 }
 
 // cmp(a, b)：a < b 时是 -1，相等时是 0，a > b 时是 1。
-// 自己写 impl Ord 时要满足这几条定律（编译器不检查；min_of、max_of 的正确性只依赖它们，见 lean/Core/S1.lean）：
+// 自己写 impl Ord 时要满足这几条定律（编译器不检查；min_of、max_of 的正确性只依赖它们，见 lean/Core/Library/Math.lean）：
 //   只取 -1、0、1；cmp(b, a) == -cmp(a, b)；cmp(a, b) == 0 恰好是 a、b 相等（和 Eq 一致）；
 //   cmp(a, b) == -1 且 cmp(b, c) == -1 时 cmp(a, c) == -1。I64 和 Str 的实现已经证明满足。
 pub trait Ord {
@@ -80,7 +80,7 @@ pub fn max_of<T: Ord>(sink a: T, sink b: T) -> T {
     if cmp(a, b) >= 0 { a } else { b }
 }
 
-// F64（C47）。按 IEEE 754：溢出得到 inf，0.0 / 0.0 得到 NaN；NaN 和任何数比较（包括自己）都不相等。
+// F64。按 IEEE 754：溢出得到 inf，0.0 / 0.0 得到 NaN；NaN 和任何数比较（包括自己）都不相等。
 pub fn sqrt(x: F64) -> F64 { f64_sqrt(x) }
 
 pub fn floor(x: F64) -> F64 { f64_floor(x) }
@@ -112,7 +112,7 @@ pub fn powi(b: F64, e: I64) -> F64 {
     if e < 0 { 1.0 / r } else { r }
 }
 
-// 最大公约数（C52）：总是非负，gcd(0, 0) == 0。
+// 最大公约数：总是非负，gcd(0, 0) == 0。
 pub fn gcd(a: I64, b: I64) -> I64 {
     var x = abs(a)
     var y = abs(b)

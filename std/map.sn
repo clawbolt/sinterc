@@ -1,8 +1,8 @@
 // std.map：按键从小到大排好的映射 Map<K, V>。键要实现 std.math 的 Ord（满足它的四条定律）。
-// 规格见 lean/Core/S4.lean：插入、删除之后键仍严格递增（没有重复的键，遍历按键的顺序），
+// 规格见 lean/Core/Library/Map.lean：插入、删除之后键仍严格递增（没有重复的键，遍历按键的顺序），
 // 插入后查得到刚放进的值，删除后查不到，别的键不受影响。
 // 存成两个一样长的 Vec：keys[i] 对应 vals[i]。可以读 m.keys、m.vals（例如 for k in m.keys、vec_get(m.vals, i)），
-// 但不要直接改它们，否则键不再有序，查找的结果就不对了。插入、删除用 vec_swap 挪动元素（Lean M20）。
+// 但不要直接改它们，否则键不再有序，查找的结果就不对了。插入、删除用 vec_swap 挪动元素（Lean `Datatypes.VecSwap`）。
 use std.math
 
 pub struct Map<K, V> { keys: Vec<K>, vals: Vec<V> }
@@ -15,8 +15,8 @@ pub fn new<K, V>() -> Map<K, V> {
 
 pub fn len<K, V>(m: Map<K, V>) -> I64 { vec_len(m.keys) }
 
-// 第一个不小于 k 的键的下标；没有时是 len(m)。二分查找（C42）：lo 之前的键都小于 k，hi 开始的都不小于 k，
-// 和原来从头往后找的结果相同（lean/Core/S5.lean 的 bs_eq_lin）。
+// 第一个不小于 k 的键的下标；没有时是 len(m)。二分查找：lo 之前的键都小于 k，hi 开始的都不小于 k，
+// 和原来从头往后找的结果相同（lean/Core/Library/MapSearch.lean 的 bs_eq_lin）。
 fn lower<K: math.Ord, V>(m: Map<K, V>, k: K) -> I64 {
     var lo = 0
     var hi = vec_len(m.keys)

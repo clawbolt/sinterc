@@ -6,8 +6,8 @@ let p (pos : Lexing.position) = { line = pos.pos_lnum; col = pos.pos_cnum - pos.
 let mk e pos = { e; pos = p pos; id = fresh_id () }
 let mks s pos = { s; spos = p pos }
 
-(* 赋值 a = e：a 是变量、字段，或者 Vec 的元素（C53：v[i]、vec_get(v, i)、v.get(i)；
-   和 for x in inout v 里的 x = e 一样是 SetPlace，先算右边，再查下标、析构旧值、放进新值，Lean M18（二）） *)
+(* 赋值 a = e：a 是变量、字段，或者 Vec 的元素（v[i]、vec_get(v, i)、v.get(i)；
+   和 for x in inout v 里的 x = e 一样是 SetPlace，先算右边，再查下标、析构旧值、放进新值，Lean `Datatypes.VecInout`（二）） *)
 let assign pos (a : expr) e =
   match a.e with
   | Var x -> mks (Assign (x, e)) pos
@@ -21,12 +21,12 @@ let mk_block ss =
   | { s = Expr e; _ } :: rest -> { stmts = List.rev rest; tail = Some e }
   | _ -> { stmts = ss; tail = None }
 
-(* match 的分支（C46）：变体分支 .V(x) => e；通配 _ => e（Lean M23）；字面量 0 => e、-1 => e、true => e、"add" => e。 *)
+(* match 的分支：变体分支 .V(x) => e；通配 _ => e（Lean `Matching.Wildcard`）；字面量 0 => e、-1 => e、true => e、"add" => e。 *)
 type parm =
   | PV of string * string * expr
   | PW of pos * expr
   | PL of pos * expr * expr
-  | PN of pat * expr   (* 嵌套模式（C55） *)
+  | PN of pat * expr   (* 嵌套模式 *)
 
 (* 只有一层的模式照旧：.V、.V(x)、.V(_)、_、字面量；其余（子模式不是变量或 _、元组）是嵌套模式。
    最外层不能是变量（要匹配所有其余情况时写 _）。 *)
@@ -78,7 +78,7 @@ let lit_show (l : expr) =
   | _ -> "?"
 
 
-(* 字符串插值（C49）：词法分析把 "x = {x}!" 拆成 #fmt("x = ", (x).to_str(), "!")，这里展开成
+(* 字符串插值：词法分析把 "x = {x}!" 拆成 #fmt("x = ", (x).to_str(), "!")，这里展开成
      { var #s: Str = "x = "; str_push(#s, x.to_str()); str_push(#s, "!"); #s }
    to_str 由类型检查按类型选 str_from_i64、str_from_f64、str_from_char、str_from_bool、str_clone，
    别的类型调用户写的 to_str 函数。只是已有调用的组合，不需要新的推理。 *)
@@ -129,16 +129,16 @@ let build_match pos borrow (s : expr) arms =
 (* 参数 a: Arena 引入名为 a 的区域。 *)
 let arena_param n = function TArena _ -> TArena n | t -> t
 
-(* for 循环（C30）：解析时展开成 while，之后的检查、降级、翻译验证都不用改。
+(* for 循环：解析时展开成 while，之后的检查、降级、翻译验证都不用改。
    隐藏变量的名字带 #，用户写不出来，不会和用户的变量冲突；嵌套的 for 在各自的块里遮住外层的。
    for x in a..b { … }：
      { var #i: I64 = a; let #n: I64 = b; while #i < #n { let x = #i; #i = #i + 1; { … } } }
    a、b 各求值一次；#i < #n 时加一不会溢出。x 是 let，循环体里不能改。
    for x in v { … }（v 是变量或字段里的 Vec）：
      { var #k: I64 = 0; while #k < vec_len(v) { let x = vec_get(v, #k); #k = #k + 1; { … } } }
-   每一轮按借用取第 i 个元素：可复制的元素复制，需要析构的元素是投影，锁住 v（Lean M4、M12）；
+   每一轮按借用取第 i 个元素：可复制的元素复制，需要析构的元素是投影，锁住 v（Lean `Projection.Lock`、`Datatypes.Vec`）；
    长度每轮重新读，循环体里改了 v 也只会少走或多走几轮，下标照样检查。
-   加一放在取出元素之后、循环体之前（C31）：continue 直接回到条件，不会漏掉加一。 *)
+   加一放在取出元素之后、循环体之前：continue 直接回到条件，不会漏掉加一。 *)
 let rec for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
   let e d = mk d pos and s d = mks d pos in
   let rec copy (v : expr) =
@@ -165,17 +165,17 @@ let rec for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
         (e (Binop (Lt, e (Var "#k"), e (Call ("vec_len", [ copy v ])))))
         (e (Call ("vec_get", [ copy v; e (Var "#k") ])))
   | `Vec v ->
-      (* 不是变量或字段时（for c in s.chars()、for x in make()，C48）：先放进隐藏变量 #v，再遍历它。
+      (* 不是变量或字段时（for c in s.chars()、for x in make()）：先放进隐藏变量 #v，再遍历它。
          #v 在这个块结束时析构；嵌套的 for 各有自己的块，内层的 #v 遮住外层的 *)
       let inner = for_loop pos x (`Vec (e (Var "#v"))) body in
       s (Expr (e (Block { stmts = [ s (Let (false, "#v", None, v)); inner ]; tail = None })))
 
-(* for x in inout v { … }（C33，Lean M18）：x 是第 i 个元素本身（可变借用），不是副本。展开成
+(* for x in inout v { … }（Lean `Datatypes.VecInout`）：x 是第 i 个元素本身（可变借用），不是副本。展开成
      { var #k: I64 = 0; while #k < vec_len(v) { let #jN = #k; #k = #k + 1; { …[x := vec_get(v, #jN)]… } } }
    循环体里的 x 换成位置 vec_get(v, #jN)：读 x 就是读元素，x.f = e 改元素的字段，f(inout x) 把元素借出去，
    x = e 给元素整体赋值（SetPlace，旧值先析构）；把 x 移走照样被拒绝（不能从 Vec 里移出元素）。
    #jN 每个循环一个名字，嵌套时外层的 x 不会被内层的 #j 遮住。
-   排他性：循环体里不能提到 v 的根变量——v 整个借给了循环，不能 push / pop / 读 / 再借（M18 的 okBody；
+   排他性：循环体里不能提到 v 的根变量——v 整个借给了循环，不能 push / pop / 读 / 再借（`Datatypes.VecInout` 的 okBody；
    bad_pop 说明去掉这条会越界）。按名字检查，比按作用域严格：循环体里新声明的同名变量也算。 *)
 let inout_count = ref 0
 
@@ -348,7 +348,7 @@ let ty_of_name = function
 program:
   | nls us = uses is = items EOF { { uses = us; items = is } }
 
-(* 文件开头的 use（C34）：use m 或 use m { a, B }；标准库写 use std.m（C35） *)
+(* 文件开头的 use：use m 或 use m { a, B }；标准库写 use std.m *)
 uses:
   | { [] }
   | USE m = IDENT nls us = uses { (m, None, p $startpos) :: us }
@@ -394,7 +394,7 @@ fn_item:
     { let tp, bs = split_tparams tp in
       Fn { name = n; tparams = tp; bounds = bs; params = ps; ret = r; body = b; ipos = p $startpos } }
 
-(* trait 里的方法签名；写了函数体的是默认方法（C56） *)
+(* trait 里的方法签名；写了函数体的是默认方法 *)
 msigs:
   | { [] }
   | FN n = IDENT LPAREN ps = separated_list(COMMA, param) RPAREN r = ret nls ms = msigs
@@ -449,20 +449,20 @@ ty:
   | n = UIDENT { ty_of_name n }
   | n = UIDENT LT ts = separated_nonempty_list(COMMA, ty) GT { TApp (n, ts) }
   | LPAREN RPAREN { TUnit }
-  (* 元组类型（C45）：(A, B) 是内建的 Tuple#2<A, B> *)
+  (* 元组类型：(A, B) 是内建的 Tuple#2<A, B> *)
   | LPAREN t = ty COMMA ts = separated_nonempty_list(COMMA, ty) RPAREN { tuple_ty $startpos (t :: ts) }
   | BOX LT t = ty GT { TBox t }
   | AMP t = ty IN r = IDENT { TRef (t, r) }
-  (* 字符串切片 &str in a（C61）：str 不是关键字，只在 & 后面、in 前面时是类型 *)
+  (* 字符串切片 &str in a：str 不是关键字，只在 & 后面、in 前面时是类型 *)
   | AMP n = IDENT IN r = IDENT
       { if n = "str" then TRef (TView, r) else raise (Syntax (p $startpos(n), Printf.sprintf "未知类型 %s（字符串切片写 &str in 区域）" n)) }
   | RESULT LT t = ty COMMA e = ty GT { TResult (t, e) }
   | FN LPAREN ps = separated_list(COMMA, fn_param) RPAREN r = ret { TFn (ps, r) }
-  (* 可以存起来的闭包 Fn(T) -> U（C59）：Fn 不是关键字，写在类型的位置、后面跟括号时才是 *)
+  (* 可以存起来的闭包 Fn(T) -> U：Fn 不是关键字，写在类型的位置、后面跟括号时才是 *)
   | n = UIDENT LPAREN ps = separated_list(COMMA, fn_param) RPAREN r = ret
       { if n = "Fn" then TOFn (ps, r) else raise (Syntax (p $startpos, Printf.sprintf "类型 %s 后面不能跟括号（函数类型写 Fn(…) -> …）" n)) }
 
-(* 函数类型 fn(T, inout U) 的参数：约定和类型（C40） *)
+(* 函数类型 fn(T, inout U) 的参数：约定和类型 *)
 fn_param:
   | t = ty { (MLet, t) }
   | INOUT t = ty { (MInout, t) }
@@ -494,7 +494,7 @@ stmt:
   | CONTINUE { mks Continue $startpos }
   | ERRDEFER e = expr { mks (Errdefer e) $startpos }
   | LET t = UIDENT LBRACE nls bs = binds RBRACE EQ e = expr { mks (Destruct (t, bs, e)) $startpos }
-  (* 拆开元组（C45）：let (x, y) = e *)
+  (* 拆开元组：let (x, y) = e *)
   | LET LPAREN x = IDENT COMMA xs = separated_nonempty_list(COMMA, IDENT) RPAREN EQ e = expr
     { let xs = x :: xs in
       ignore (tuple_ty $startpos (List.map (fun _ -> TUnit) xs));
@@ -511,7 +511,7 @@ expr:
   | LPAREN RPAREN { mk Unit $startpos }
   | x = IDENT { mk (Var x) $startpos }
   | LPAREN e = expr RPAREN { e }
-  (* 元组（C45）：(a, b) 就是 Tuple#2 { 0: a, 1: b } *)
+  (* 元组：(a, b) 就是 Tuple#2 { 0: a, 1: b } *)
   | LPAREN e = expr COMMA es = separated_nonempty_list(COMMA, expr) RPAREN
     { let es = e :: es in
       ignore (tuple_ty $startpos (List.map (fun _ -> TUnit) es));
@@ -522,7 +522,7 @@ expr:
   | n = UIDENT LBRACE nls fs = inits RBRACE { mk (StructLit (n, fs)) $startpos }
   | e = expr DOT f = IDENT { mk (Field (e, f)) $startpos }
   | e = expr DOT n = INT { mk (Field (e, Int64.to_string n)) $startpos }
-  (* 下标（C53）：v[i] 就是 vec_get(v, i)，是一个位置：可以读、借用，也可以整体赋值 v[i] = x *)
+  (* 下标：v[i] 就是 vec_get(v, i)，是一个位置：可以读、借用，也可以整体赋值 v[i] = x *)
   | e = expr LBRACKET i = expr RBRACKET { mk (Call ("vec_get", [ e; i ])) $startpos($2) }
   (* 方法调用 e.f(…)：就是 f(e, …)，函数名由类型检查按 e 的类型确定（"." 开头表示还没确定） *)
   | e = expr DOT f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN
@@ -542,7 +542,7 @@ expr:
   | STAR e = expr %prec UNARY { mk (Deref e) $startpos }
   | i = if_expr { i }
   | b = block { mk (Block b) $startpos }
-  (* 闭包（C40）：|x, y| e，没有参数时写 || e *)
+  (* 闭包：|x, y| e，没有参数时写 || e *)
   | BAR ps = separated_list(COMMA, IDENT) BAR e = expr %prec LAMBDA { mk (Lambda (ps, e)) $startpos }
   | OROR e = expr %prec LAMBDA { mk (Lambda ([], e)) $startpos }
 
@@ -555,7 +555,7 @@ if_expr:
 arm:
   | q = pat FATARROW e = expr { arm_of q e }
 
-(* 模式（C55）：可以嵌套。只有一层的（.V(x)、_、字面量）照旧是 Match 或字面量的 if 链。 *)
+(* 模式：可以嵌套。只有一层的（.V(x)、_、字面量）照旧是 Match 或字面量的 if 链。 *)
 pat:
   | x = IDENT { { p = (if x = "_" then PWild else PBind x); ppos = p $startpos } }
   | n = INT { { p = PLit (mk (Int n) $startpos); ppos = p $startpos } }

@@ -1,4 +1,4 @@
-// std.result：Result<T, E> 的常用函数。T、E 可以是 ()（C37），例如 result.is_ok(write_file(…))。
+// std.result：Result<T, E> 的常用函数。T、E 可以是 ()，例如 result.is_ok(write_file(…))。
 
 pub fn is_ok<T, E>(r: Result<T, E>) -> Bool {
     match let r {
@@ -30,7 +30,7 @@ pub fn ok<T, E>(sink r: Result<T, E>) -> Option<T> {
     }
 }
 
-// 成功时取出值；出错时 panic（程序结束，见 C38）。错误值的类型是任意的 E，没法打印，要看错误用 expect 或 match。
+// 成功时取出值；出错时 panic（程序结束）。错误值的类型是任意的 E，没法打印，要看错误用 expect 或 match。
 pub fn unwrap<T, E>(sink r: Result<T, E>) -> T {
     match r {
         Ok(x) => x,

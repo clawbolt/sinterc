@@ -22,7 +22,7 @@ pub fn unwrap_or<T>(sink o: Option<T>, sink d: T) -> T {
     }
 }
 
-// 有值时取出值；.None 时 panic（程序结束，见 C38）。
+// 有值时取出值；.None 时 panic（程序结束）。
 pub fn unwrap<T>(sink o: Option<T>) -> T {
     match o {
         .Some(x) => x,

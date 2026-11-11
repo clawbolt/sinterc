@@ -100,7 +100,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 | `std.hashmap` | 哈希表（开放寻址；键实现 `Eq` 和 `hashmap.Hash`，I64 和 Str 已实现） |
 | `std.bigint` | 任意大小的整数：`from_i64`、`parse`、`to_str`、`add`、`sub`、`mul`、`pow`、`divmod_small`（除以不超过 10^9 的数），实现了 `Eq`、`Ord` |
 
-排序、二分查找、三种映射（含 AVL 树的平衡）和大整数的核心算法都在 Lean 里证明过（sinter-formal 仓库 README 的 S4–S11、S6b）。
+排序、二分查找、三种映射（含 AVL 树的平衡）和大整数的核心算法都在 Lean 里证明过（sinter-formal 仓库的 `Core/Library/`）。
 
 ## 工具
 
