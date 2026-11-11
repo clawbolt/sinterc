@@ -82,10 +82,15 @@ static long long sn_live = 0;
 static void *sn_alloc(size_t n) { void *p = malloc(n); if (!p) sn_panic("内存不足"); SN_COUNT(sn_live++); return p; }
 static void sn_free(void *p) { free(p); SN_COUNT(sn_live--); }
 static void *sn_realloc(void *p, size_t n) { if (!p) return sn_alloc(n); void *q = realloc(p, n); if (!q) sn_panic("内存不足"); return q; }
-/* 字符串（C29）：拥有一块堆内存，末尾多一个 0；let 参数传指针，inout 参数传指针并可以改。 */
-typedef struct { char *p; int64_t len; } sn_str;
-static sn_str sn_str_make(const char *s, int64_t n) { sn_str r; r.p = sn_alloc((size_t)n + 1); memcpy(r.p, s, (size_t)n); r.p[n] = 0; r.len = n; return r; }
-static sn_str u_str_lit(const char *s) { return sn_str_make(s, (int64_t)strlen(s)); }
+/* 字符串（C29）：末尾多一个 0；let 参数传指针，inout 参数传指针并可以改。
+   静态字面量（C61，Lean M27 的三）：lit 是 1 时 p 指向程序里的字符串常量，不占堆——不分配，复制还是字面量，
+   析构什么都不做；要修改时先用 sn_str_own 复制到堆上。lit 是 0 时拥有一块堆内存。 */
+typedef struct { char *p; int64_t len; bool lit; } sn_str;
+static sn_str sn_str_make(const char *s, int64_t n) { sn_str r = { 0 }; r.p = sn_alloc((size_t)n + 1); memcpy(r.p, s, (size_t)n); r.p[n] = 0; r.len = n; return r; }
+static sn_str u_str_lit(const char *s) { sn_str r; r.p = (char *)s; r.len = (int64_t)strlen(s); r.lit = true; return r; }
+/* C 字符串（参数、环境变量、目录项）复制成拥有堆内存的 Str：它们的内存不归程序所有 */
+static sn_str sn_str_cstr(const char *s) { return sn_str_make(s, (int64_t)strlen(s)); }
+static void sn_str_own(sn_str *s) { if (s->lit) *s = sn_str_make(s->p, s->len); }
 static void u_print(const sn_str *s) { fwrite(s->p, 1, (size_t)s->len, stdout); putchar('\n'); }
 static void u_print_str(const sn_str *s) { fwrite(s->p, 1, (size_t)s->len, stdout); }
 /* 标准错误（C60）：先刷新标准输出，这样两者在终端里的先后顺序和程序里一样；stderr 本身不缓冲。 */
@@ -96,12 +101,13 @@ static void u_print_byte(int64_t b) { if (b < 0 || b > 255) sn_panic("print_byte
 static void u_panic(const sn_str *m) { sn_panic(m->p); }
 static int64_t u_str_len(const sn_str *s) { return s->len; }
 static bool u_str_eq(const sn_str *a, const sn_str *b) { return a->len == b->len && memcmp(a->p, b->p, (size_t)a->len) == 0; }
-static sn_str u_str_clone(const sn_str *s) { return sn_str_make(s->p, s->len); }
+static sn_str u_str_clone(const sn_str *s) { return s->lit ? *s : sn_str_make(s->p, s->len); }
 static sn_str u_str_concat(const sn_str *a, const sn_str *b) {
-  sn_str r; r.len = a->len + b->len; r.p = sn_alloc((size_t)r.len + 1);
+  sn_str r = { 0 }; r.len = a->len + b->len; r.p = sn_alloc((size_t)r.len + 1);
   memcpy(r.p, a->p, (size_t)a->len); memcpy(r.p + a->len, b->p, (size_t)b->len); r.p[r.len] = 0; return r;
 }
 static void u_str_push(sn_str *s, const sn_str *t) {
+  sn_str_own(s);
   s->p = sn_realloc(s->p, (size_t)(s->len + t->len) + 1);
   memcpy(s->p + s->len, t->p, (size_t)t->len); s->len += t->len; s->p[s->len] = 0;
 }
@@ -146,6 +152,7 @@ static int64_t u_char_code(uint32_t c) { return (int64_t)c; }
 static sn_str u_str_from_char(uint32_t c) { char b[4]; int k = sn_utf8_put(b, c); return sn_str_make(b, k); }
 static void u_str_push_char(sn_str *s, uint32_t c) {
   char b[4]; int k = sn_utf8_put(b, c);
+  sn_str_own(s);
   s->p = sn_realloc(s->p, (size_t)(s->len + k) + 1);
   memcpy(s->p + s->len, b, (size_t)k); s->len += k; s->p[s->len] = 0;
 }
@@ -164,12 +171,13 @@ static sn_str u_str_slice(const sn_str *s, int64_t a, int64_t b) {
 }
 /* 字节串（C57）：和字符串的表示相同（末尾也多一个 0），内容可以是任意字节。字节是 0 到 255 的 I64。 */
 static int64_t sn_byte(int64_t x) { if (x < 0 || x > 255) sn_panic("字节不在 0 到 255 之间"); return x; }
-static sn_str u_bytes_new(void) { return sn_str_make("", 0); }
+static sn_str u_bytes_new(void) { return u_str_lit(""); }
 static int64_t u_bytes_len(const sn_str *b) { return b->len; }
 static int64_t u_bytes_get(const sn_str *b, int64_t i) { return (unsigned char)b->p[sn_idx(b->len, i)]; }
-static void u_bytes_set(sn_str *b, int64_t i, int64_t x) { int64_t k = sn_idx(b->len, i); b->p[k] = (char)sn_byte(x); }
+static void u_bytes_set(sn_str *b, int64_t i, int64_t x) { int64_t k = sn_idx(b->len, i); int64_t y = sn_byte(x); sn_str_own(b); b->p[k] = (char)y; }
 static void u_bytes_push(sn_str *b, int64_t x) {
   char c = (char)sn_byte(x);
+  sn_str_own(b);
   b->p = sn_realloc(b->p, (size_t)b->len + 2); b->p[b->len++] = c; b->p[b->len] = 0;
 }
 static void u_bytes_append(sn_str *b, const sn_str *c) { u_str_push(b, c); }
@@ -289,7 +297,7 @@ let drop_fn t = "sn_drop_" ^ cty t
 let rec drop_code ty lv =
   match ty with
   | TBox t -> drop_code t ("(*" ^ lv ^ ")") ^ Printf.sprintf "sn_free(%s); " lv
-  | TStr | TBytes -> Printf.sprintf "sn_free(%s.p); " lv
+  | TStr | TBytes -> Printf.sprintf "if (!%s.lit) sn_free(%s.p); " lv lv
   | TOFn _ -> Printf.sprintf "%s.drop(%s.env); " lv lv
   | (TStruct _ | TResult _ | TVec _) when Typeck.needs_drop ty -> Printf.sprintf "%s(&%s); " (drop_fn ty) lv
   | TI64 | TF64 | TChar | TBool | TUnit | TRef _ | TArena _ | TStruct _ | TResult _ | TVec _ | TApp _ | TParam _ | TFn _ -> ""
@@ -480,7 +488,7 @@ let type_defs (p : program) (fs : Mir.func list) =
     (Printf.sprintf
        "static %s u_read_line(void) {\n\
        \  fflush(stdout);\n\
-       \  int64_t cap = 16; sn_str r; r.p = sn_alloc((size_t)cap); r.len = 0; int c;\n\
+       \  int64_t cap = 16; sn_str r = { 0 }; r.p = sn_alloc((size_t)cap); r.len = 0; int c;\n\
        \  while ((c = getchar()) != EOF && c != '\\n') {\n\
        \    if (r.len + 1 >= cap) { cap *= 2; r.p = sn_realloc(r.p, (size_t)cap); }\n\
        \    r.p[r.len++] = (char)c;\n\
@@ -517,13 +525,13 @@ let type_defs (p : program) (fs : Mir.func list) =
        \  %s r = { 0, 0, 0 };\n\
        \  int n = sn_argc > 1 ? sn_argc - 1 : 0;\n\
        \  if (n > 0) { r.data = sn_alloc((size_t)n * sizeof(sn_str)); r.cap = n; }\n\
-       \  for (int i = 0; i < n; i++) r.data[r.len++] = u_str_lit(sn_argv[i + 1]);\n\
+       \  for (int i = 0; i < n; i++) r.data[r.len++] = sn_str_cstr(sn_argv[i + 1]);\n\
        \  return r;\n\
         }\n\
         static %s u_read_file(const sn_str *path) {\n\
        \  FILE *f = fopen(path->p, \"rb\");\n\
        \  if (!f) return (%s){ .tag = 1, .u.v1 = sn_io_err(path->p) };\n\
-       \  int64_t cap = 256; sn_str r; r.p = sn_alloc((size_t)cap); r.len = 0; size_t k;\n\
+       \  int64_t cap = 256; sn_str r = { 0 }; r.p = sn_alloc((size_t)cap); r.len = 0; size_t k;\n\
        \  while ((k = fread(r.p + r.len, 1, (size_t)(cap - 1 - r.len), f)) > 0) {\n\
        \    r.len += (int64_t)k;\n\
        \    if (r.len + 1 >= cap) { cap *= 2; r.p = sn_realloc(r.p, (size_t)cap); }\n\
@@ -569,7 +577,7 @@ let type_defs (p : program) (fs : Mir.func list) =
        "static %s u_os_env(const sn_str *n) {\n\
        \  const char *v = getenv(n->p);\n\
        \  if (!v) return (%s){ .tag = 1 };\n\
-       \  return (%s){ .tag = 0, .u.v0 = u_str_lit(v) };\n\
+       \  return (%s){ .tag = 0, .u.v0 = sn_str_cstr(v) };\n\
         }\n\
         static %s u_os_make_dir(const sn_str *p) {\n\
        \  if (mkdir(p->p, 0777) != 0) return (%s){ .tag = 1, .u.v1 = sn_io_err(p->p) };\n\
@@ -586,7 +594,7 @@ let type_defs (p : program) (fs : Mir.func list) =
        \  while ((e = readdir(d)) != 0) {\n\
        \    if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue;\n\
        \    if (v.len == v.cap) { int64_t c = v.cap ? v.cap * 2 : 8; v.data = sn_realloc(v.data, (size_t)c * sizeof(sn_str)); v.cap = c; }\n\
-       \    v.data[v.len++] = u_str_lit(e->d_name);\n\
+       \    v.data[v.len++] = sn_str_cstr(e->d_name);\n\
        \  }\n\
        \  closedir(d);\n\
        \  if (v.len > 1) qsort(v.data, (size_t)v.len, sizeof(sn_str), sn_str_cmp);\n\
@@ -620,7 +628,7 @@ let type_defs (p : program) (fs : Mir.func list) =
        \  int r = posix_spawnp(&pid, prog->p, &fa, 0, a, environ);\n\
        \  free(a); posix_spawn_file_actions_destroy(&fa); close(fd[1]);\n\
        \  if (r != 0) { close(fd[0]); errno = r; return (%s){ .tag = 1, .u.v1 = sn_io_err(prog->p) }; }\n\
-       \  int64_t cap = 256; sn_str s; s.p = sn_alloc((size_t)cap); s.len = 0; ssize_t k;\n\
+       \  int64_t cap = 256; sn_str s = { 0 }; s.p = sn_alloc((size_t)cap); s.len = 0; ssize_t k;\n\
        \  while ((k = read(fd[0], s.p + s.len, (size_t)(cap - 1 - s.len))) != 0) {\n\
        \    if (k < 0) { if (errno == EINTR) continue; break; }\n\
        \    s.len += (int64_t)k;\n\
