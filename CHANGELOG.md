@@ -25,6 +25,7 @@
 - `read_file_in(a, path)`、`read_stdin_in(a)`、`read_chunk(a, n)`：把文件、标准输入（任意字节）直接读进 arena，得到切片（C62）。
 - `std.view` 的 `line_end`、`trim_cr`、`field`：逐行、逐字段访问，不建 `Vec`（C62）。
 - `std.str` 的 `find`、`split`、`replace`、`starts_with`、`ends_with` 逐字节比较，不再为每个位置复制子串（C62）。
+- `std.view` 的 `line_reader()`、`next_block(r, a, n)`：逐块读标准输入，跨块的行先拼起来，峰值内存和输入大小无关（C63，Lean M28）。
 - 字符串的字面量标记和长度共用 8 字节，`Str` 保持 16 字节（C61 最初让它变成了 24 字节）。
 
 **验证**

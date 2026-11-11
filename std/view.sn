@@ -75,6 +75,52 @@ pub fn field(v: &str in r, sep: Str, i: I64) -> Option<&str in r> {
     if e < 0 { .Some(v.sub(start, v.len())) } else { .Some(v.sub(start, e)) }
 }
 
+// 逐块读标准输入（C63，Lean M28）：峰值内存只和块大小、最长的一行有关，和输入大小无关。
+// 上一块最后一个换行之后不完整的部分（carry）留在 LineReader 里，接在下一块前面；不管输入怎么分块，
+// 逐块得到的行和整个读进来再 lines 的行相同（M28 的 stream_eq）。每块放在自己的区域里，处理完就释放：
+//
+//     var r = view.line_reader()
+//     var going = true
+//     while going {
+//         arena |b| {
+//             match view.next_block(r, b, 65536) {
+//                 .Some(block) => { for line in view.lines(block) { … } },
+//                 .None => { going = false }
+//             }
+//         }
+//     }
+pub struct LineReader { carry: Str, done: Bool }
+
+pub fn line_reader() -> LineReader { LineReader { carry: "", done: false } }
+
+// 下一段完整的行（以换行结束；输入最后没有换行时，最后一段是剩下的部分），放在区域 a 里；读完时是 .None。
+// 每次最多读 n 个字节；一块里没有换行时接着读，直到碰到换行或者读完
+pub fn next_block(inout r: LineReader, a: Arena, n: I64) -> Option<&str in a> {
+    while !r.done {
+        let c = read_chunk(a, n)
+        if c.len() == 0 {
+            r.done = true
+            if r.carry.len() > 0 {
+                let rest = r.carry.clone()
+                r.carry = ""
+                return .Some(text(a, rest))
+            }
+            return .None
+        }
+        var i = c.len() - 1
+        while i >= 0 && c.byte(i) != 10 { i = i - 1 }
+        if i < 0 {
+            r.carry.push(c.to_str())
+        } else {
+            var s = r.carry.clone()
+            s.push(c.sub(0, i + 1).to_str())
+            r.carry = c.sub(i + 1, c.len()).to_str()
+            return .Some(text(a, s))
+        }
+    }
+    .None
+}
+
 // 去掉两头的空格、制表符和换行
 pub fn trim(v: &str in r) -> &str in r {
     var a = 0
