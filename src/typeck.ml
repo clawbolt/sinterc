@@ -145,6 +145,28 @@ let prepare (p : program) =
           Hashtbl.replace enum_tbl name (List.map (fun (v, t) -> (v, Option.map (resolve [] ipos) t)) variants)
       | Struct _ | Enum _ | Fn _ | Trait _ | Impl _ -> ())
     p;
+  (* 类型自己的方法的头部（Lean `Traits.Inherent`）：impl 的类型参数都出现在头部里（实例的类型实参由接收者匹配得到），
+     同名方法的头部不能重叠（CoherentM），所以查找的结果和书写顺序无关。按写出的顺序检查，重叠时报后写的那个 *)
+  Hashtbl.reset inherent_heads;
+  List.iter
+    (fun (m, (self, tps, g, ipos)) ->
+      let st = resolve (List.map (fun (t, lin) -> (t, TParam (t, lin))) tps) ipos self in
+      (match st with
+      | TArena _ -> err ipos "不能给 Arena 写方法"
+      | TFn _ | TOFn _ -> err ipos "不能给函数类型写方法"
+      | TParam (t, _) -> err ipos "不能给类型参数 %s 本身写方法（impl<%s> %s 会和所有的头部重叠）" t t t
+      | _ -> ());
+      List.iter
+        (fun (t, _) ->
+          if not (List.mem t (params_of st)) then err ipos "impl 的类型参数 %s 没有出现在 %s 里" t (string_of_ty st))
+        tps;
+      List.iter
+        (fun (h, _, _) ->
+          if compat ~loose:true h st then
+            err ipos "impl %s 和 impl %s 都有方法 %s，头部重叠（有的类型两个都能匹配）" (string_of_ty st) (string_of_ty h) m)
+        (Hashtbl.find_all inherent_heads m);
+      Hashtbl.add inherent_heads m (st, List.map fst tps, g))
+    (Hashtbl.fold (fun m v acc -> (m, v) :: acc) Ast.inherent []);
   (* 函数签名：泛型函数的类型参数解析成 TParam；trait 的方法是带类型参数 Self 的泛型函数；
      impl 里的方法登记成 方法<类型> *)
   List.iter

@@ -196,38 +196,50 @@ let rec params_of = function
 let app_of n = Hashtbl.find_opt inst_tbl n
 
 (* 头部 p 对类型 t 的匹配（`Traits.ImplSearch` 的 mtch）：vs 是 impl 的类型参数，s 是已经匹配出的类型实参。
-   t 里的类型参数（当前泛型函数的）当作普通的类型。 *)
-let rec tmatch vs p t s =
+   t 里的类型参数（当前泛型函数的）当作普通的类型。loose：不比较区域（类型自己的方法的头部可以是 &str in a）。 *)
+let rec tmatch ?(loose = false) vs p t s =
   match p, t with
   | TParam (n, _), _ when List.mem n vs -> (
       match List.assoc_opt n s with Some u -> if u = t then Some s else None | None -> Some ((n, t) :: s))
+  | TRef (p, _), TRef (t, _) when loose -> tmatch ~loose vs p t s
   | TStruct a, TStruct b -> (
       match app_of a, app_of b with
-      | Some (g, ps), Some (h, ts) when g = h && List.length ps = List.length ts -> tmatch_list vs ps ts s
+      | Some (g, ps), Some (h, ts) when g = h && List.length ps = List.length ts -> tmatch_list ~loose vs ps ts s
       | None, None when a = b -> Some s
       | _ -> None)
-  | TBox p, TBox t | TVec p, TVec t -> tmatch vs p t s
-  | TResult (a, b), TResult (c, d) -> tmatch_list vs [ a; b ] [ c; d ] s
+  | TBox p, TBox t | TVec p, TVec t -> tmatch ~loose vs p t s
+  | TResult (a, b), TResult (c, d) -> tmatch_list ~loose vs [ a; b ] [ c; d ] s
   | _ -> if p = t then Some s else None
 
-and tmatch_list vs ps ts s =
+and tmatch_list ~loose vs ps ts s =
   match ps, ts with
   | [], [] -> Some s
-  | p :: ps, t :: ts -> Option.bind (tmatch vs p t s) (tmatch_list vs ps ts)
+  | p :: ps, t :: ts -> Option.bind (tmatch ~loose vs p t s) (tmatch_list ~loose vs ps ts)
   | _ -> None
 
-(* 两个头部可能有共同的实例（`Traits.ImplSearch` 的 compat，保守：类型参数和什么都相容）。 *)
-let rec compat p q =
+(* 两个头部可能有共同的实例（`Traits.ImplSearch` 的 compat，保守：类型参数和什么都相容）。loose 同上。 *)
+let rec compat ?(loose = false) p q =
   match p, q with
   | TParam _, _ | _, TParam _ -> true
+  | TRef (p, _), TRef (q, _) when loose -> compat ~loose p q
   | TStruct a, TStruct b -> (
       match app_of a, app_of b with
-      | Some (g, ps), Some (h, qs) -> g = h && List.length ps = List.length qs && List.for_all2 compat ps qs
+      | Some (g, ps), Some (h, qs) -> g = h && List.length ps = List.length qs && List.for_all2 (compat ~loose) ps qs
       | None, None -> a = b
       | _ -> false)
-  | TBox p, TBox q | TVec p, TVec q -> compat p q
-  | TResult (a, b), TResult (c, d) -> compat a c && compat b d
+  | TBox p, TBox q | TVec p, TVec q -> compat ~loose p q
+  | TResult (a, b), TResult (c, d) -> compat ~loose a c && compat ~loose b d
   | _ -> p = q
+
+(* 类型自己的方法（Lean `Traits.Inherent`）：方法名 → (解析过的头部, impl 的类型参数, 函数名)。
+   prepare 从 Ast.inherent 登记，同名方法的头部两两不相容（CoherentM）。 *)
+let inherent_heads : (string, ty * string list * string) Hashtbl.t = Hashtbl.create 16
+
+(* 接收者类型 t 的方法 m（`Traits.Inherent` 的 pickM）：CoherentM 保证至多一个头部能匹配，和登记的顺序无关。 *)
+let find_inherent m t =
+  List.find_map
+    (fun (h, vs, g) -> Option.map (fun _ -> g) (tmatch ~loose:true vs h t []))
+    (Hashtbl.find_all inherent_heads m)
 
 (* 头部能匹配 t 的 tr 的 impl（Coherent 保证至多一个），和匹配出的类型实参。 *)
 let find_impl tr t =

@@ -265,6 +265,16 @@ let table =
     ("impl 的类型参数 %s 没有出现在 %s 里", "the impl type parameter {1} does not appear in {2}");
     ("impl %s for %s 和已有的 impl %s for %s 重叠（有的类型两个都能匹配）",
      "impl {1} for {2} overlaps the existing impl {3} for {4} (some type matches both)");
+    (* 类型自己的方法 *)
+    ("方法 %s 的第一个参数是接收者，类型要写成 %s（或 Self）",
+     "the first parameter of method {1} is the receiver; its type must be {2} (or Self)");
+    ("%s 已经有方法 %s", "{1} already has a method {2}");
+    ("不能给 Arena 写方法", "methods cannot be defined on Arena");
+    ("不能给函数类型写方法", "methods cannot be defined on a function type");
+    ("不能给类型参数 %s 本身写方法（impl<%s> %s 会和所有的头部重叠）",
+     "methods cannot be defined on the type parameter {1} itself (impl<{2}> {3} would overlap every head)");
+    ("impl %s 和 impl %s 都有方法 %s，头部重叠（有的类型两个都能匹配）",
+     "impl {1} and impl {2} both have a method {3}, and their heads overlap (some type matches both)");
     (* 嵌套模式 *)
     ("模式 %s 的类型是 %s，这里的值是 %s", "the pattern {1} has type {2}, but the value here is {3}");
     ("%s 不是枚举，不能用变体模式 %s", "{1} is not an enum; the variant pattern {2} cannot be used");

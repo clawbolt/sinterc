@@ -388,6 +388,10 @@ item:
   | IMPL tp = tparams t = UIDENT FOR s = ty LBRACE nls fs = impl_fns RBRACE
     { let tp, bs = split_tparams tp in
       Impl { trait = t; tparams = tp; bounds = bs; self = s; fns = fs; ipos = p $startpos } }
+  (* 类型自己的方法：impl<T> Vec<T> { fn size(v: Vec<T>) -> I64 { … } } *)
+  | IMPL tp = tparams s = ty LBRACE nls fs = impl_fns RBRACE
+    { let tp, bs = split_tparams tp in
+      Impl { trait = ""; tparams = tp; bounds = bs; self = s; fns = fs; ipos = p $startpos } }
 
 fn_item:
   | FN n = IDENT tp = tparams LPAREN ps = separated_list(COMMA, param) RPAREN r = ret b = block

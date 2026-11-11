@@ -272,25 +272,30 @@ and expr1 env (x : expr) : t =
   | Arena (r, b) -> arena env None pos r b
 
 (* 函数调用。want：期望的返回类型（知道时用来推断泛型函数的类型实参）。 *)
-(* 方法调用 r.f(…) 的函数名：接收者是 Vec 时 push / pop / len / get 是内建的 vec_…，
-   是 Str 时 len / eq / concat / push / clone / to_i64 / byte / slice 是内建的 str_…，否则是函数 f。 *)
+(* 方法调用 r.f(…) 的函数名：先按接收者的类型找类型自己的方法（Lean `Traits.Inherent`，在定义处查一次，
+   实例沿用这里的结果）；没有时接收者是 Vec 的 push / pop / len / get 是内建的 vec_…，
+   是 Str 时 len / eq / concat / push / clone / to_i64 / byte / slice 是内建的 str_…，否则是函数 f。
+   f 可能已经被 modules.ml 换成了带模块前缀的名字，找方法时用最后一段。 *)
 and method_name env (x : expr) f (r : expr) =
   let m = String.sub f 1 (String.length f - 1) in
+  let base = match String.rindex_opt m '.' with Some i -> String.sub m (i + 1) (String.length m - i - 1) | None -> m in
+  let rt = expr env r in
   let g =
-    match expr env r, m with
-    | Ty (TVec _), ("push" | "pop" | "len" | "get" | "swap") -> "vec_" ^ m
-    | Ty TStr, m when List.mem m str_methods -> "str_" ^ m
-    | Ty TBytes, m when List.mem m bytes_methods -> "bytes_" ^ m
-    | Ty (TRef (TView, _)), m when List.mem m view_methods -> "view_" ^ m
-    | Ty TChar, "code" -> "char_code"
+    match (match rt with Ty t -> find_inherent base t | Never -> None), rt, m with
+    | Some g, _, _ -> g
+    | None, Ty (TVec _), ("push" | "pop" | "len" | "get" | "swap") -> "vec_" ^ m
+    | None, Ty TStr, m when List.mem m str_methods -> "str_" ^ m
+    | None, Ty TBytes, m when List.mem m bytes_methods -> "bytes_" ^ m
+    | None, Ty (TRef (TView, _)), m when List.mem m view_methods -> "view_" ^ m
+    | None, Ty TChar, "code" -> "char_code"
     (* x.to_str()，也是字符串插值 "{x}" 用的 *)
-    | Ty TI64, "to_str" -> "str_from_i64"
-    | Ty TF64, "to_str" -> "str_from_f64"
-    | Ty TChar, "to_str" -> "str_from_char"
-    | Ty TBool, "to_str" -> "str_from_bool"
-    | Ty TStr, "to_str" -> "str_clone"
-    | Ty (TOFn _ as t), "call" -> fcall_name env.fns t   (* f.call(x)：字段、Vec 元素里的闭包也能这样调用 *)
-    | _ -> m
+    | None, Ty TI64, "to_str" -> "str_from_i64"
+    | None, Ty TF64, "to_str" -> "str_from_f64"
+    | None, Ty TChar, "to_str" -> "str_from_char"
+    | None, Ty TBool, "to_str" -> "str_from_bool"
+    | None, Ty TStr, "to_str" -> "str_clone"
+    | None, Ty (TOFn _ as t), "call" -> fcall_name env.fns t   (* f.call(x)：字段、Vec 元素里的闭包也能这样调用 *)
+    | None, _, _ -> m
   in
   Hashtbl.replace method_res x.id g;
   g

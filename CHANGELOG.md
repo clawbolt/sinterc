@@ -15,6 +15,9 @@
   调用时闭包按 `inout`；`Fn` 变量可以传给 `fn(…)` 参数（C59，Lean M26）。
 - 字符串切片 `&str in a`：`text(a, s)` 把字符串交给区域，`sub`、`byte`、`find`、`eq` 不分配，切片和引用一样不能活过它的区域；
   字符串字面量不再每次分配，修改时才复制（C61，Lean M27）。
+- 类型自己的方法 `impl 类型 { … }`：可以给结构体、内建类型（`I64`、`Str`、`Vec<T>`、`&str in a`）和具体实例
+  （`Vec<I64>`、`Vec<F64>` 各有一个 `sum`）写方法，方法可以是泛型的、可以有 `fn(…)` 参数；`x.m()` 先按 `x` 的类型找，
+  在定义处查一次；同名方法的头部重叠时拒绝（C64，Lean M29）。
 
 **标准库**
 - `std.bigint`：任意大小的整数，加、减、乘、比较、除以小数、十进制转换，实现 `Eq`、`Ord`（C54，Lean S10）。
@@ -149,6 +152,7 @@
 | M26 | `Core.Closures.Stored` | 可以存起来的闭包 Fn(T) -> U 和 trait 对象 dyn Tr |
 | M27 | `Core.Strings.Slice` | 字符串切片和静态的字符串字面量 |
 | M28 | `Core.Strings.ChunkLines` | 逐块读行 |
+| M29 | `Core.Traits.Inherent` | 类型自己的方法（按接收者类型查找） |
 | S1 | `Core.Library.Math` | std.math 的规格和定律 |
 | S2 | `Core.Library.StrVec` | std.str、std.vec 的规格和定律 |
 | S3 | `Core.Library.FileIO` | 文件与参数 IO 的规格 |

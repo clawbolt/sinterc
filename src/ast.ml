@@ -117,7 +117,7 @@ type item =
       self : ty;
       fns : item list;
       ipos : pos;
-    }   (* fns 都是 Fn *)
+    }   (* fns 都是 Fn。trait 是 "" 时是类型自己的方法 impl 类型 { … }，modules.ml 把它换成普通函数 *)
 
 (* mbody：默认方法的函数体，impl 没写这个方法时用它 *)
 and msig = { mname : string; mparams : (mode * string * ty) list; mret : ty; mbody : block option; mpos : pos }
@@ -140,6 +140,10 @@ let locate default (p : pos) =
 
 (* 结构体、枚举（加上模块前缀的名字）定义在第几个文件里：consume 只能在定义 linear 类型的文件里用。 *)
 let type_file : (string, int) Hashtbl.t = Hashtbl.create 16
+
+(* 类型自己的方法（Lean `Traits.Inherent`）：方法名 → (头部, impl 的类型参数, 编译成的函数名, 位置)。
+   modules.ml 登记，类型检查按接收者的类型查找。 *)
+let inherent : (string, ty * (string * bool) list * string * pos) Hashtbl.t = Hashtbl.create 16
 
 (* 解析时发现的、语法规则表达不了的错误。 *)
 exception Syntax of pos * string

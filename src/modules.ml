@@ -1,7 +1,7 @@
 (* 模块：一个文件一个模块。use m 引入和当前文件同目录的 m.sn，之后用 m.f(…)、m.T 访问它的 pub 条目；
    use m { a, B } 另外把这几个名字直接引入。所有模块读进来之后合成一个程序交给类型检查：
    模块 m 里的函数、结构体、枚举、trait 加上前缀，名字变成 m.f、m.T（主文件不加前缀）。
-   trait 的方法名不加前缀（方法跟着 trait 走，和 impl 一样是全局的）。
+   trait 的方法名不加前缀（方法跟着 trait 走，和 impl 一样是全局的）；类型自己的方法（impl 类型 { … }）换成函数 头部.方法。
    改名只是名字的事，不改变任何检查规则，所以不需要新的 Lean 里程碑。
    consume 只能在定义这个 linear 类型的文件里用（见 typeck.ml 的 consume），linear 类型的封装由此成立。
    标准库：use std.m 引入编进编译器的 std/m.sn（见 stdlib_src.ml，由 std/*.sn 生成），之后照样写 m.f(…)。
@@ -231,11 +231,59 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
             fns = List.map (item ~top:false) i.fns;
           }
   in
-  List.map (fun (_, it) -> item ~top:true it) me.src.items
+  (* impl 类型 { … }：每个方法换成普通函数 头部.方法（例如 Vec<I64>.sum），类型参数和约束是 impl 的加上方法自己的。
+     第一个参数是接收者，类型就是头部；签名里的 Self 换成头部。登记到 Ast.inherent，类型检查按接收者的类型找到它 *)
+  let expand (i : item) =
+    match i with
+    | Impl { trait = ""; tparams; bounds; self; fns; ipos } ->
+        let self = ty ipos self in
+        let bounds = List.map (fun (t, tr) -> (t, qual ipos tr)) bounds in
+        let rec sub = function
+          | TStruct "Self" -> self
+          | TBox t -> TBox (sub t)
+          | TVec t -> TVec (sub t)
+          | TResult (a, b) -> TResult (sub a, sub b)
+          | TRef (t, r) -> TRef (sub t, r)
+          | TApp (n, ts) -> TApp (n, List.map sub ts)
+          | TFn (ps, r) -> TFn (List.map (fun (m, t) -> (m, sub t)) ps, sub r)
+          | TOFn (ps, r) -> TOFn (List.map (fun (m, t) -> (m, sub t)) ps, sub r)
+          | t -> t
+        in
+        List.filter_map
+          (function
+            | Fn f -> (
+                match item ~top:false (Fn f) with
+                | Fn f ->
+                    let params = List.map (fun (m, x, t) -> (m, x, sub t)) f.params in
+                    (match params with
+                    | (_, _, t) :: _ when t = self -> ()
+                    | _ ->
+                        err f.ipos "方法 %s 的第一个参数是接收者，类型要写成 %s（或 Self）" f.name (string_of_ty self));
+                    let name = string_of_ty self ^ "." ^ f.name in
+                    if List.exists (fun (_, _, g, _) -> g = name) (Hashtbl.find_all inherent f.name) then
+                      err f.ipos "%s 已经有方法 %s" (string_of_ty self) f.name;
+                    Hashtbl.add inherent f.name (self, tparams, name, f.ipos);
+                    Some
+                      (Fn
+                         {
+                           f with
+                           name;
+                           tparams = tparams @ f.tparams;
+                           bounds = bounds @ f.bounds;
+                           params;
+                           ret = sub f.ret;
+                         })
+                | _ -> None)
+            | _ -> None)
+          fns
+    | it -> [ item ~top:true it ]
+  in
+  List.concat_map (fun (_, it) -> expand it) me.src.items
 
 (* 从主文件出发读进所有用到的模块，改名后合成一个程序。 *)
 let load (main : string) : program =
   Hashtbl.reset type_file;
+  Hashtbl.reset inherent;
   let mods : (string, modinfo) Hashtbl.t = Hashtbl.create 8 in
   let paths : (string, string) Hashtbl.t = Hashtbl.create 8 in   (* 模块名 → 从哪里读的 *)
   let order = ref [] in
