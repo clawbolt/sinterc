@@ -91,6 +91,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 | `std.str` | `split`、`join`、`trim`、`find`、`contains`、`starts_with`、`replace`、`lines`、`to_upper`、`to_lower`、`repeat` |
 | `std.char` | `is_digit`、`is_alpha`、`is_whitespace`、`to_upper`、`to_digit` 等（只认 ASCII） |
 | `std.io` | `read_lines`、`write_lines`、`input_lines` |
+| `std.os` | `env`、`list_dir`（按名字排好）、`exists`、`is_dir`、`make_dir`、`remove`、`run`（启动子进程，不经过 shell，返回退出码）、`output`（收集标准输出）、`exit` |
 | `std.map` | 有序映射（按键排好的两个 Vec，二分查找） |
 | `std.treemap` | 有序映射（AVL 树，对数时间的插入和删除） |
 | `std.hashmap` | 哈希表（开放寻址；键实现 `Eq` 和 `hashmap.Hash`，I64 和 Str 已实现） |
@@ -113,7 +114,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 - `std.char` 和大小写转换只认 ASCII；`sort` 不稳定（相等的元素先后可能变）。
 - `Box`、`Vec` 里的类型参数在实例之间算不变，比 Rust 严：有些 Rust 能写的程序这里会被拒绝。
 - 生成的 C 需要 GCC 或 Clang（用到了 GNU C 扩展）。还没有编辑器插件和语言服务器。
-- 还没有：trait 对象（动态派发）、大整数除以大整数、正则、线程和网络、目录遍历和启动子进程、包管理。
+- 还没有：trait 对象（动态派发）、大整数除以大整数、正则、线程和网络、包管理。
   `read_file` 不检查 UTF-8（不合法的字节按字符遍历时是 U+FFFD）；要检查就用 `read_bytes` 加 `str_from_utf8`。
   `Bytes` 还不能写 `b[i]`，也不能 `for x in b`（用 `b.get(i)` 和 `0..b.len()`）。
 

@@ -245,6 +245,7 @@ let table =
      "only standard library modules are written std.m; for your own module write use {1}");
     ("标准库里没有模块 %s（有：%s）", "the standard library has no module {1} (available: {2})");
     ("panic 需要 1 个参数（说明文字）", "panic takes 1 argument (the message)");
+    ("os_exit 需要 1 个参数（退出码）", "os_exit takes 1 argument (the exit code)");
     ("for %s in inout %s 的循环体里不能用 %s（%s 整个借给了循环，不能 push、pop、读或再借）",
      "the body of for {1} in inout {2} cannot use {3} ({4} is lent to the loop: no push, pop, read or reborrow)");
     ("%s 不可修改，不能给它的元素赋值（需要 var 变量或 inout / sink 参数）",
@@ -392,6 +393,7 @@ let runtime text =
           ("\"整数溢出\"", "\"integer overflow\""); ("\"除以零\"", "\"division by zero\"");
           ("\"F64 转换成 I64 时超出范围（或是 NaN）\"", "\"F64 to I64 conversion out of range (or NaN)\"");
           ("\"内存不足\"", "\"out of memory\""); ("\"下标越界\"", "\"index out of bounds\"");
+          ("\"%s：退出码 %lld\"", "\"%s: exit code %lld\"");
           ("\"字节不在 0 到 255 之间\"", "\"byte not between 0 and 255\"");
           ("\"print_byte 的参数不在 0 到 255 之间\"", "\"the argument of print_byte is not between 0 and 255\"");
           ("个 Box 没有释放", "Box value(s) not freed");

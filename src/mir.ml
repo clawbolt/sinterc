@@ -277,6 +277,13 @@ let rec expr st env (x : expr) : operand option =
       terminate st Halt;
       st.cur <- new_block st;
       dummy
+  | Call ("os_exit", [ a ]) ->
+      (* os_exit（C58）：和 panic 一样 *)
+      let o = arg st env MSink a in
+      emit st (Eval (Call ("os_exit", [ o ])));
+      terminate st Halt;
+      st.cur <- new_block st;
+      dummy
   | Call ("box", [ a ]) ->
       let oa = Option.get (expr_v st env a) in
       let ty = match ty_of a with Some t -> t | None -> TI64 in

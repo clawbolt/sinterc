@@ -8,6 +8,12 @@ let prelude = {|#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <dirent.h>
+#include <spawn.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+extern char **environ;
 
 /* () 的值（C37）：只有一个值，存成一个字节的 0。 */
 typedef char sn_unit;
@@ -173,6 +179,23 @@ static bool sn_utf8_valid(const unsigned char *p, int64_t n) {
     i += k;
   }
   return true;
+}
+/* std.os（C58）：结束进程（和 panic 一样先刷新输出、不析构）；路径是否存在、是不是目录；
+   字符串按字节比较（给 os_list_dir 排序用）；子进程的参数表（argv[0] 是程序名，不经过 shell）和退出码。 */
+static void u_os_exit(int64_t c) { fflush(stdout); exit((int)(c & 255)); }
+static bool u_os_exists(const sn_str *p) { struct stat s; return stat(p->p, &s) == 0; }
+static bool u_os_is_dir(const sn_str *p) { struct stat s; return stat(p->p, &s) == 0 && S_ISDIR(s.st_mode); }
+static int sn_str_cmp(const void *a, const void *b) {
+  const sn_str *x = a, *y = b; int64_t n = x->len < y->len ? x->len : y->len;
+  int c = memcmp(x->p, y->p, (size_t)n);
+  return c ? c : (x->len > y->len) - (x->len < y->len);
+}
+static int64_t sn_wait_code(pid_t pid) {
+  int st;
+  while (waitpid(pid, &st, 0) < 0) if (errno != EINTR) return -1;
+  if (WIFEXITED(st)) return WEXITSTATUS(st);
+  if (WIFSIGNALED(st)) return 128 + WTERMSIG(st);
+  return -1;
 }
 /* 区域：一串内存块，分配时往当前块后面追加，离开 arena 块时整块释放。内存块也计入泄漏检查。 */
 typedef struct sn_chunk { struct sn_chunk *next; size_t used, cap; _Alignas(16) char data[]; } sn_chunk;
@@ -371,6 +394,10 @@ let type_defs (p : program) (fs : Mir.func list) =
   (* read_bytes 的返回类型（C57） *)
   let rbytes = TResult (TBytes, TStr) in
   visit rbytes;
+  (* std.os 的返回类型（C58） *)
+  let rvstr = TResult (TVec TStr, TStr) and ri64 = TResult (TI64, TStr) in
+  visit rvstr;
+  visit ri64;
   while not (Queue.is_empty later) do
     visit (Queue.pop later)
   done;
@@ -521,6 +548,82 @@ let type_defs (p : program) (fs : Mir.func list) =
        \  return (%s){ .tag = 0, .u.v0 = u_str_clone(b) };\n\
         }\n"
        rb rs rb ru os os os);
+  (* std.os（C58）。出错说明和文件读写一样是“路径：系统的说明”；os_output 的退出码不是 0 时是“程序：退出码 n” *)
+  let rv = cty rvstr and ri = cty ri64 in
+  Buffer.add_string helpers
+    (Printf.sprintf
+       "static %s u_os_env(const sn_str *n) {\n\
+       \  const char *v = getenv(n->p);\n\
+       \  if (!v) return (%s){ .tag = 1 };\n\
+       \  return (%s){ .tag = 0, .u.v0 = u_str_lit(v) };\n\
+        }\n\
+        static %s u_os_make_dir(const sn_str *p) {\n\
+       \  if (mkdir(p->p, 0777) != 0) return (%s){ .tag = 1, .u.v1 = sn_io_err(p->p) };\n\
+       \  return (%s){ .tag = 0 };\n\
+        }\n\
+        static %s u_os_remove(const sn_str *p) {\n\
+       \  if (remove(p->p) != 0) return (%s){ .tag = 1, .u.v1 = sn_io_err(p->p) };\n\
+       \  return (%s){ .tag = 0 };\n\
+        }\n\
+        static %s u_os_list_dir(const sn_str *p) {\n\
+       \  DIR *d = opendir(p->p);\n\
+       \  if (!d) return (%s){ .tag = 1, .u.v1 = sn_io_err(p->p) };\n\
+       \  %s v = { 0, 0, 0 }; struct dirent *e;\n\
+       \  while ((e = readdir(d)) != 0) {\n\
+       \    if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue;\n\
+       \    if (v.len == v.cap) { int64_t c = v.cap ? v.cap * 2 : 8; v.data = sn_realloc(v.data, (size_t)c * sizeof(sn_str)); v.cap = c; }\n\
+       \    v.data[v.len++] = u_str_lit(e->d_name);\n\
+       \  }\n\
+       \  closedir(d);\n\
+       \  if (v.len > 1) qsort(v.data, (size_t)v.len, sizeof(sn_str), sn_str_cmp);\n\
+       \  return (%s){ .tag = 0, .u.v0 = v };\n\
+        }\n\
+        static char **sn_argvec(const sn_str *prog, const %s *args) {\n\
+       \  char **a = malloc((size_t)(args->len + 2) * sizeof(char *));\n\
+       \  if (!a) sn_panic(\"内存不足\");\n\
+       \  a[0] = prog->p;\n\
+       \  for (int64_t i = 0; i < args->len; i++) a[i + 1] = args->data[i].p;\n\
+       \  a[args->len + 1] = 0;\n\
+       \  return a;\n\
+        }\n\
+        static %s u_os_run(const sn_str *prog, const %s *args) {\n\
+       \  fflush(stdout);\n\
+       \  char **a = sn_argvec(prog, args); pid_t pid;\n\
+       \  int r = posix_spawnp(&pid, prog->p, 0, 0, a, environ);\n\
+       \  free(a);\n\
+       \  if (r != 0) { errno = r; return (%s){ .tag = 1, .u.v1 = sn_io_err(prog->p) }; }\n\
+       \  return (%s){ .tag = 0, .u.v0 = sn_wait_code(pid) };\n\
+        }\n\
+        static %s u_os_output(const sn_str *prog, const %s *args) {\n\
+       \  fflush(stdout);\n\
+       \  int fd[2];\n\
+       \  if (pipe(fd) != 0) return (%s){ .tag = 1, .u.v1 = sn_io_err(prog->p) };\n\
+       \  posix_spawn_file_actions_t fa; posix_spawn_file_actions_init(&fa);\n\
+       \  posix_spawn_file_actions_adddup2(&fa, fd[1], 1);\n\
+       \  posix_spawn_file_actions_addclose(&fa, fd[0]);\n\
+       \  posix_spawn_file_actions_addclose(&fa, fd[1]);\n\
+       \  char **a = sn_argvec(prog, args); pid_t pid;\n\
+       \  int r = posix_spawnp(&pid, prog->p, &fa, 0, a, environ);\n\
+       \  free(a); posix_spawn_file_actions_destroy(&fa); close(fd[1]);\n\
+       \  if (r != 0) { close(fd[0]); errno = r; return (%s){ .tag = 1, .u.v1 = sn_io_err(prog->p) }; }\n\
+       \  int64_t cap = 256; sn_str s; s.p = sn_alloc((size_t)cap); s.len = 0; ssize_t k;\n\
+       \  while ((k = read(fd[0], s.p + s.len, (size_t)(cap - 1 - s.len))) != 0) {\n\
+       \    if (k < 0) { if (errno == EINTR) continue; break; }\n\
+       \    s.len += (int64_t)k;\n\
+       \    if (s.len + 1 >= cap) { cap *= 2; s.p = sn_realloc(s.p, (size_t)cap); }\n\
+       \  }\n\
+       \  close(fd[0]);\n\
+       \  s.p[s.len] = 0;\n\
+       \  int64_t c = sn_wait_code(pid);\n\
+       \  if (c != 0) {\n\
+       \    sn_free(s.p);\n\
+       \    char b[512]; int n = snprintf(b, sizeof b, \"%%s：退出码 %%lld\", prog->p, (long long)c);\n\
+       \    if (n < 0) n = 0; if (n >= (int)sizeof b) n = (int)sizeof b - 1;\n\
+       \    return (%s){ .tag = 1, .u.v1 = sn_str_make(b, n) };\n\
+       \  }\n\
+       \  return (%s){ .tag = 0, .u.v0 = s };\n\
+        }\n"
+       os os os ru ru ru ru ru ru rv rv vs rv vs ri vs ri ri rs vs rs rs rs rs);
   Buffer.contents fwd ^ Buffer.contents defs ^ Buffer.contents protos ^ Buffer.contents bodies
   ^ Buffer.contents helpers
 

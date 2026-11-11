@@ -108,6 +108,7 @@ Import a module with `use std.name` and call it as `name.function(…)`. The sou
 | `std.str` | `split`, `join`, `trim`, `find`, `contains`, `starts_with`, `replace`, `lines`, `to_upper`, `to_lower`, `repeat` |
 | `std.char` | `is_digit`, `is_alpha`, `is_whitespace`, `to_upper`, `to_digit`, … (ASCII only) |
 | `std.io` | `read_lines`, `write_lines`, `input_lines` |
+| `std.os` | `env`, `list_dir` (sorted by name), `exists`, `is_dir`, `make_dir`, `remove`, `run` (starts a process without a shell and returns its exit code), `output` (also collects its standard output), `exit` |
 | `std.map` | ordered map (two sorted Vecs, binary search) |
 | `std.treemap` | ordered map (AVL tree, logarithmic insert and remove) |
 | `std.hashmap` | hash map (open addressing; keys implement `Eq` and `hashmap.Hash`; I64 and Str already do) |
@@ -133,7 +134,7 @@ programs that run and programs that must be rejected.
 - Type arguments of `Box` and `Vec` are invariant, which is stricter than Rust: some programs Rust accepts are rejected here.
 - The generated C needs GCC or Clang (it uses GNU C extensions). There is no editor plugin or language server yet.
 - Not there yet: trait objects (dynamic dispatch), dividing a big integer by a big integer, regular expressions, threads and networking,
-  directory listing and starting processes, a package manager. `read_file` does not check UTF-8 (invalid bytes
+  a package manager. `read_file` does not check UTF-8 (invalid bytes
   come out as U+FFFD when iterating characters); use `read_bytes` with `str_from_utf8` to check. `Bytes` has no
   `b[i]` and no `for x in b` yet (use `b.get(i)` and `0..b.len()`).
 

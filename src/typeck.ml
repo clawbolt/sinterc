@@ -198,6 +198,18 @@ let builtins =
     "read_bytes", ([ (MLet, TStr) ], TResult (TBytes, TStr));
     "write_bytes", ([ (MLet, TStr); (MLet, TBytes) ], TResult (TUnit, TStr));
     "print_bytes", ([ (MLet, TBytes) ], TUnit);
+    (* C58：std.os 用的内建函数（名字带 os_，不占用户的名字）。和 C36 一样只读外部的状态、返回新的值（Lean S3 的形状）：
+       环境变量；目录里的名字（不含 . 和 ..，按字节从小到大排好）；路径是否存在、是不是目录；建目录、删文件或空目录；
+       os_run 启动子进程（不经过 shell，参数原样传过去，标准输入输出和父进程共用），返回退出码（被信号结束时是 128 + 信号）；
+       os_output 另外收集子进程的标准输出，退出码不是 0 时是 Err。os_exit 见 expr（和 panic 一样不返回） *)
+    "os_env", ([ (MLet, TStr) ], TApp ("Option", [ TStr ]));
+    "os_list_dir", ([ (MLet, TStr) ], TResult (TVec TStr, TStr));
+    "os_exists", ([ (MLet, TStr) ], TBool);
+    "os_is_dir", ([ (MLet, TStr) ], TBool);
+    "os_make_dir", ([ (MLet, TStr) ], TResult (TUnit, TStr));
+    "os_remove", ([ (MLet, TStr) ], TResult (TUnit, TStr));
+    "os_run", ([ (MLet, TStr); (MLet, TVec TStr) ], TResult (TI64, TStr));
+    "os_output", ([ (MLet, TStr); (MLet, TVec TStr) ], TResult (TStr, TStr));
   ]
 
 (* 字符串的方法调用：s.len() 就是 str_len(s)。 *)
@@ -208,7 +220,7 @@ let str_methods =
 let bytes_methods = [ "len"; "get"; "set"; "push"; "append"; "slice"; "clone"; "eq" ]
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
-let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "vec_swap"; "panic" ]
+let special = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "vec_swap"; "panic"; "os_exit" ]
 
 (* Vec 的内建函数的参数约定（给降级用；类型由类型检查单独处理）。vec_get 是位置，不是调用。 *)
 let vec_sigs =
@@ -1102,6 +1114,11 @@ and expr1 env (x : expr) : t =
       expect a.pos TStr (expr env a);
       Never
   | Call ("panic", _) -> err pos "panic 需要 1 个参数（说明文字）"
+  | Call ("os_exit", [ a ]) ->
+      (* os_exit(code)（C58）：和 panic 一样结束进程、不析构任何值（Lean M19），退出码是 code 的低 8 位 *)
+      expect a.pos TI64 (expr env a);
+      Never
+  | Call ("os_exit", _) -> err pos "os_exit 需要 1 个参数（退出码）"
   | Call ("box", [ a ]) -> (
       match expr env a with
       | Ty t when is_linear t -> err pos "Box 里不能放 linear 值（还不能从 Box 里移出）"

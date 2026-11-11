@@ -14,6 +14,8 @@
 
 **标准库**
 - `std.bigint`：任意大小的整数，加、减、乘、比较、除以小数、十进制转换，实现 `Eq`、`Ord`（C54，Lean S10）。
+- `std.os`：`env`、`list_dir`、`exists`、`is_dir`、`make_dir`、`remove`，启动子进程 `run`（返回退出码）和 `output`
+  （收集标准输出），不经过 shell；`exit(code)`（C58）。
 
 ## 0.2.0-pre（2026-11）
 
