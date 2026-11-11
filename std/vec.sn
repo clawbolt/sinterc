@@ -21,7 +21,7 @@ pub fn max(v: Vec<I64>) -> Option<I64> {
 
 pub fn contains<T: math.Eq>(v: Vec<T>, x: T) -> Bool {
     for y in v {
-        if eq(y, x) { return true }
+        if y.eq(x) { return true }
     }
     false
 }
@@ -30,7 +30,7 @@ pub fn contains<T: math.Eq>(v: Vec<T>, x: T) -> Bool {
 pub fn index_of<T: math.Eq>(v: Vec<T>, x: T) -> Option<I64> {
     var i = 0
     for y in v {
-        if eq(y, x) { return .Some(i) }
+        if y.eq(x) { return .Some(i) }
         i = i + 1
     }
     .None
@@ -152,7 +152,7 @@ pub fn sort_by<T>(inout v: Vec<T>, less: fn(T, T) -> Bool) {
 
 // 按 std.math 的 Ord 从小到大排序。
 pub fn sort<T: math.Ord>(inout v: Vec<T>) {
-    sort_by(v, |a, b| cmp(a, b) == -1)
+    sort_by(v, |a, b| a.cmp(b) == -1)
 }
 
 // 常用函数。
@@ -191,10 +191,10 @@ pub fn binary_search<T: math.Ord>(v: Vec<T>, x: T) -> Option<I64> {
     var hi = vec_len(v)
     while lo < hi {
         let mid = lo + (hi - lo) / 2
-        if cmp(vec_get(v, mid), x) == -1 { lo = mid + 1 } else { hi = mid }
+        if vec_get(v, mid).cmp(x) == -1 { lo = mid + 1 } else { hi = mid }
     }
     if lo < vec_len(v) {
-        if cmp(vec_get(v, lo), x) == 0 { return .Some(lo) }
+        if vec_get(v, lo).cmp(x) == 0 { return .Some(lo) }
     }
     .None
 }
@@ -205,7 +205,7 @@ pub fn dedup<T: math.Eq>(inout v: Vec<T>) {
     if n < 2 { return }
     var w = 1
     for r in 1..n {
-        if !eq(vec_get(v, r), vec_get(v, w - 1)) {
+        if !vec_get(v, r).eq(vec_get(v, w - 1)) {
             vec_swap(v, w, r)
             w = w + 1
         }

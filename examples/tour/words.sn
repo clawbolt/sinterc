@@ -51,7 +51,7 @@ fn main() {
     var pairs: Vec<(Str, I64)> = vec_new()
     hashmap.for_each(counts, |k, v| pairs.push((str_clone(k), v)))
     // 次数多的在前；次数相同按词的字典序
-    vec.sort_by(pairs, |p, q| p.1 > q.1 || (p.1 == q.1 && cmp(p.0, q.0) == -1))
+    vec.sort_by(pairs, |p, q| p.1 > q.1 || (p.1 == q.1 && (p.0).cmp(q.0) == -1))
     print("共 {total} 个词，{hashmap.len(counts)} 个不同的词")
     var i = 0
     for p in pairs {

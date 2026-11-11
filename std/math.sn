@@ -1,11 +1,11 @@
 // std.math：整数的常用函数，以及比较用的两个 trait。
-// Eq 和 Ord 的方法名 eq、cmp 和其他 trait 的方法一样是全局的（不加模块前缀）。
+// trait 的方法只能用方法调用的写法：a.eq(b)、a.cmp(b)，用户自己的 fn cmp 不会和它冲突。
 
 pub trait Eq {
     fn eq(a: Self, b: Self) -> Bool
 }
 
-// cmp(a, b)：a < b 时是 -1，相等时是 0，a > b 时是 1。
+// a.cmp(b)：a < b 时是 -1，相等时是 0，a > b 时是 1。
 // 自己写 impl Ord 时要满足这几条定律（编译器不检查；min_of、max_of 的正确性只依赖它们，见 lean/Core/Library/Math.lean）：
 //   只取 -1、0、1；cmp(b, a) == -cmp(a, b)；cmp(a, b) == 0 恰好是 a、b 相等（和 Eq 一致）；
 //   cmp(a, b) == -1 且 cmp(b, c) == -1 时 cmp(a, c) == -1。I64 和 Str 的实现已经证明满足。
@@ -73,11 +73,11 @@ pub fn pow(b: I64, e: I64) -> I64 {
 
 // 两个值里较小的（相等时取第一个），另一个被析构。
 pub fn min_of<T: Ord>(sink a: T, sink b: T) -> T {
-    if cmp(a, b) <= 0 { a } else { b }
+    if a.cmp(b) <= 0 { a } else { b }
 }
 
 pub fn max_of<T: Ord>(sink a: T, sink b: T) -> T {
-    if cmp(a, b) >= 0 { a } else { b }
+    if a.cmp(b) >= 0 { a } else { b }
 }
 
 // F64。按 IEEE 754：溢出得到 inf，0.0 / 0.0 得到 NaN；NaN 和任何数比较（包括自己）都不相等。

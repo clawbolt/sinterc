@@ -137,9 +137,13 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 - trait（Lean `Traits.Static`）：`trait Eq { fn eq(a: Self, b: Self) -> Bool }` 只写方法签名，参数约定照常写；
   `impl Eq for I64 { fn eq(a: I64, b: I64) -> Bool { … } }`（方法里也可以写 `Self`），`impl` 的方法要和 trait 一一对应，
   参数约定、参数类型和返回类型相同（`Self` 换成实现的类型）；同一个类型对同一个 trait 只能有一个 `impl`。
-  方法可以写成 `eq(x, y)` 或 `x.eq(y)`，接收者就是第一个实参；`Self` 从实参类型推出来，方法名全局唯一（暂不支持重载）。
+  方法用方法调用的写法 `x.eq(y)`，接收者就是第一个实参；按接收者的类型在约束和 `impl` 里找（Lean `Traits.Inherent`），
+  方法名不占用全局的名字：自己的函数可以叫 `cmp`，两个 trait 也可以有同名的方法（接收者两个都满足时报错）。
   约束写 `fn f<T: Eq + Show + linear>(…)`：泛型代码里只能调用约束里写了的 trait 的方法；调用处每个约束都要有 `impl`
   （类型实参本身是类型参数时，要在当前函数里写了同样的约束）。单态化时方法调用直接换成那个 `impl` 里的函数，没有虚表。
+- 类型自己的方法（Lean `Traits.Inherent`）：`impl Point { fn norm(p: Point) -> I64 { … } }`，也可以给内建类型和具体实例写
+  （`impl Vec<I64> { fn sum… }`、`impl<T> Vec<T> { … }`、`impl &str in a { … }`）。第一个参数是接收者，签名里可以写 `Self`；
+  `x.m()` 先找类型自己的方法，再找 trait 的方法，在定义处查一次；同名方法的头部不能重叠。
 - 默认方法和泛型 impl（Lean `Traits.ImplSearch`）：trait 里写了函数体的方法是默认方法，impl 可以不写；泛型 impl `impl<T: ToStr> ToStr for Vec<T> { … }`，
   查找时递归地查约束。头部不能是单独的类型参数，impl 的类型参数要出现在头部里，同一个 trait 的两个 impl 不能重叠。
 - 内建的 trait `ToStr`（`fn to_str(x: Self) -> Str`）：I64、F64、Char、Bool、Str 已经实现，字符串插值用它；

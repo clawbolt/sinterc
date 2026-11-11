@@ -148,8 +148,10 @@ let table =
     ("未知 trait %s", "unknown trait {1}");
     ("泛型函数的签名里暂不能直接写区域或引用（类型实参可以是引用）",
      "a generic function's signature cannot mention regions or references directly yet (type arguments can be references)");
-    ("方法名 %s 和已有的函数或方法同名（暂不支持重载）",
-     "method name {1} clashes with an existing function or method (overloading is not supported yet)");
+    ("trait 的方法 %s 至少要有一个参数（接收者）", "the trait method {1} needs at least one parameter (the receiver)");
+    ("%s 的方法 %s 不确定：trait %s 和 %s 都有这个方法，%s 两个都满足",
+     "the method {2} of {1} is ambiguous: traits {3} and {4} both have it, and {5} satisfies both");
+    ("%s 是 trait %s 的方法，要写成方法调用 x.%s(…)", "{1} is a method of trait {2}; call it as a method: x.{3}(…)");
     ("trait 的方法暂不支持区域参数和引用", "trait methods cannot take regions or references yet");
     ("暂不支持为含引用的类型 %s 实现 trait", "implementing a trait for {1}, which contains references, is not supported yet");
     ("不能为 Arena 实现 trait", "cannot implement a trait for Arena");

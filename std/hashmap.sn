@@ -58,13 +58,13 @@ pub fn len<K, V>(m: HashMap<K, V>) -> I64 { vec_len(m.keys) }
 
 // 从 hash(k) % cap 往后第一个空位或 k 所在的槽位（`Library.HashMap` 的 slot）。
 fn find_slot<K: math.Eq + Hash, V>(m: HashMap<K, V>, k: K) -> I64 {
-    var p = hash(k) % m.cap
+    var p = k.hash() % m.cap
     var go = true
     while go {
         let e = vec_get(m.slots, p)
         if e == -1 {
             go = false
-        } else if eq(vec_get(m.keys, e), k) {
+        } else if vec_get(m.keys, e).eq(k) {
             go = false
         } else {
             p = p + 1
@@ -93,7 +93,7 @@ fn grow<K: math.Eq + Hash, V>(inout m: HashMap<K, V>) {
     m.cap = m.cap * 2
     m.slots = empty_slots(2 * m.cap)
     for i in 0..vec_len(m.keys) {
-        var p = hash(vec_get(m.keys, i)) % m.cap
+        var p = vec_get(m.keys, i).hash() % m.cap
         while vec_get(m.slots, p) != -1 {
             p = p + 1
         }
@@ -132,7 +132,7 @@ pub fn remove<K: math.Eq + Hash, V>(inout m: HashMap<K, V>, k: K) -> Option<V> {
         if f == -1 {
             go = false
         } else {
-            if hash(vec_get(m.keys, f)) % m.cap <= hole {
+            if vec_get(m.keys, f).hash() % m.cap <= hole {
                 set_slot(m.slots, hole, f)
                 set_slot(m.slots, j, -1)
                 hole = j

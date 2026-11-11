@@ -295,10 +295,24 @@ and method_name env (x : expr) f (r : expr) =
     | None, Ty TBool, "to_str" -> "str_from_bool"
     | None, Ty TStr, "to_str" -> "str_clone"
     | None, Ty (TOFn _ as t), "call" -> fcall_name env.fns t   (* f.call(x)：字段、Vec 元素里的闭包也能这样调用 *)
-    | None, _, _ -> m
+    | None, Ty t, _ -> trait_method env x t base m
+    | None, Never, _ -> m
   in
   Hashtbl.replace method_res x.id g;
   g
+
+(* 落到 trait 的方法（Lean `Traits.Inherent` 的 resolve_tra）：声明了方法 base、接收者类型 t 满足的 trait 恰好一个。
+   一个都不满足时：有同名的函数就用它（旧的写法 r.f(…) 就是 f(r, …)），只有一个 trait 有这个方法就用它（调用处报缺 impl），
+   否则当作函数 m（报未定义）。 *)
+and trait_method env (x : expr) t base m =
+  let cands = List.rev (Hashtbl.find_all tmethods base) in
+  match List.filter (fun (tr, _) -> has_impl env.tbounds tr t) cands with
+  | [ (_, k) ] -> k
+  | (a, _) :: (b, _) :: _ ->
+      err x.pos "%s 的方法 %s 不确定：trait %s 和 %s 都有这个方法，%s 两个都满足" (string_of_ty t) base a b (string_of_ty t)
+  | [] -> (
+      if Hashtbl.mem env.fns m || List.mem_assoc m builtins then m
+      else match cands with [ (_, k) ] -> k | _ -> m)
 
 and call env want (x : expr) f args : t =
   match List.assoc_opt f env.vars with
@@ -478,10 +492,13 @@ and call_named env want (x : expr) f args : t =
         | Some (ps, r) ->
             (* 内建函数签名里的 Option<…> 在这里换成实例 *)
             (List.map (fun (m, t) -> (m, resolve [] pos t)) ps, resolve [] pos r)
-        | None -> err pos "未定义的函数 %s" f)
+        | None -> (
+            match Hashtbl.find_all tmethods f with
+            | (tr, _) :: _ -> err pos "%s 是 trait %s 的方法，要写成方法调用 x.%s(…)" f tr f
+            | [] -> err pos "未定义的函数 %s" f))
   in
   if List.length ps <> List.length args then
-    err pos "%s 需要 %d 个参数，实际给了 %d 个" f (List.length ps) (List.length args);
+    err pos "%s 需要 %d 个参数，实际给了 %d 个" (bare f) (List.length ps) (List.length args);
   let has_fn = List.exists (fun (_, p) -> is_fn p) ps in
   (* 泛型函数：从期望的返回类型和实参类型推出类型实参，检查约束（普通的 T 不能是 linear 类型），
      然后按具体类型检查实参；类型实参都是具体类型时登记这个实例（Lean `Generics.Check` 的 Respects） *)
@@ -553,8 +570,8 @@ and call_named env want (x : expr) f args : t =
                   (* 插值 "{p}"、p.to_str() 落到这里：p 的类型不是内建的那几种，也没有写 to_str *)
                   err pos "%s 没有实现 ToStr，不能在字符串里插值或调用 to_str（先写 fn to_str(x: %s) -> Str）"
                     (string_of_ty t) (string_of_ty t)
-              | true, TParam (m, _) -> err pos "%s 没有写约束 %s，不能调用 %s（要写 %s: %s）" m tr f m tr
-              | true, _ -> err pos "%s 没有实现 %s，不能调用 %s" (string_of_ty t) tr f
+              | true, TParam (m, _) -> err pos "%s 没有写约束 %s，不能调用 %s（要写 %s: %s）" m tr (bare f) m tr
+              | true, _ -> err pos "%s 没有实现 %s，不能调用 %s" (string_of_ty t) tr (bare f)
               | false, TParam (m, _) -> err pos "%s 要求 %s: %s，但 %s 没有写约束 %s" f n tr m tr
               | false, _ -> err pos "%s 没有实现 %s（%s 要求 %s: %s）" (string_of_ty t) tr f n tr)
           (Option.value (Hashtbl.find_opt gbounds f) ~default:[]);

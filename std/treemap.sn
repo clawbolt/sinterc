@@ -106,7 +106,7 @@ fn ins<K: math.Ord, V>(sink t: Tree<K, V>, sink k: K, sink v: V, inout old: Opti
     match t {
         .Br(n) => {
             let Node { left, key, val, h, right } = n
-            let c = cmp(k, key)
+            let c = k.cmp(key)
             if c == -1 {
                 bal(ins(unbox(left), k, v, old), key, val, unbox(right))
             } else if c == 0 {
@@ -153,7 +153,7 @@ fn del<K: math.Ord, V>(sink t: Tree<K, V>, k: K, inout old: Option<V>) -> Tree<K
     match t {
         .Br(n) => {
             let Node { left, key, val, h, right } = n
-            let c = cmp(k, key)
+            let c = k.cmp(key)
             if c == -1 {
                 bal(del(unbox(left), k, old), key, val, unbox(right))
             } else if c == 0 {
@@ -198,7 +198,7 @@ pub fn remove<K: math.Ord, V>(inout m: TreeMap<K, V>, k: K) -> Option<V> {
 fn has<K: math.Ord, V>(t: Tree<K, V>, k: K) -> Bool {
     match t {
         .Br(n) => {
-            let c = cmp(k, n.key)
+            let c = k.cmp(n.key)
             if c == -1 { has(*n.left, k) } else if c == 0 { true } else { has(*n.right, k) }
         },
         .Leaf => false
@@ -215,7 +215,7 @@ pub fn contains<K: math.Ord, V>(m: TreeMap<K, V>, k: K) -> Bool {
 fn find<K: math.Ord, V, R>(t: Tree<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
     match t {
         .Br(n) => {
-            let c = cmp(k, n.key)
+            let c = k.cmp(n.key)
             if c == -1 { find(*n.left, k, f) } else if c == 0 { .Some(f(n.val)) } else { find(*n.right, k, f) }
         },
         .Leaf => .None

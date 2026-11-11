@@ -22,7 +22,7 @@ fn lower<K: math.Ord, V>(m: Map<K, V>, k: K) -> I64 {
     var hi = vec_len(m.keys)
     while lo < hi {
         let mid = lo + (hi - lo) / 2
-        if cmp(vec_get(m.keys, mid), k) == -1 { lo = mid + 1 } else { hi = mid }
+        if vec_get(m.keys, mid).cmp(k) == -1 { lo = mid + 1 } else { hi = mid }
     }
     lo
 }
@@ -31,7 +31,7 @@ fn lower<K: math.Ord, V>(m: Map<K, V>, k: K) -> I64 {
 pub fn index_of<K: math.Ord, V>(m: Map<K, V>, k: K) -> Option<I64> {
     let i = lower(m, k)
     if i < vec_len(m.keys) {
-        if cmp(vec_get(m.keys, i), k) == 0 { return .Some(i) }
+        if vec_get(m.keys, i).cmp(k) == 0 { return .Some(i) }
     }
     .None
 }
@@ -48,7 +48,7 @@ pub fn insert<K: math.Ord, V>(inout m: Map<K, V>, sink k: K, sink v: V) -> Optio
     let i = lower(m, k)
     let n = vec_len(m.keys)
     if i < n {
-        if cmp(vec_get(m.keys, i), k) == 0 {
+        if vec_get(m.keys, i).cmp(k) == 0 {
             // 新值放到末尾，和旧值交换，再把旧值 pop 出来
             m.vals.push(v)
             vec_swap(m.vals, i, n)

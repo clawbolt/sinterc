@@ -27,17 +27,20 @@ let prepare (p : program) =
   Hashtbl.reset requested;
   Hashtbl.reset traits;
   Hashtbl.reset methods;
+  Hashtbl.reset tmethods;
   Hashtbl.reset impls;
   Hashtbl.reset gbounds;
   Hashtbl.reset defaults;
   Hashtbl.reset minst;
   Hashtbl.reset aliases;
   (* 内建的 trait ToStr：fn to_str(x: Self) -> Str，字符串插值 "{x}" 用它；I64、F64、Char、Bool、Str 已经实现 *)
+  let k = trait_key "ToStr" "to_str" in
   Hashtbl.add traits "ToStr" [ "to_str" ];
-  Hashtbl.replace methods "to_str" "ToStr";
-  Hashtbl.replace fns "to_str" ([ (MLet, TParam ("Self", true)) ], TStr);
-  Hashtbl.replace gparams "to_str" [ ("Self", true) ];
-  Hashtbl.replace gbounds "to_str" [ ("Self", "ToStr") ];
+  Hashtbl.replace methods k "ToStr";
+  Hashtbl.add tmethods "to_str" ("ToStr", k);
+  Hashtbl.replace fns k ([ (MLet, TParam ("Self", true)) ], TStr);
+  Hashtbl.replace gparams k [ ("Self", true) ];
+  Hashtbl.replace gbounds k [ ("Self", "ToStr") ];
   List.iter
     (fun t -> Hashtbl.add impls "ToStr" { head = t; itps = []; ibounds = []; defined = [ "to_str" ] })
     [ TI64; TF64; TChar; TBool; TStr ];
@@ -104,7 +107,7 @@ let prepare (p : program) =
               if List.exists (fun (n : msig) -> n.mname = m.mname) (List.filteri (fun j _ -> j < i) ms) then
                 err m.mpos "trait %s 的方法 %s 重复" name m.mname)
             ms;
-          List.iter (fun (m : msig) -> if m.mbody <> None then Hashtbl.replace defaults m.mname ()) ms;
+          List.iter (fun (m : msig) -> if m.mbody <> None then Hashtbl.replace defaults (trait_key name m.mname) ()) ms;
           Hashtbl.add traits name (List.map (fun (m : msig) -> m.mname) ms)
       | Impl _ -> ())
     p;
@@ -192,22 +195,23 @@ let prepare (p : program) =
           end;
           Hashtbl.replace fns name (ps, ret)
       | Trait { name; methods = ms; _ } ->
-          (* Self 可以是任何类型（包括 linear 的），调用处的效果只由参数约定决定（Lean `Traits.Static`） *)
+          (* Self 可以是任何类型（包括 linear 的），调用处的效果只由参数约定决定（Lean `Traits.Static`）。
+             方法的函数名是 trait.方法，不和函数、别的 trait 的方法冲突 *)
           let sc = [ ("Self", TParam ("Self", true)) ] in
           List.iter
             (fun (m : msig) ->
-              if Hashtbl.mem fns m.mname || List.mem_assoc m.mname builtins || List.mem m.mname special
-                 || Hashtbl.mem methods m.mname
-              then err m.mpos "方法名 %s 和已有的函数或方法同名（暂不支持重载）" m.mname;
+              let k = trait_key name m.mname in
               let ps = List.map (fun (md, _, t) -> (md, resolve sc m.mpos t)) m.mparams in
+              if ps = [] then err m.mpos "trait 的方法 %s 至少要有一个参数（接收者）" m.mname;
               if List.exists (fun (_, t) -> is_fn t) ps then err m.mpos "trait 的方法暂不能有 fn(…) 参数";
               let ret = resolve sc m.mpos m.mret in
               if List.exists (fun (_, t) -> region_names t <> []) ps || region_names ret <> [] then
                 err m.mpos "trait 的方法暂不支持区域参数和引用";
-              Hashtbl.replace fns m.mname (ps, ret);
-              Hashtbl.replace gparams m.mname [ ("Self", true) ];
-              Hashtbl.replace gbounds m.mname [ ("Self", name) ];
-              Hashtbl.replace methods m.mname name)
+              Hashtbl.replace fns k (ps, ret);
+              Hashtbl.replace gparams k [ ("Self", true) ];
+              Hashtbl.replace gbounds k [ ("Self", name) ];
+              Hashtbl.replace methods k name;
+              Hashtbl.add tmethods m.mname (name, k))
             ms
       | Impl { trait = tr; tparams; bounds; self; fns = ms; ipos } ->
           if not (Hashtbl.mem traits tr) then err ipos "未知 trait %s" tr;
@@ -251,7 +255,7 @@ let prepare (p : program) =
                   if ftps <> [] then err ipos "impl 里的方法暂不能有类型参数";
                   if List.exists (fun (_, _, t) -> is_fn t) params then err ipos "impl 里的方法暂不能有 fn(…) 参数";
                   let sc = ("Self", st) :: tsc in
-                  let key = inst_name name [ st ] in
+                  let key = inst_name (trait_key tr name) [ st ] in
                   Hashtbl.replace fns key
                     (List.map (fun (md, _, t) -> (md, resolve sc ipos t)) params, resolve sc ipos ret);
                   (* 泛型 impl 的方法是泛型函数 方法<头部>，类型参数和约束是 impl 的 *)
@@ -307,13 +311,13 @@ let prepare (p : program) =
               if not (List.mem n names) then err at "trait %s 没有方法 %s" tr n)
             got;
           List.iter
-            (fun n -> if not (List.mem_assoc n got || Hashtbl.mem defaults n) then err ipos "%s 缺少方法 %s" what n)
+            (fun n -> if not (List.mem_assoc n got || Hashtbl.mem defaults (trait_key tr n)) then err ipos "%s 缺少方法 %s" what n)
             names;
           let s = [ ("Self", st) ] in
           List.iter
             (fun (n, at) ->
-              let tps, tret = Hashtbl.find fns n in
-              let ips, iret = Hashtbl.find fns (inst_name n [ st ]) in
+              let tps, tret = Hashtbl.find fns (trait_key tr n) in
+              let ips, iret = Hashtbl.find fns (inst_name (trait_key tr n) [ st ]) in
               if List.length tps <> List.length ips then
                 err at "%s 的方法 %s 有 %d 个参数，trait 里声明的是 %d 个" what n (List.length ips) (List.length tps);
               List.iteri
@@ -329,10 +333,10 @@ let prepare (p : program) =
               if subst s tret <> iret then
                 err at "%s 的方法 %s 返回 %s，应为 %s" what n (string_of_ty iret) (string_of_ty (subst s tret)))
             got
-      | Trait { methods = ms; _ } ->
+      | Trait { name; methods = ms; _ } ->
           List.iter
             (fun (m : msig) ->
-              let ps, ret = Hashtbl.find fns m.mname in
+              let ps, ret = Hashtbl.find fns (trait_key name m.mname) in
               List.iter (fun (_, t) -> check_ty env0 m.mpos t) ps;
               check_ty env0 m.mpos ret)
             ms
@@ -359,18 +363,18 @@ let resolve_item = function
       it
   | it -> it
 
-(* 整个程序的条目逐个解析：impl 换成它的方法（普通函数，名字是 方法<类型>，Self 换成实现的类型）；
+(* 整个程序的条目逐个解析：impl 换成它的方法（普通函数，名字是 trait.方法<类型>，Self 换成实现的类型）；
    泛型 impl 的方法是泛型函数，类型参数和约束是 impl 的。
-   trait 的签名已经登记过，不再留在程序里；默认方法是泛型函数 方法，类型参数 Self、约束 Self: trait。 *)
+   trait 的签名已经登记过，不再留在程序里；默认方法是泛型函数 trait.方法，类型参数 Self、约束 Self: trait。 *)
 let resolve_items = function
   | Fn _ as it -> [ resolve_item it ]
-  | Impl { tparams; bounds; self; fns; ipos; _ } ->
+  | Impl { trait = tr; tparams; bounds; self; fns; ipos } ->
       let tsc = List.map (fun (t, lin) -> (t, TParam (t, lin))) tparams in
       let st = resolve tsc ipos self in
       List.filter_map
         (function
           | Fn f ->
-              let name = inst_name f.name [ st ] in
+              let name = inst_name (trait_key tr f.name) [ st ] in
               let ps, ret = Hashtbl.find sigs name in
               let it =
                 Fn
@@ -396,7 +400,7 @@ let resolve_items = function
               resolve_item
                 (Fn
                    {
-                     name = m.mname;
+                     name = trait_key tr m.mname;
                      tparams = [ ("Self", true) ];
                      bounds = [ ("Self", tr) ];
                      params = m.mparams;

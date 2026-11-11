@@ -19,23 +19,34 @@ let gparams : (string, (string * bool) list) Hashtbl.t = Hashtbl.create 16
 let gfns : (string, item) Hashtbl.t = Hashtbl.create 16
 
 (* trait（Lean `Traits.Static`）：每个方法当作带一个类型参数 Self 的泛型函数，Self 换成实现的类型。
-   traits：trait → 方法名；methods：方法名 → trait；impls：trait → 它的每个 impl；
+   方法的函数名是 trait.方法（例如 Ord.cmp），不占用全局的名字：只能用方法调用 x.cmp(y) 调用，
+   按接收者的类型在约束和 impl 里找（Lean `Traits.Inherent` 的 resolve_tra）。
+   traits：trait → 方法名；methods：方法的函数名 → trait；tmethods：方法名 → (trait, 函数名)；impls：trait → 它的每个 impl；
    gbounds：泛型函数（和方法）的类型参数要满足的 trait 约束。
-   impl 里的方法是普通的具体函数，名字记作 方法<类型>（和泛型函数的实例同一种写法），单态化时直接调用它。
+   impl 里的方法是普通的具体函数，名字记作 trait.方法<类型>（和泛型函数的实例同一种写法），单态化时直接调用它。
    泛型 impl（Lean `Traits.ImplSearch`）：impl 可以是泛型的（头部 Vec<T>，约束 T: ToStr），它的方法是以 impl 的类型参数为类型参数的泛型函数，
-   名字是 方法<头部>；trait 的方法可以有默认的函数体（defaults），它是泛型函数 方法（类型参数 Self）。 *)
+   名字是 trait.方法<头部>；trait 的方法可以有默认的函数体（defaults），它是泛型函数 trait.方法（类型参数 Self）。 *)
 type impl_info = {
   head : ty;   (* 实现的类型，impl 的类型参数是 TParam *)
   itps : string list;   (* impl 的类型参数 *)
   ibounds : (string * string) list;
-  defined : string list;   (* impl 里写了的方法 *)
+  defined : string list;   (* impl 里写了的方法（方法名） *)
 }
 
 let traits : (string, string list) Hashtbl.t = Hashtbl.create 16
 let methods : (string, string) Hashtbl.t = Hashtbl.create 16
+let tmethods : (string, string * string) Hashtbl.t = Hashtbl.create 16
 let impls : (string, impl_info) Hashtbl.t = Hashtbl.create 16
 let gbounds : (string, (string * string) list) Hashtbl.t = Hashtbl.create 16
 let defaults : (string, unit) Hashtbl.t = Hashtbl.create 16
+
+(* trait tr 的方法 m 的函数名；报错时只显示方法名。 *)
+let trait_key tr m = tr ^ "." ^ m
+
+let bare f =
+  match Hashtbl.find_opt methods f with
+  | Some tr -> String.sub f (String.length tr + 1) (String.length f - String.length tr - 1)
+  | None -> f
 
 (* 泛型 impl 的方法的实例：实例名 方法<具体类型> → (泛型函数 方法<头部>, impl 的类型实参)。 *)
 let minst : (string, string * ty list) Hashtbl.t = Hashtbl.create 16
@@ -423,14 +434,14 @@ let method_inst f t =
   let name = inst_name f [ t ] in
   if not (Hashtbl.mem sigs name) then
     match f, t with
-    | "to_str", TI64 -> Hashtbl.replace aliases name "str_from_i64"
-    | "to_str", TF64 -> Hashtbl.replace aliases name "str_from_f64"
-    | "to_str", TChar -> Hashtbl.replace aliases name "str_from_char"
-    | "to_str", TBool -> Hashtbl.replace aliases name "str_from_bool"
-    | "to_str", TStr -> Hashtbl.replace aliases name "str_clone"
+    | "ToStr.to_str", TI64 -> Hashtbl.replace aliases name "str_from_i64"
+    | "ToStr.to_str", TF64 -> Hashtbl.replace aliases name "str_from_f64"
+    | "ToStr.to_str", TChar -> Hashtbl.replace aliases name "str_from_char"
+    | "ToStr.to_str", TBool -> Hashtbl.replace aliases name "str_from_bool"
+    | "ToStr.to_str", TStr -> Hashtbl.replace aliases name "str_clone"
     | _ -> (
         match find_impl (Hashtbl.find methods f) t with
-        | Some (i, s) when List.mem f i.defined ->
+        | Some (i, s) when List.mem (bare f) i.defined ->
             Hashtbl.replace minst name (inst_name f [ i.head ], List.map (fun n -> List.assoc n s) i.itps);
             Queue.add (f, [ t ]) pending
         | Some _ -> Queue.add (f, [ t ]) pending

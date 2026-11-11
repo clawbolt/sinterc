@@ -89,7 +89,7 @@ impl ToStr for P 的简写，可以给多种类型各写一个；模块里的 m.
   >     let n: Option<I64> = .None
   >     show(n)
   >     show(true)
-  >     print(to_str(7))
+  >     print((7).to_str())
   >     let b = bigint.from_i64(-12345)
   >     print("b = {b}")
   >     let sq = Square { side: 2 }

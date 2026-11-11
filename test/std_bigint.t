@@ -55,7 +55,7 @@ std.bigint（Lean `Library.BigInt`）。符号加上从低位到高位的各位�
   >     show(q)
   >     print_i64(r)
   >     let back = bigint.add(bigint.mul(q, bigint.from_i64(7)), bigint.from_i64(r))
-  >     print_bool(eq(back, f))
+  >     print_bool(back.eq(f))
   >     let (q2, r2) = bigint.divmod_small(bigint.from_i64(-7), 2)
   >     print("{bigint.to_str(q2)} {r2}")
   >     var v: Vec<bigint.BigInt> = vec_new()
@@ -77,11 +77,11 @@ std.bigint（Lean `Library.BigInt`）。符号加上从低位到高位的各位�
   >         if !str_eq(bigint.to_str(bigint.add(x, y)), str_from_i64(a + b)) { bad = bad + 1 }
   >         if !str_eq(bigint.to_str(bigint.sub(x, y)), str_from_i64(a - b)) { bad = bad + 1 }
   >         if !str_eq(bigint.to_str(bigint.mul(x, y)), str_from_i64(a * b)) { bad = bad + 1 }
-  >         if cmp(x, y) != cmp(a, b) { bad = bad + 1 }
+  >         if x.cmp(y) != a.cmp(b) { bad = bad + 1 }
   >         let (dq, dr) = bigint.divmod_small(x, 7)
   >         if !str_eq(bigint.to_str(dq), str_from_i64(a / 7)) || dr != a % 7 { bad = bad + 1 }
   >         let p = bigint.parse(str_from_i64(b))
-  >         if !eq(option.unwrap(p), y) { bad = bad + 1 }
+  >         if !option.unwrap(p).eq(y) { bad = bad + 1 }
   >     }
   >     print_i64(bad)
   > }
