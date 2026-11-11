@@ -93,7 +93,7 @@ The C compiler is taken from `$CC` (default: `cc`).
   is fine), and generic code needs the bound `T: ToStr`. Escapes are `\n`, `\r`, `\t`, `\\`, `\"`; character
   literals look like `'a'`, `'中'`, `'\n'`.
 - **I/O**: `print(s)`, `print_i64`, `print_f64`, `print_char` (all add a newline); `print_str(s)` does not, and
-  `print_byte(b)` writes one raw byte (0–255); `read_line()`, `args()`, `read_file`, `write_file`.
+  `print_byte(b)` writes one raw byte (0–255); `eprint(s)`, `eprint_str(s)` write to standard error; `read_line()`, `args()`, `read_file`, `write_file`.
 - **Byte strings `Bytes`**: arbitrary bytes (I64 values 0–255), owned like `Str`. `bytes_new()`, `b.len()`, `b.get(i)`,
   `b.set(i, x)`, `b.push(x)`, `b.append(c)`, `b.slice(a, b)`, `b.clone()`, `b.eq(c)`; `read_bytes` and `write_bytes`
   read and write binary files, `print_bytes(b)` writes them as they are; `s.to_bytes()` copies the bytes of a string,
@@ -121,7 +121,7 @@ The core algorithms of sorting, binary search, the three maps (including AVL bal
 
 ## Tools
 
-- `sinterc run FILE [ARGS…]`, `sinterc build FILE [-o EXE]`, `sinterc FILE [-o OUT.c]`.
+- `sinterc run FILE [ARGS…]`, `sinterc build FILE [-o EXE]`, `sinterc FILE [-o OUT.c]`; with `--release`, `build` and `run` compile with -O2 and skip the leak check at exit.
 - `sinterc fmt [--check | -w] FILE…`: formatting. It only changes whitespace (indentation, spaces around
   operators, blank lines); tokens and line breaks stay where they are, and comments are kept.
 - Errors show the offending line with a `^` under the position.

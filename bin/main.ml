@@ -97,31 +97,34 @@ let help () =
   I18n.pick
     ("Sinter 编译器 sinterc " ^ version ^ "\n\n\
       用法：\n\
-     \  sinterc run 源文件.sn [参数…]     编译并运行\n\
-     \  sinterc build 源文件.sn [-o 程序]  编译成可执行文件\n\
+     \  sinterc run [--release] 源文件.sn [参数…]     编译并运行\n\
+     \  sinterc build [--release] 源文件.sn [-o 程序]  编译成可执行文件\n\
      \  sinterc 源文件.sn [-o 输出.c]      只生成 C\n\
      \  sinterc fmt [--check | -w] 文件…  格式化（默认打印结果，-w 写回，--check 只检查）\n\
      \  sinterc --version | --help\n\n\
       build 和 run 用环境变量 CC 指定的 C 编译器（默认 cc）。\n\
+      --release：用 -O2 编译，不做退出时的泄漏检查（默认 -O1，有泄漏时退出码是 102）。\n\
       --lang=en 或 SINTER_LANG=en：英文的错误信息。\n")
     ("Sinter compiler sinterc " ^ version ^ "\n\n\
       Usage:\n\
-     \  sinterc run FILE.sn [ARGS…]     compile and run\n\
-     \  sinterc build FILE.sn [-o EXE]  compile to an executable\n\
+     \  sinterc run [--release] FILE.sn [ARGS…]     compile and run\n\
+     \  sinterc build [--release] FILE.sn [-o EXE]  compile to an executable\n\
      \  sinterc FILE.sn [-o OUT.c]      emit C only\n\
      \  sinterc fmt [--check | -w] FILE…  format (print; -w writes back; --check only checks)\n\
      \  sinterc --version | --help\n\n\
       build and run use the C compiler named by $CC (default: cc).\n\
+      --release: compile with -O2 and skip the leak check at exit (default: -O1, exit code 102 on a leak).\n\
       --lang=zh or SINTER_LANG=zh: error messages in Chinese.\n")
 
 let usage () =
   prerr_string (help ());
   exit 2
 
-(* 把生成的 C 交给系统的 C 编译器。 *)
-let cc c_file exe =
+(* 把生成的 C 交给系统的 C 编译器。release（C60）：-O2，并定义 SN_RELEASE（不统计分配次数、不做退出时的泄漏检查）。 *)
+let cc ~release c_file exe =
   let cc = Option.value (Sys.getenv_opt "CC") ~default:"cc" in
-  let cmd = Printf.sprintf "%s -std=gnu11 -O1 -w %s -o %s -lm" cc (Filename.quote c_file) (Filename.quote exe) in
+  let opt = if release then "-O2 -DSN_RELEASE" else "-O1" in
+  let cmd = Printf.sprintf "%s -std=gnu11 %s -w %s -o %s -lm" cc opt (Filename.quote c_file) (Filename.quote exe) in
   if Sys.command cmd <> 0 then begin
     prerr_endline
       (I18n.pick
@@ -179,7 +182,7 @@ type mode = Emit | Build | Run
 
 let () =
   let file = ref None and out = ref None and core = ref false and unchecked = ref false
-  and batch = ref false in
+  and batch = ref false and release = ref false in
   (match Sys.getenv_opt "SINTER_LANG" with
   | Some ("en" | "EN") -> I18n.lang := I18n.En
   | _ -> ());
@@ -211,6 +214,7 @@ let () =
     | "--emit=c" :: rest -> core := false; args rest
     | "--unchecked" :: rest -> unchecked := true; args rest
     | "--batch" :: rest -> batch := true; args rest
+    | "--release" :: rest -> release := true; args rest
     | f :: rest when !file = None && String.length f > 0 && f.[0] <> '-' -> file := Some f; args rest
     | _ -> usage ()
   in
@@ -218,6 +222,8 @@ let () =
   let file = match !file with Some f -> f | None -> usage () in
   if !unchecked && not !core then usage ();
   if mode <> Emit && (!core || !batch) then usage ();
+  (* 只生成 C 时没有 C 编译这一步，--release 没有意义（自己编译时加 -DSN_RELEASE） *)
+  if mode = Emit && !release then usage ();
   (* 读主文件和它用 use 引入的模块（C34），合成一个程序 *)
   let prog =
     try Modules.load file with
@@ -337,12 +343,12 @@ let () =
       in
       let c = Filename.temp_file "sinter" ".c" in
       write c;
-      cc c exe;
+      cc ~release:!release c exe;
       Sys.remove c
   | Run, _ ->
       let c = Filename.temp_file "sinter" ".c" and exe = Filename.temp_file "sinter" ".exe" in
       write c;
-      cc c exe;
+      cc ~release:!release c exe;
       Sys.remove c;
       flush_all ();
       let code = Sys.command (String.concat " " (List.map Filename.quote (exe :: !prog_args))) in

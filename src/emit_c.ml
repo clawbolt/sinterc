@@ -71,10 +71,16 @@ static bool u_f64_is_nan(double x) { return x != x; }
 /* 对照测试用：按 sn_seq 里的 0 / 1 依次返回假 / 真，用完之后一直返回假（循环因此一定结束）。 */
 static const char *sn_seq = "";
 static bool u_choose(void) { if (*sn_seq) return *sn_seq++ == '1'; return false; }
-/* 原型阶段统计还没释放的 Box，程序结束时检查有没有泄漏。 */
+/* 原型阶段统计还没释放的 Box，程序结束时检查有没有泄漏。
+   --release（C60）定义 SN_RELEASE：不计数，sn_live 一直是 0，退出时的检查也就总是通过。 */
 static long long sn_live = 0;
-static void *sn_alloc(size_t n) { void *p = malloc(n); if (!p) sn_panic("内存不足"); sn_live++; return p; }
-static void sn_free(void *p) { free(p); sn_live--; }
+#ifdef SN_RELEASE
+#define SN_COUNT(e)
+#else
+#define SN_COUNT(e) e
+#endif
+static void *sn_alloc(size_t n) { void *p = malloc(n); if (!p) sn_panic("内存不足"); SN_COUNT(sn_live++); return p; }
+static void sn_free(void *p) { free(p); SN_COUNT(sn_live--); }
 static void *sn_realloc(void *p, size_t n) { if (!p) return sn_alloc(n); void *q = realloc(p, n); if (!q) sn_panic("内存不足"); return q; }
 /* 字符串（C29）：拥有一块堆内存，末尾多一个 0；let 参数传指针，inout 参数传指针并可以改。 */
 typedef struct { char *p; int64_t len; } sn_str;
@@ -82,6 +88,9 @@ static sn_str sn_str_make(const char *s, int64_t n) { sn_str r; r.p = sn_alloc((
 static sn_str u_str_lit(const char *s) { return sn_str_make(s, (int64_t)strlen(s)); }
 static void u_print(const sn_str *s) { fwrite(s->p, 1, (size_t)s->len, stdout); putchar('\n'); }
 static void u_print_str(const sn_str *s) { fwrite(s->p, 1, (size_t)s->len, stdout); }
+/* 标准错误（C60）：先刷新标准输出，这样两者在终端里的先后顺序和程序里一样；stderr 本身不缓冲。 */
+static void u_eprint(const sn_str *s) { fflush(stdout); fwrite(s->p, 1, (size_t)s->len, stderr); fputc('\n', stderr); }
+static void u_eprint_str(const sn_str *s) { fflush(stdout); fwrite(s->p, 1, (size_t)s->len, stderr); }
 static void u_print_byte(int64_t b) { if (b < 0 || b > 255) sn_panic("print_byte 的参数不在 0 到 255 之间"); putchar((int)b); }
 /* panic(msg)（C38，Lean M19）：打印说明后结束进程，不析构任何值。 */
 static void u_panic(const sn_str *m) { sn_panic(m->p); }

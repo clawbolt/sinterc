@@ -75,7 +75,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
   别的类型写 `fn to_str(x: T) -> Str`（可以给多种类型各写一个），泛型代码里要写约束 `T: ToStr`。
   转义有 `\n`、`\r`、`\t`、`\\`、`\"`；字符字面量 `'a'`、`'中'`、`'\n'`。
 - **输入输出**：`print(s)`、`print_i64`、`print_f64`、`print_char`（都会换行）；`print_str(s)` 不换行，
-  `print_byte(b)` 写一个原始字节（0–255）；`read_line()`、`args()`、`read_file`、`write_file`。
+  `print_byte(b)` 写一个原始字节（0–255）；`eprint(s)`、`eprint_str(s)` 写到标准错误；`read_line()`、`args()`、`read_file`、`write_file`。
 - **字节串 `Bytes`**：任意字节（0–255 的 I64），所有权和 `Str` 一样。`bytes_new()`、`b.len()`、`b.get(i)`、`b.set(i, x)`、
   `b.push(x)`、`b.append(c)`、`b.slice(a, b)`、`b.clone()`、`b.eq(c)`；`read_bytes`、`write_bytes` 读写二进制文件，
   `print_bytes(b)` 原样输出；`s.to_bytes()` 复制字符串的字节，`str_from_utf8(b)` 只在合法的 UTF-8 时得到 `.Some(s)`。
@@ -102,7 +102,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 
 ## 工具
 
-- `sinterc run 文件 [参数…]`、`sinterc build 文件 [-o 程序]`、`sinterc 文件 [-o 输出.c]`。
+- `sinterc run 文件 [参数…]`、`sinterc build 文件 [-o 程序]`、`sinterc 文件 [-o 输出.c]`；`build`、`run` 加 `--release` 用 -O2 编译，不做退出时的泄漏检查。
 - `sinterc fmt [--check | -w] 文件…`：格式化。只调整空白（缩进、运算符两边的空格、空行），不改变记号和换行的位置，注释原样保留。
 - 错误信息默认中文，`--lang=en`（或环境变量 `SINTER_LANG=en`）换成英文。报错时显示出错的那一行，用 `^` 标出位置。
 - 编辑器：`editor/` 里有 VS Code 和 Vim 的语法高亮，安装见 `editor/README.md`。

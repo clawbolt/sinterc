@@ -18,11 +18,13 @@
 - `std.bigint`：任意大小的整数，加、减、乘、比较、除以小数、十进制转换，实现 `Eq`、`Ord`（C54，Lean S10）。
 - `std.os`：`env`、`list_dir`、`exists`、`is_dir`、`make_dir`、`remove`，启动子进程 `run`（返回退出码）和 `output`
   （收集标准输出），不经过 shell；`exit(code)`（C58）。
+- `eprint(s)`、`eprint_str(s)`：写到标准错误（C60）。
 
 **验证**
 - AVL 平衡：`std.treemap` 的插入、删除保持平衡，树高是对数（Lean S6b）。
 
 **工具**
+- `sinterc build --release`、`sinterc run --release`：`-O2`，不统计分配、不做退出时的泄漏检查（C60）。
 - 编辑器的语法高亮：`editor/vscode`（VS Code，含字符串插值）和 `editor/vim`（T3）。
 - 随机测试 `sh fuzz.sh`：fmt 对空白不敏感、格式化前后记号不变且幂等，编译器对随机改坏的程序不出内部错误；CI 每次换一个种子跑（T5）。
 

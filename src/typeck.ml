@@ -140,6 +140,9 @@ let builtins =
        输出经过 C 的缓冲，read_line 之前、panic 和程序结束时都会刷新 *)
     "print_str", ([ (MLet, TStr) ], TUnit);
     "print_byte", ([ (MSink, TI64) ], TUnit);
+    (* C60：写到标准错误。eprint 末尾加换行，eprint_str 不加；写之前先刷新标准输出 *)
+    "eprint", ([ (MLet, TStr) ], TUnit);
+    "eprint_str", ([ (MLet, TStr) ], TUnit);
     "str_len", ([ (MLet, TStr) ], TI64);
     "str_eq", ([ (MLet, TStr); (MLet, TStr) ], TBool);
     "str_concat", ([ (MLet, TStr); (MLet, TStr) ], TStr);
