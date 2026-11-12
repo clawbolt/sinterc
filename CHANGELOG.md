@@ -37,6 +37,10 @@
 - `std.view` 的 `line_end`、`trim_cr`、`field`：逐行、逐字段访问，不建 `Vec`（C62）。
 - `std.str` 的 `find`、`split`、`replace`、`starts_with`、`ends_with` 逐字节比较，不再为每个位置复制子串（C62）。
 - `std.view` 的 `line_reader()`、`next_block(r, a, n)`：逐块读标准输入，跨块的行先拼起来，峰值内存和输入大小无关（C63，Lean M28）。
+- 系统层的模块：`std.io` 加了 `read_line`、`read_all`、`read_all_in`、`read_chunk`、`lines`、`next_block_in`；
+  新的 `std.fs`（`read`、`read_in`、`read_bytes`、`write`、`write_bytes`、`read_lines`、`write_lines`、`exists`、`is_dir`、`list_dir`、`make_dir`、`remove`）、
+  `std.env`（`args`、`get`、`exit`）、`std.process`（`run`、`output`）。预导入的 `println`、`eprintln`。
+  标准库里可以写 `intrinsic.f(…)` 调用内建函数 `f`，即使模块里有同名的函数；别的代码里报错（C67）。
 - 字符串的字面量标记和长度共用 8 字节，`Str` 保持 16 字节（C61 最初让它变成了 24 字节）。
 
 **验证**

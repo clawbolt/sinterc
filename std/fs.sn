@@ -1,0 +1,44 @@
+// std.fs：文件和目录（Lean `Library.FileIO`）。出错时 Err 里是“路径：系统的说明”，返回的字符串都是新分配的。
+
+// 读整个文件。
+pub fn read(path: Str) -> Result<Str, Str> { read_file(path) }
+
+// 读整个文件，放进区域 a，不复制成 Str（任意字节）。
+pub fn read_in(a: Arena, path: Str) -> Result<&str in a, Str> { read_file_in(a, path) }
+
+// 读整个文件的字节。
+pub fn read_bytes(path: Str) -> Result<Bytes, Str> { intrinsic.read_bytes(path) }
+
+// 把文件换成 s：先写临时文件再改名，失败时原文件不变。
+pub fn write(path: Str, s: Str) -> Result<(), Str> { write_file(path, s) }
+
+pub fn write_bytes(path: Str, b: Bytes) -> Result<(), Str> { intrinsic.write_bytes(path, b) }
+
+// 读整个文件，按行切开（每行去掉换行和行尾的 \r，见 Str 的 lines）。
+pub fn read_lines(path: Str) -> Result<Vec<Str>, Str> {
+    let text = read_file(path)?
+    Ok(text.lines())
+}
+
+// 每行后面加一个换行，写进文件（同 write，先写临时文件再改名）。
+pub fn write_lines(path: Str, ls: Vec<Str>) -> Result<(), Str> {
+    var s = ""
+    for l in ls {
+        s.push(l)
+        s.push("\n")
+    }
+    write_file(path, s)
+}
+
+pub fn exists(path: Str) -> Bool { os_exists(path) }
+
+pub fn is_dir(path: Str) -> Bool { os_is_dir(path) }
+
+// 目录里的名字（不含 . 和 ..），按字节从小到大排好。
+pub fn list_dir(path: Str) -> Result<Vec<Str>, Str> { os_list_dir(path) }
+
+// 建一个目录（上一级要已经存在）。
+pub fn make_dir(path: Str) -> Result<(), Str> { os_make_dir(path) }
+
+// 删一个文件或空目录。
+pub fn remove(path: Str) -> Result<(), Str> { os_remove(path) }

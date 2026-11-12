@@ -1,0 +1,7 @@
+// std.process：子进程。不经过 shell，参数原样传过去；子进程和这个程序共用标准输入输出。
+
+// 启动程序 prog（在 PATH 里找），等它结束，返回退出码；被信号结束时退出码是 128 + 信号。
+pub fn run(prog: Str, args: Vec<Str>) -> Result<I64, Str> { os_run(prog, args) }
+
+// 和 run 一样，另外收集子进程的标准输出；退出码不是 0 时是 Err。
+pub fn output(prog: Str, args: Vec<Str>) -> Result<Str, Str> { os_output(prog, args) }

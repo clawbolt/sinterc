@@ -231,6 +231,16 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 - `bytes`：`is_empty`、`decode`（按 UTF-8 解码，`Option<Str>`）。
 - `vec`：`is_empty`、`reverse`、`map`、`filter`、`any`、`all`、`count`、`for_each`、`fold`、`sort_by`；元素实现 `Eq` 时 `contains`、`index_of`、`dedup`，
   实现 `Ord` 时 `sort`、`binary_search`；`Vec<I64>`、`Vec<F64>` 的 `sum`、`max`、`min`。
+- `print`：`println(s)`、`eprintln(s)` 写一行到标准输出、标准错误。
+
+系统层的模块要 `use`，都包着内建函数，只读外部状态、返回新的值；标准库里用 `intrinsic.f(…)` 调用和模块函数同名的内建函数（别的代码不能这样写）。
+
+- `std.io`：`read_line`（`Option<Str>`）、`read_all`、`read_all_in(a)`、`read_chunk(a, n)`；逐块读行 `lines()`、`next_block_in(r, a, n)`（同 `std.view` 的 `line_reader`、`next_block`）；
+  以及 `read_lines`、`write_lines`、`input_lines`。
+- `std.fs`：`read`、`read_in(a, path)`、`read_bytes`、`write`（先写临时文件再改名）、`write_bytes`、`read_lines`、`write_lines`、`exists`、`is_dir`、
+  `list_dir`（按字节排好）、`make_dir`、`remove`；出错时是 `Err("路径：说明")`。
+- `std.env`：`args()`、`get(name)`（`Option<Str>`）、`exit(code)`。
+- `std.process`：`run(prog, args)` 返回退出码，`output(prog, args)` 收集标准输出；不经过 shell。
 
 `use std.math` 引入编进编译器的 `std/math.sn`，之后照样写 `math.min(…)`。标准库用 Sinter 写，和用户代码一样检查；
 同一个程序里不能既有自己的 `math.sn` 又用 `std.math`。下面这些模块里和核心部分重复的函数会在迁移时去掉。
@@ -243,7 +253,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   `sort(v)`（元素实现 `Ord`）和 `sort_by(v, |a, b| a < b)`（`less` 要是严格弱序），都是 `inout` 原地排序（Lean `Library.HeapSort`）：堆排序，只用 `vec_swap` 交换元素，O(n log n)，不稳定。
 - `std.str`（按字节，Lean `Library.StrVec`）：`starts_with`、`ends_with`、`find`、`contains`、`trim`、`split`、`join`、`repeat`、`to_upper`、`to_lower`（ASCII）、`replace`、`lines`（去掉行尾的 `\r`）。逐字节比较，不为每个位置复制子串。
 - `std.char`：ASCII 的 `is_digit`、`is_alpha`、`to_upper`、`to_digit` 等。
-- `std.io`：`read_lines`、`write_lines`、`input_lines`。
+- `std.io`、`std.fs`、`std.env`、`std.process`：见上面的系统层。
 - `std.view`：见上面的切片和逐块读行。
 - `std.map`（Lean `Library.Map`、`Library.MapSearch`）：`Map<K, V>`，键要实现 `Ord`，按键从小到大存成两个 Vec（`m.keys`、`m.vals`，只读）。
   `new`、`len`、`index_of`（取值写 `vec_get(m.vals, i)`）、`contains`、`insert`（`inout`，已有键时换值并返回旧值）、`remove`（返回去掉的值）。
@@ -254,7 +264,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 - `std.hashmap`（Lean `Library.HashMap`）：`HashMap<K, V>`，键实现 `Eq` 和 `Hash`（I64、Str 已实现）；`new`、`len`、`contains`、`get(m, k, |v| …)`、`insert`（已有键时返回旧值）、`remove`（返回值）、
   `for_each`（按插入顺序，删除会把最后一个元素换到被删的位置）。键值紧凑地存在两个 Vec 里，另有槽位表存下标；开放寻址、线性探测不绕回（槽位表长 2 倍容量，元素超过 3/4 容量时翻倍）、删除时后移回填，不需要墓碑。平均 O(1)。
 - `std.bigint`（Lean `Library.BigInt`）：大整数，各位从低到高、基数 10^9。
-- `std.os`：见输入输出。
+- `std.os`：见输入输出（迁移时由 `std.fs`、`std.env`、`std.process` 代替）。
 
 ## 工具
 

@@ -116,6 +116,10 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
     | TOFn (ps, r) -> TOFn (List.map (fun (m, t) -> (m, ty pos t)) ps, ty pos r)
     | (TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TArena _ | TParam _) as t -> t
   in
+  let in_std =
+    let p = !files.(me.index) in
+    me.index > 0 && String.length p > 4 && String.sub p 0 4 = "std/"
+  in
   let binder pos x =
     if List.mem x imported then err pos "变量 %s 和引入的模块同名，换一个名字" x
   in
@@ -129,6 +133,10 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
       | Call (f, { e = Var m; _ } :: args) when f <> "" && f.[0] = '.' && List.mem m imported ->
           (* m.f(…)：模块 m 的函数 *)
           Call (target pos m (String.sub f 1 (String.length f - 1)), List.map ex args)
+      | Call (f, { e = Var "intrinsic"; _ } :: args) when f <> "" && f.[0] = '.' ->
+          (* intrinsic.f(…)：内建函数 f，即使这个模块里有同名的函数（例如 io.read_line 调用内建的 read_line）。只有标准库能用 *)
+          if not in_std then err pos "intrinsic.%s：内建函数只能在标准库里这样调用" (String.sub f 1 (String.length f - 1));
+          Call (String.sub f 1 (String.length f - 1), List.map ex args)
       | Call (f, args) when f <> "" && f.[0] = '.' -> (
           (* 方法调用 r.f(…)：f 是本文件的函数或引入的名字时换成合并后的名字，其他的（trait 方法、内建）不变 *)
           let g = String.sub f 1 (String.length f - 1) in

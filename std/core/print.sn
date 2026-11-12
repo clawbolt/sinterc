@@ -1,0 +1,7 @@
+// 预导入：打印一行，末尾加换行。println 写到标准输出，eprintln 写到标准错误（写之前先刷新标准输出）。
+// 核心部分里只有这个文件读写外部；打印用得太多，所以和 std.io 分开、预导入。
+// 不换行的 print、eprint 迁移时再加（现在的内建 print 是换行的）。
+
+pub fn println(s: Str) { print(s) }
+
+pub fn eprintln(s: Str) { eprint(s) }

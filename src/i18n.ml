@@ -271,6 +271,7 @@ let table =
     ("方法 %s 的第一个参数是接收者，类型要写成 %s（或 Self）",
      "the first parameter of method {1} is the receiver; its type must be {2} (or Self)");
     ("%s 已经有方法 %s", "{1} already has a method {2}");
+    ("intrinsic.%s：内建函数只能在标准库里这样调用", "intrinsic.{1}: built-in functions can only be called this way inside the standard library");
     ("不能给 Arena 写方法", "methods cannot be defined on Arena");
     ("不能给函数类型写方法", "methods cannot be defined on a function type");
     ("不能给类型参数 %s 本身写方法（impl<%s> %s 会和所有的头部重叠）",

@@ -1,6 +1,38 @@
-// std.io：按行读写文件和标准输入。
+// std.io：标准输入、输出（Lean `Library.FileIO`）。打印一行的 println、eprintln 在预导入的核心部分。
+// read_lines、write_lines 读写的是文件，迁移时移到 std.fs（那里已经有同名的函数）。
 
 use std.str
+use std.view
+
+// 读一行（去掉行尾的换行）；读到末尾时是 .None。
+pub fn read_line() -> Option<Str> { intrinsic.read_line() }
+
+// 读标准输入直到结束。
+pub fn read_all() -> Str {
+    arena |a| { intrinsic.read_stdin_in(a).to_str() }
+}
+
+// 读标准输入直到结束，放进区域 a，不复制成 Str。
+pub fn read_all_in(a: Arena) -> &str in a { intrinsic.read_stdin_in(a) }
+
+// 最多读 n 个字节，放进区域 a；读完时是空的切片。
+pub fn read_chunk(a: Arena, n: I64) -> &str in a { intrinsic.read_chunk(a, n) }
+
+// 逐块读行（Lean `Strings.ChunkLines`），见 std.view 的 line_reader：
+//
+//     var r = io.lines()
+//     var going = true
+//     while going {
+//         arena |b| {
+//             match io.next_block_in(r, b, 65536) {
+//                 .Some(block) => { for line in block.lines() { … } },
+//                 .None => { going = false }
+//             }
+//         }
+//     }
+pub fn lines() -> view.LineReader { view.line_reader() }
+
+pub fn next_block_in(inout r: view.LineReader, a: Arena, n: I64) -> Option<&str in a> { view.next_block(r, a, n) }
 
 // 读整个文件，按行切开（见 str.lines）。
 pub fn read_lines(path: Str) -> Result<Vec<Str>, Str> {
@@ -23,7 +55,7 @@ pub fn input_lines() -> Vec<Str> {
     var out: Vec<Str> = vec_new()
     var go = true
     while go {
-        match read_line() {
+        match intrinsic.read_line() {
             .Some(l) => out.push(l),
             .None => { go = false }
         }
