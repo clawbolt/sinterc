@@ -10,7 +10,7 @@ fn check(n: I64) -> Result<(), Str> {
 fn main() {
     println("{check(1).is_ok()}")
     let u: () = id(())
-    var v: Vec<()> = vec_new()
+    var v: Vec<()> = Vec.new()
     v.push(u)
     match v.pop() {
         .Some(x) => println("有"),

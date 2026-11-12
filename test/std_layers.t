@@ -1,6 +1,6 @@
 标准库的分层。内建函数（编译器实现的 str_len、vec_push、read_line…）只有标准库能直接调用，用户代码写成方法或者标准库的函数；
 读写外部的内建函数在标准库里也只有 std.io、std.fs、std.env、std.process 和预导入的打印能调用（核心部分和 std.vec、std.map 等都不读写外部）。
-预导入的几个是例外，哪里都能调用：vec_new、bytes_new、box、unbox、consume、alloc、text、panic、choose。
+预导入的几个是例外，哪里都能调用：box、unbox、consume、alloc、text、panic、choose。空的 Vec、Bytes 用类型函数 Vec.new()、Bytes.new()。
 v[i]、for、字符串插值展开出的内建调用不算用户写的。
 
 直接调用内建函数，报错里给出该怎么写：
@@ -43,11 +43,22 @@ v[i]、for、字符串插值展开出的内建调用不算用户写的。
      |             ^
   [1]
 
+  $ cat > new.sn <<'EOF'
+  > fn main() {
+  >     var v: Vec<I64> = vec_new()
+  > }
+  > EOF
+  $ sinterc new.sn
+  new.sn:2:23: 错误：vec_new 是内建函数，标准库以外不能直接调用：写成 Vec.new()
+   2 |     var v: Vec<I64> = vec_new()
+     |                       ^
+  [1]
+
 预导入的内建函数和语法糖（内建函数的名字是保留的，主文件里不能再定义同名的函数）：
 
   $ cat > ok.sn <<'EOF'
   > fn main() {
-  >     var v: Vec<Box<I64>> = vec_new()
+  >     var v: Vec<Box<I64>> = Vec.new()
   >     v.push(box(7))
   >     for b in v {
   >         println("{*b}")

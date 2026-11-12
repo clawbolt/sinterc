@@ -4,7 +4,7 @@
   $ cat > ok.sn <<'EOF'
   > 
   > fn main() {
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     v.push(1)
   >     v.push(2)
   >     v.push(3)
@@ -17,7 +17,7 @@
   >         }
   >         arena |b| {
   >             // 捕获区域 b 本身，在里面分配；改外层的 Vec<&I64 in b>
-  >             var refs: Vec<&I64 in b> = vec_new()
+  >             var refs: Vec<&I64 in b> = Vec.new()
   >             v.for_each(|x| { refs.push(alloc(b, x * 2)) })
   >             // 外层区域 a 的引用可以放进 Vec<&I64 in b>（a 比 b 活得久）
   >             v.for_each(|x| {
@@ -46,9 +46,9 @@
 
   $ cat > short.sn <<'EOF'
   > fn main() {
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     arena |a| {
-  >         var outer: Vec<&I64 in a> = vec_new()
+  >         var outer: Vec<&I64 in a> = Vec.new()
   >         arena |b| {
   >             v.for_each(|x| { outer.push(alloc(b, x)) })
   >         }

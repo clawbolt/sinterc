@@ -60,7 +60,7 @@
   >         Ok(s) => println("read {s.len()} bytes"),
   >         Err(e) => println(e)
   >     }
-  >     var ls: Vec<Str> = vec_new()
+  >     var ls: Vec<Str> = Vec.new()
   >     ls.push("p")
   >     ls.push("q")
   >     match fs.write_lines("d/b.txt", ls) { Ok(_) => {}, Err(e) => println(e) }
@@ -111,7 +111,7 @@
   > use std.process
   > 
   > fn strs(sink a: Str, sink b: Str) -> Vec<Str> {
-  >     var v: Vec<Str> = vec_new()
+  >     var v: Vec<Str> = Vec.new()
   >     v.push(a)
   >     v.push(b)
   >     v

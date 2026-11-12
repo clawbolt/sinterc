@@ -4,19 +4,19 @@ struct P { x: I64, name: Str }
 fn bump(inout n: I64) { n = n + 1 }
 
 fn main() {
-    var v: Vec<I64> = vec_new()
+    var v: Vec<I64> = Vec.new()
     v.push(1)
     v.push(2)
     for x in inout v {
         x = x * 2
         bump(x)
     }
-    var names: Vec<Str> = vec_new()
+    var names: Vec<Str> = Vec.new()
     names.push("a")
     for s in inout names {
         s = s.concat("!")
     }
-    var ps: Vec<P> = vec_new()
+    var ps: Vec<P> = Vec.new()
     ps.push(P { x: 1, name: "p" })
     for p in inout ps {
         p.x = p.x + v.len()

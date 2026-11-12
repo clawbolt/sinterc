@@ -39,7 +39,7 @@ let table =
     ("%s 没有变体 %s", "{1} has no variant {2}");
     ("%s 带一个 %s 类型的载荷，要写 %s(…)", "{1} carries a payload of type {2}; write {3}(…)");
     ("%s 没有载荷，不能写 %s(…)", "{1} has no payload; cannot write {2}(…)");
-    ("这里需要 %s，vec_new() 是 Vec", "expected {1} here, but vec_new() is a Vec");
+    ("这里需要 %s，Vec.new() 是 Vec", "expected {1} here, but Vec.new() is a Vec");
     ("未定义的变量 %s", "undefined variable {1}");
     ("字符串用 a.eq(b) 比较", "compare strings with a.eq(b)");
     ("for 只能遍历变量或字段里的 Vec，或者写成 a..b", "for can only iterate over a Vec in a variable or field, or a range a..b");
@@ -54,8 +54,8 @@ let table =
     ("还不支持在区域里存放引用", "storing references in a region is not supported yet");
     ("alloc 的第一个参数必须是区域，%s 不是", "the first argument of alloc must be a region; {1} is not");
     ("alloc 需要 2 个参数：区域和值", "alloc takes 2 arguments: a region and a value");
-    ("无法确定 vec_new() 的元素类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方",
-     "cannot infer the element type of vec_new(): use it where the type is known (a let annotation, return value, argument, or field)");
+    ("无法确定 Vec.new() 的元素类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方",
+     "cannot infer the element type of Vec.new(): use it where the type is known (a let annotation, return value, argument, or field)");
     ("%s 需要 %d 个参数，实际给了 %d 个", "{1} takes {2} arguments, {3} given");
     ("%s 需要 %d 个参数", "{1} takes {2} arguments");
     ("%s 的第一个参数必须是 Vec，%s 不是", "the first argument of {1} must be a Vec; {2} is not");
@@ -268,9 +268,10 @@ let table =
     ("impl %s for %s 和已有的 impl %s for %s 重叠（有的类型两个都能匹配）",
      "impl {1} for {2} overlaps the existing impl {3} for {4} (some type matches both)");
     (* 类型自己的方法 *)
-    ("方法 %s 的第一个参数是接收者，类型要写成 %s（或 Self）",
-     "the first parameter of method {1} is the receiver; its type must be {2} (or Self)");
     ("%s 已经有方法 %s", "{1} already has a method {2}");
+    ("%s 已经有类型函数 %s", "{1} already has a type function {2}");
+    ("%s 没有类型函数 %s", "{1} has no type function {2}");
+    ("%s 没有方法 %s（%s 是类型函数：写成 %s.%s(…)）", "{1} has no method {2} ({3} is a type function: write {4}.{5}(…))");
     ("intrinsic.%s：内建函数只能在标准库里这样调用", "intrinsic.{1}: built-in functions can only be called this way inside the standard library");
     ("%s 是内建函数，标准库以外不能直接调用：写成 %s", "{1} is a built-in function and cannot be called directly outside the standard library: write {2}");
     ("%s 读写外部，标准库里只有 std.io、std.fs、std.env、std.process 和打印能调用它",

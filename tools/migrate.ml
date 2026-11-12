@@ -10,7 +10,9 @@
    默认是第二步：标准库以外不能直接调用内建函数，vec_len(v) → v.len()、str_from_i64(n) → n.to_str()、vec_get(v, i) → v[i]，
    读写外部的换成 std.io、std.fs、std.env、std.process 的函数（read_line() → io.read_line()），缺的 use 行补上。
    程序自己定义了同名函数时不改。每一步只能跑一次：--modules 改过的 print 再改一次就变成了 println。
-   用法：migrate [-w] [--modules] 文件…。不带 -w 时打印结果，带 -w 时写回并列出改了的文件。 *)
+   --types 是第三步，构造换成类型函数：vec_new() → Vec.new()，bytes_new() → Bytes.new()，map.new() → map.Map.new()，
+   hashmap.new() → hashmap.HashMap.new()，bigint.zero()、from_i64、parse → bigint.BigInt.zero() 等。这一步可以重复跑，标准库里也能用。
+   用法：migrate [-w] [--modules | --types] 文件…。不带 -w 时打印结果，带 -w 时写回并列出改了的文件。 *)
 
 let is_id_start c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c = '_'
 let is_id c = is_id_start c || (c >= '0' && c <= '9')
@@ -221,6 +223,16 @@ let builtin_call f r args =
 (* 改写到哪一步：--modules 是第一步，标准库重新划分（模块的函数换成方法、打印改名）；默认是第二步（内建函数） *)
 let modules = ref false
 
+(* --types：只把构造换成类型函数 *)
+let types = ref false
+
+let type_fn m f =
+  match (m, f) with
+  | ("map", "new") -> Some "Map"
+  | ("hashmap", "new") -> Some "HashMap"
+  | ("bigint", ("zero" | "from_i64" | "parse")) -> Some "BigInt"
+  | _ -> None
+
 type ctx = { uses : string list; (* use std.X 引入的 X *) defs : string list (* 程序自己定义的打印函数 *) }
 
 let module_call m f args =
@@ -321,6 +333,19 @@ and ident ctx b s i =
     l
   in
   if i > 0 && s.[i - 1] = '.' then copy_to j
+  else if !types then begin
+    let k = j + 1 in
+    let l = if k < n && s.[j] = '.' then id_end s k else k in
+    match w with
+    | ("vec_new" | "bytes_new") when j < n && s.[j] = '(' && not (List.mem w ctx.defs) ->
+        Buffer.add_string b (if w = "vec_new" then "Vec.new" else "Bytes.new");
+        j
+    | _ when l > k && l < n && s.[l] = '(' && List.mem w ctx.uses && type_fn w (String.sub s k (l - k)) <> None ->
+        let f = String.sub s k (l - k) in
+        Buffer.add_string b (w ^ "." ^ Option.get (type_fn w f) ^ "." ^ f);
+        l
+    | _ -> copy_to j
+  end
   else if !modules && j + 1 < n && s.[j] = '.' && is_id_start s.[j + 1] && List.mem w ctx.uses then begin
     let k = j + 1 in
     let l = id_end s k in
@@ -443,7 +468,8 @@ let unit text =
   let ctx = { uses = uses_of text; defs } in
   let out = rw ctx text in
   let lines = String.split_on_char '\n' out in
-  if not !modules then String.concat "\n" (add_uses lines)
+  if !types then out
+  else if not !modules then String.concat "\n" (add_uses lines)
   else
   let body = String.concat "\n" (List.filter (fun l -> use_line l = None) lines) in
   let emitted = ref [] in
@@ -540,9 +566,10 @@ let () =
   let argv = List.tl (Array.to_list Sys.argv) in
   let write = List.mem "-w" argv in
   modules := List.mem "--modules" argv;
-  let files = List.filter (fun a -> a <> "-w" && a <> "--modules") argv in
+  types := List.mem "--types" argv;
+  let files = List.filter (fun a -> a <> "-w" && a <> "--modules" && a <> "--types") argv in
   if files = [] then begin
-    prerr_endline "用法：migrate [-w] [--modules] 文件…";
+    prerr_endline "用法：migrate [-w] [--modules | --types] 文件…";
     exit 2
   end;
   List.iter

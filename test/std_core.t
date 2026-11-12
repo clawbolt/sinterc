@@ -177,7 +177,7 @@ Vec：
 
   $ cat > vec.sn <<'EOF'
   > fn main() {
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     v.push(3)
   >     v.push(1)
   >     v.push(2)
@@ -205,13 +205,13 @@ Vec：
   >     var total = 0
   >     big.for_each(|x| { total = total + x })
   >     println("{total}")
-  >     var f: Vec<F64> = vec_new()
+  >     var f: Vec<F64> = Vec.new()
   >     f.push(1.5)
   >     f.push(-2.0)
   >     println("{f.sum()}")
   >     println("{f.max().unwrap()}")
   >     println("{f.is_empty()}")
-  >     var names: Vec<Str> = vec_new()
+  >     var names: Vec<Str> = Vec.new()
   >     names.push("b")
   >     names.push("a")
   >     names.sort()

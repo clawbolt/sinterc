@@ -76,7 +76,7 @@ impl Str {
 
     // 按 sep 切开；sep 是空串时不切。"a,,b" 按 "," 切成 "a"、""、"b"。
     fn split(s: Str, sep: Str) -> Vec<Str> {
-        var out: Vec<Str> = vec_new()
+        var out: Vec<Str> = Vec.new()
         let n = str_len(s)
         let m = str_len(sep)
         var start = 0
@@ -96,7 +96,7 @@ impl Str {
 
     // 按换行切开，每行去掉末尾的 \r（Windows 换行）；最后的换行后面不再算一行。
     fn lines(s: Str) -> Vec<Str> {
-        var out: Vec<Str> = vec_new()
+        var out: Vec<Str> = Vec.new()
         let n = str_len(s)
         var start = 0
         var i = 0

@@ -1,7 +1,7 @@
 use std.map
 
 fn main() {
-    var m: map.Map<I64, I64> = map.new()
+    var m: map.Map<I64, I64> = map.Map.new()
     for i in 0..1023 {
         let o = m.insert(i, i * i)
     }

@@ -2,7 +2,7 @@
 
 // 0, 1, …, n - 1。
 pub fn range(n: I64) -> Vec<I64> {
-    var v: Vec<I64> = vec_new()
+    var v: Vec<I64> = Vec.new()
     for i in 0..n {
         v.push(i)
     }

@@ -14,7 +14,7 @@
   > }
   > 
   > fn main() {
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     for i in 1..6 {
   >         v.push(i)
   >     }
@@ -35,7 +35,7 @@
   >     }
   >     println("{apply_twice(3, |x| x + k)}")
   >     println("{total_of(v, |x| x + 1)}")
-  >     var names: Vec<Str> = vec_new()
+  >     var names: Vec<Str> = Vec.new()
   >     names.push("ann")
   >     names.push("bob")
   >     let shout = names.map(|s| s.concat("!"))
@@ -71,7 +71,7 @@
 
   $ cat > conflict.sn <<'EOF'
   > fn main() {
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     v.push(1)
   >     v.for_each(|x| { v.push(x) })
   > }
@@ -129,7 +129,7 @@
 
   $ cat > letcap.sn <<'EOF'
   > fn main() {
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     let t = 0
   >     v.for_each(|x| { t = t + x })
   > }
@@ -144,7 +144,7 @@
 
   $ cat > nested.sn <<'EOF'
   > fn main() {
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     println("{v.any(|x| v.any(|y| y == x))}")
   > }
   > EOF

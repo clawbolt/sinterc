@@ -22,7 +22,7 @@ fn main() {
     var c = counter()
     println("{c()}")
     println("{c()}")
-    var fs: Vec<Fn(I64) -> I64> = vec_new()
+    var fs: Vec<Fn(I64) -> I64> = Vec.new()
     fs.push(adder(1))
     fs.push(compose(adder(2), adder(3)))
     for i in 0..fs.len() {
@@ -33,7 +33,7 @@ fn main() {
     greet()
     var b = Button { label: "ok", on_click: |n| n * 2 }
     println("{b.on_click.call(21)}")
-    var v: Vec<I64> = vec_new()
+    var v: Vec<I64> = Vec.new()
     v.push(1)
     var add = adder(5)
     let w = v.map(add)

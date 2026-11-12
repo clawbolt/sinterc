@@ -30,7 +30,7 @@ impl Shape for Square {
 fn report<T: Shape>(x: T) { println("{x.name()}: {x.area()}") }
 
 fn main() {
-    var ps: Vec<Point> = vec_new()
+    var ps: Vec<Point> = Vec.new()
     ps.push(Point { x: 1, y: 2 })
     println("{ps}")
     report(Square { side: 3 })

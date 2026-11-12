@@ -38,7 +38,7 @@ Fn 变量也可以传给 fn(…) 参数。环境里不能有引用和区域。
   >     var d = counter()
   >     println("{d()}")
   >     println("{c()}")
-  >     var fs: Vec<Fn(I64) -> I64> = vec_new()
+  >     var fs: Vec<Fn(I64) -> I64> = Vec.new()
   >     fs.push(adder(1))
   >     fs.push(adder(100))
   >     let m = 3
@@ -54,7 +54,7 @@ Fn 变量也可以传给 fn(…) 参数。环境里不能有引用和区域。
   >     var b = Button { label: "ok", on_click: |n| n * 2 }
   >     println("{b.on_click.call(21)}")
   >     println(b.label)
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     v.push(1)
   >     v.push(2)
   >     let w = v.map(add5)

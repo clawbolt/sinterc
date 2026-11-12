@@ -23,7 +23,7 @@
   >     println("{check(-1).is_err()}")
   >     println("{twice(3).ok().is_some()}")
   >     let u: () = id(())
-  >     var v: Vec<()> = vec_new()
+  >     var v: Vec<()> = Vec.new()
   >     v.push(u)
   >     v.push(())
   >     println("{v.len()}")

@@ -8,7 +8,7 @@
 pub struct HashMap<K, V> { keys: Vec<K>, vals: Vec<V>, slots: Vec<I64>, cap: I64 }
 
 fn empty_slots(n: I64) -> Vec<I64> {
-    var v: Vec<I64> = vec_new()
+    var v: Vec<I64> = Vec.new()
     for i in 0..n {
         v.push(-1)
     }
@@ -22,8 +22,11 @@ fn set_slot(inout s: Vec<I64>, i: I64, x: I64) {
     let old = s.pop()
 }
 
-pub fn new<K, V>() -> HashMap<K, V> {
-    HashMap { keys: vec_new(), vals: vec_new(), slots: empty_slots(16), cap: 8 }
+impl<K, V> HashMap<K, V> {
+    // 空的 HashMap：HashMap.new()（模块外写 hashmap.HashMap.new()，或者 use std.hashmap { HashMap }）
+    fn new() -> HashMap<K, V> {
+        HashMap { keys: Vec.new(), vals: Vec.new(), slots: empty_slots(16), cap: 8 }
+    }
 }
 
 // 从 hash(k) % cap 往后第一个空位或 k 所在的槽位（`Library.HashMap` 的 slot）。

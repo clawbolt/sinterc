@@ -186,7 +186,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 - 字符串插值：`"x = {x}, 和 = {a + b}"`，花括号里是任意表达式（可以嵌套字符串），`{{`、`}}` 是花括号本身。值按类型用 `ToStr` 转成字符串，
   泛型代码里插值要写约束 `T: ToStr`。展开成 `{ var #s = …; #s.push(…); #s }`，不需要新的推理。
 - 字节串 `Bytes`：任意字节，C 里和 `Str` 的表示相同，所有权也一样。
-  `bytes_new()`，方法 `len`、`get`、`set`、`push`（字节是 0 到 255 的 I64，超出时 panic）、`append`、`slice`、`clone`、`eq`（`==` 不能比较字节串）、`is_empty`；
+  `Bytes.new()`，方法 `len`、`get`、`set`、`push`（字节是 0 到 255 的 I64，超出时 panic）、`append`、`slice`、`clone`、`eq`（`==` 不能比较字节串）、`is_empty`；
   `s.to_bytes()`、`b.decode()`（Lean `Library.Utf8Check`：合法时才 `.Some`）、`fs.read_bytes`、`fs.write_bytes`、`io.write_bytes`。
 - 切片 `&str in a`（Lean `Strings.Slice`）：在编译器里就是区域 `a` 里的一种引用（`TRef (TView, a)`），所以“切片活不过缓冲区”
   直接由已有的区域检查保证，导出给 Lean 时也按引用复核（`validate.sh` 检查 `examples/ok/str_slice.sn`）。
@@ -226,7 +226,8 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 
 - 内建函数：编译器实现的 `str_len`、`vec_push`、`read_line`… 只有标准库能直接调用，用户代码写成方法或标准库的函数，报错里会给出写法。
   内建方法在核心部分里声明，例如 `impl Str { intrinsic fn len(s: Str) -> I64 = str_len }`：没有函数体，方法调用直接换成内建函数，签名由编译器核对。
-  名字是保留的，主文件里不能定义同名的函数。哪里都能直接调用的只有预导入的 `vec_new`、`bytes_new`、`box`、`unbox`、`consume`、`alloc`、`text`、`panic`、`choose`。
+  `impl 类型 { … }` 里第一个参数不是这个类型的是类型函数，写成 `类型.函数(…)`，例如 `Vec.new()`、`map.Map.new()`、`bigint.BigInt.from_i64(7)`。
+  名字是保留的，主文件里不能定义同名的函数。哪里都能直接调用的只有预导入的 `box`、`unbox`、`consume`、`alloc`、`text`、`panic`、`choose`。
   读写外部的内建函数在标准库里也只有系统层和打印能调用；标准库里用 `intrinsic.f(…)` 调用和模块函数同名的内建函数。
 - 核心部分 `std/core/*.sn`：每个程序都自动读进来，不用 `use`。pub 的名字直接可见（本文件的定义和 `use` 引入的同名名字优先），
   内建类型的方法到处可用；只有用到的函数输出到 C 里。不读写外部（打印除外）。

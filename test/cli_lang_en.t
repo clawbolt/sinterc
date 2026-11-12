@@ -74,7 +74,7 @@ linear 值没有被消费（信息由几段拼起来，填进去的短语也翻�
 
   $ cat > oob.sn <<'EOF'
   > fn main() {
-  >     var w: Vec<I64> = vec_new()
+  >     var w: Vec<I64> = Vec.new()
   >     println("{w[3]}")
   > }
   > EOF

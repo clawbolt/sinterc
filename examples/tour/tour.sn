@@ -28,7 +28,7 @@ fn main() {
     inc(p.x)
     println("{p.x}")
 
-    var v: Vec<Box<I64>> = vec_new()
+    var v: Vec<Box<I64>> = Vec.new()
     v.push(box(1))
     v.push(box(2))
     v.push(box(3))

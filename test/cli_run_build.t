@@ -32,7 +32,7 @@
   >     inc(p.x)
   >     println("{p.x}")
   > 
-  >     var v: Vec<Box<I64>> = vec_new()
+  >     var v: Vec<Box<I64>> = Vec.new()
   >     v.push(box(1))
   >     v.push(box(2))
   >     v.push(box(3))
@@ -70,7 +70,7 @@ build 默认输出到去掉 .sn 的同名文件：
 
   $ cat > oob.sn <<'EOF'
   > fn main() {
-  >     var w: Vec<I64> = vec_new()
+  >     var w: Vec<I64> = Vec.new()
   >     println("{w[3]}")
   > }
   > EOF

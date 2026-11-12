@@ -32,7 +32,7 @@ std.char 提供 ASCII 的分类和大小写转换。for 也能直接遍历函数
   > }
   > 
   > fn squares(n: I64) -> Vec<I64> {
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     for i in 0..n {
   >         v.push(i * i)
   >     }

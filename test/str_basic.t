@@ -20,7 +20,7 @@ str_clone(s)、str_from_i64(n)；println(s) 打印并换行。实参都按 let �
   >     println("{b.len()}")
   >     let p = Person { name: "小明", age: 3 }
   >     println(greet(p))
-  >     var v: Vec<Str> = vec_new()
+  >     var v: Vec<Str> = Vec.new()
   >     v.push("x")
   >     v.push((42).to_str())
   >     println("{v.len()}")

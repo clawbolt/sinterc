@@ -11,7 +11,7 @@ std.hashmap（Lean `Library.HashMap`）。开放寻址、线性探测不绕回�
   > }
   > 
   > fn main() {
-  >     var ages: hashmap.HashMap<Str, I64> = hashmap.new()
+  >     var ages: hashmap.HashMap<Str, I64> = hashmap.HashMap.new()
   >     ages.insert("Ann", 30)
   >     ages.insert("Bo", 25)
   >     ages.insert("Cy", 35)
@@ -33,8 +33,8 @@ std.hashmap（Lean `Library.HashMap`）。开放寻址、线性探测不绕回�
   >     // 按 keys 的顺序：删掉 Ann 时最后一个（Cy）换到了它的位置
   >     ages.for_each(|k, v| println("{k}: {v}"))
   >     // 和 std.map 对照：3000 次随机的插入、删除、查找，键在 0..500 里
-  >     var h: hashmap.HashMap<I64, I64> = hashmap.new()
-  >     var m: map.Map<I64, I64> = map.new()
+  >     var h: hashmap.HashMap<I64, I64> = hashmap.HashMap.new()
+  >     var m: map.Map<I64, I64> = map.Map.new()
   >     var seed = 7
   >     var bad = 0
   >     for i in 0..3000 {
@@ -57,7 +57,7 @@ std.hashmap（Lean `Library.HashMap`）。开放寻址、线性探测不绕回�
   >         if h.contains(k) != m.contains(k) { bad = bad + 1 }
   >     }
   >     println("不一致 {bad} 次，最后 {h.len()} 个键")
-  >     var big: hashmap.HashMap<I64, I64> = hashmap.new()
+  >     var big: hashmap.HashMap<I64, I64> = hashmap.HashMap.new()
   >     for i in 0..10000 {
   >         big.insert(i * 1024, i)
   >     }

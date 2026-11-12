@@ -2,7 +2,7 @@
 use std.io
 
 fn main() {
-    var lines: Vec<Str> = vec_new()
+    var lines: Vec<Str> = Vec.new()
     while true {
         match io.read_line() {
             .Some(l) => {

@@ -70,16 +70,16 @@ impl ToStr for P 的简写，可以给多种类型各写一个；模块里的 m.
   >     let p = Point { x: 1, y: 2 }
   >     let c: Color = .Green
   >     println("p = {p}, c = {c}")
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     for i in 1..4 { v.push(i * i) }
   >     println("{v}")
-  >     var ps: Vec<Point> = vec_new()
+  >     var ps: Vec<Point> = Vec.new()
   >     ps.push(Point { x: 3, y: 4 })
   >     ps.push(p)
   >     println("{ps}")
-  >     var m: Vec<Vec<I64>> = vec_new()
+  >     var m: Vec<Vec<I64>> = Vec.new()
   >     m.push(v)
-  >     let w: Vec<I64> = vec_new()
+  >     let w: Vec<I64> = Vec.new()
   >     m.push(w)
   >     println("{m}")
   >     show(Pair { a: 1, b: 2 })
@@ -90,7 +90,7 @@ impl ToStr for P 的简写，可以给多种类型各写一个；模块里的 m.
   >     show(n)
   >     show(true)
   >     println((7).to_str())
-  >     let b = bigint.from_i64(-12345)
+  >     let b = bigint.BigInt.from_i64(-12345)
   >     println("b = {b}")
   >     let sq = Square { side: 2 }
   >     println(sq.describe())
@@ -122,7 +122,7 @@ impl ToStr for P 的简写，可以给多种类型各写一个；模块里的 m.
   >     fn to_str(v: Vec<T>) -> Str { "[{v.len()}]" }
   > }
   > fn main() {
-  >     let v: Vec<P> = vec_new()
+  >     let v: Vec<P> = Vec.new()
   >     println("{v}")
   > }
   > EOF

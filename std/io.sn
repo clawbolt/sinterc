@@ -21,7 +21,7 @@ pub fn write_bytes(b: Bytes) { print_bytes(b) }
 
 // 读标准输入直到结束，每行一个元素（去掉换行）。
 pub fn input_lines() -> Vec<Str> {
-    var out: Vec<Str> = vec_new()
+    var out: Vec<Str> = Vec.new()
     var go = true
     while go {
         match read_line() {

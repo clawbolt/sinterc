@@ -8,7 +8,7 @@ std.fs、std.env、std.process——目录、环境变量、子进程（原来�
   > use std.process
   > 
   > fn strs(sink a: Str, sink b: Str) -> Vec<Str> {
-  >     var v: Vec<Str> = vec_new()
+  >     var v: Vec<Str> = Vec.new()
   >     v.push(a)
   >     v.push(b)
   >     v
@@ -56,7 +56,7 @@ std.fs、std.env、std.process——目录、环境变量、子进程（原来�
   >         Ok(out) => println(out),
   >         Err(e) => println(e)
   >     }
-  >     let none: Vec<Str> = vec_new()
+  >     let none: Vec<Str> = Vec.new()
   >     match process.run("sinter-no-such-program", none) {
   >         Ok(c) => println("code {c}"),
   >         Err(e) => println("cannot start")

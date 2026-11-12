@@ -66,6 +66,11 @@
   编译器里 Str、Bytes、切片的三张方法表，Vec 的五个方法和各类型 `to_str` 的特判都去掉了，方法只按类型查找一种办法；
   核心部分里只转发一次的包装（`x.sqrt()`、`s.parse_i64()` 等）也改成 `intrinsic fn`。直接调用内建函数时的写法提示由这些声明生成。
   `intrinsic fn` 只能写在标准库的 `impl 类型 { … }` 里。
+- 类型函数（C72）：`impl 类型 { … }` 里第一个参数的类型不是头部的函数（没有参数、或者第一个参数是别的类型）不再报错，而是类型函数，
+  写成 `类型.函数(…)`：`Vec.new()`、`Bytes.new()`、`map.Map.new()`、`hashmap.HashMap.new()`、`bigint.BigInt.from_i64(x)`。
+  `vec_new()`、`bytes_new()` 不再预导入，标准库以外直接调用时提示写成 `Vec.new()`；`map.new()`、`hashmap.new()`、`bigint.zero()`、
+  `bigint.from_i64`、`bigint.parse` 换成对应的类型函数。类型函数不能当方法调用（`p.at()` 提示写成 `P.at(…)`）。
+  迁移：`migrate -w --types 文件…`。
 - 字符串的字面量标记和长度共用 8 字节，`Str` 保持 16 字节（C61 最初让它变成了 24 字节）。
 
 **验证**

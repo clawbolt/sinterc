@@ -11,7 +11,7 @@ fn tag(s: Str, n: I64) -> Str {
 fn main() {
     let a = "x"
     let b = tag(a, 1)
-    var v: Vec<Str> = vec_new()
+    var v: Vec<Str> = Vec.new()
     v.push(b)
     let m = Named { name: "y", n: 2 }
     if m.n > 1 {

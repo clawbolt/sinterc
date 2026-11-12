@@ -10,10 +10,13 @@ enum Tree<K, V> { Br(Node<K, V>), Leaf }
 // 根放在一个只有一个元素的 Vec 里：inout 参数不能把值移走，用 pop / push 把根取出来、放回去
 pub struct Map<K, V> { slot: Vec<Tree<K, V>>, n: I64 }
 
-pub fn new<K, V>() -> Map<K, V> {
-    var s: Vec<Tree<K, V>> = vec_new()
-    s.push(.Leaf)
-    Map { slot: s, n: 0 }
+impl<K, V> Map<K, V> {
+    // 空的 Map：Map.new()（模块外写 map.Map.new()，或者 use std.map { Map }）
+    fn new() -> Map<K, V> {
+        var s: Vec<Tree<K, V>> = Vec.new()
+        s.push(.Leaf)
+        Map { slot: s, n: 0 }
+    }
 }
 
 fn ht<K, V>(t: Tree<K, V>) -> I64 {

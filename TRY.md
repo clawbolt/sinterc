@@ -77,7 +77,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
   转义有 `\n`、`\r`、`\t`、`\\`、`\"`；字符字面量 `'a'`、`'中'`、`'\n'`。
 - **输入输出**：`println(s)` 换行，`print(s)` 不换行，别的类型用插值 `println("{x}")`；`io.write_byte(b)` 写一个原始字节（0–255）；
   `eprintln(s)`、`eprint(s)` 写到标准错误；`io.read_line()`、`env.args()`、`fs.read`、`fs.write`（见下面的标准库）。
-- **字节串 `Bytes`**：任意字节（0–255 的 I64），所有权和 `Str` 一样。`bytes_new()`、`b.len()`、`b.get(i)`、`b.set(i, x)`、
+- **字节串 `Bytes`**：任意字节（0–255 的 I64），所有权和 `Str` 一样。`Bytes.new()`、`b.len()`、`b.get(i)`、`b.set(i, x)`、
   `b.push(x)`、`b.append(c)`、`b.slice(a, b)`、`b.clone()`、`b.eq(c)`；`fs.read_bytes`、`fs.write_bytes` 读写二进制文件，
   `io.write_bytes(b)` 原样输出；`s.to_bytes()` 复制字符串的字节，`b.decode()` 只在合法的 UTF-8 时得到 `.Some(s)`。
 

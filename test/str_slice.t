@@ -18,7 +18,7 @@
   >     b.push_char('e')
   >     println(a)
   >     println(b)
-  >     var v: Vec<Str> = vec_new()
+  >     var v: Vec<Str> = Vec.new()
   >     for i in 0..3 {
   >         v.push("x")
   >     }
@@ -34,7 +34,7 @@
   >     bs.push(33)
   >     io.write_bytes(bs)
   >     println("")
-  >     var e = bytes_new()
+  >     var e = Bytes.new()
   >     e.push(65)
   >     io.write_bytes(e)
   >     println("")
@@ -115,7 +115,7 @@ examples/ok/str_slice.sn 是完整一些的例子（validate.sh 把它导出给 
   $ cat > escape.sn <<'EOF'
   > fn main() {
   >     arena |a| {
-  >         var keep: Vec<&str in a> = vec_new()
+  >         var keep: Vec<&str in a> = Vec.new()
   >         arena |b| {
   >             let v = text(b, "abc")
   >             keep.push(v)

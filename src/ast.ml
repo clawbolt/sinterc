@@ -187,3 +187,16 @@ let rec string_of_ty = function
 (* 内建方法（intrinsic fn）：编译成的函数名（例如 Str.len）→ (内建函数名, 参数, 返回类型, 类型参数, 位置)。
    modules.ml 登记（不生成函数），类型检查核对签名，方法调用直接换成内建函数。 *)
 let prims : (string, string * (mode * string * ty) list * ty * (string * bool) list * pos) Hashtbl.t = Hashtbl.create 64
+
+(* 类型的名字（不带类型实参）：Vec<I64> 是 Vec，map.Map<K, V> 是 map.Map。类型函数 T.f(…) 按它查找。 *)
+let type_head = function
+  | TVec _ -> "Vec"
+  | TApp (n, _) | TStruct n -> ( match String.index_opt n '<' with Some i -> String.sub n 0 i | None -> n)
+  | TBox _ -> "Box"
+  | TResult _ -> "Result"
+  | (TI64 | TF64 | TChar | TBool | TStr | TBytes) as t -> string_of_ty t
+  | _ -> ""
+
+(* 类型函数（impl 类型 { … } 里第一个参数不是接收者的函数，例如 Vec.new()、map.Map.new()）：
+   类型的名字.函数名 → (调用的函数：生成的函数或者内建函数, 位置)。modules.ml 登记，调用 T.f(…) 在改名时直接换成它。 *)
+let statics : (string, string * pos) Hashtbl.t = Hashtbl.create 16

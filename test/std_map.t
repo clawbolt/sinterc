@@ -6,7 +6,7 @@ std.map，存成 AVL 树的有序映射（Lean `Library.TreeMap`：中序遍历�
   > use std.map
   > 
   > fn main() {
-  >     var m: map.Map<I64, I64> = map.new()
+  >     var m: map.Map<I64, I64> = map.Map.new()
   >     for i in 0..1023 {
   >         let o = m.insert(i, i * i)
   >     }
@@ -70,7 +70,7 @@ std.map，存成 AVL 树的有序映射（Lean `Library.TreeMap`：中序遍历�
   > use std.map
   > 
   > fn main() {
-  >     var m: map.Map<Str, Str> = map.new()
+  >     var m: map.Map<Str, Str> = map.Map.new()
   >     let o1 = m.insert("pear", "梨")
   >     let o2 = m.insert("apple", "苹果")
   >     let o3 = m.insert("fig", "无花果")

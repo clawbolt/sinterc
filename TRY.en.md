@@ -95,7 +95,7 @@ The C compiler is taken from `$CC` (default: `cc`).
   literals look like `'a'`, `'中'`, `'\n'`.
 - **I/O**: `println(s)` adds a newline, `print(s)` does not, other types go through interpolation `println("{x}")`; `io.write_byte(b)` writes one raw byte (0–255);
   `eprintln(s)`, `eprint(s)` write to standard error; `io.read_line()`, `env.args()`, `fs.read`, `fs.write` (see the standard library below).
-- **Byte strings `Bytes`**: arbitrary bytes (I64 values 0–255), owned like `Str`. `bytes_new()`, `b.len()`, `b.get(i)`,
+- **Byte strings `Bytes`**: arbitrary bytes (I64 values 0–255), owned like `Str`. `Bytes.new()`, `b.len()`, `b.get(i)`,
   `b.set(i, x)`, `b.push(x)`, `b.append(c)`, `b.slice(a, b)`, `b.clone()`, `b.eq(c)`; `fs.read_bytes` and `fs.write_bytes`
   read and write binary files, `io.write_bytes(b)` writes them as they are; `s.to_bytes()` copies the bytes of a string,
   and `b.decode()` gives `.Some(s)` only for valid UTF-8.

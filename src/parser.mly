@@ -540,6 +540,9 @@ expr:
   | e = expr DOT f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN
     { mk (Call ("." ^ f, e :: args)) $startpos(f) }
   | e = expr QUESTION { mk (Try e) $startpos($2) }
+  (* 类型函数 T.f(…)（例如 Vec.new()、map.Map.new()）：":" 开头，modules.ml 按类型的名字换成对应的函数 *)
+  | n = UIDENT DOT f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN
+    { mk (Call (":" ^ n ^ "." ^ f, args)) $startpos }
   | n = UIDENT LPAREN a = expr RPAREN
     { match n with
       | "Ok" | "Err" -> mk (Variant (n, Some a)) $startpos

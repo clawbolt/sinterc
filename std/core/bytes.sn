@@ -1,6 +1,7 @@
-// 预导入：Bytes（任意字节）的方法。intrinsic fn 是编译器实现的（= 后面是内建函数），签名由编译器检查。
+// 预导入：Bytes（任意字节）的类型函数和方法。intrinsic fn 是编译器实现的（= 后面是内建函数），签名由编译器检查。Bytes.new() 是空的 Bytes。
 
 impl Bytes {
+    intrinsic fn new() -> Bytes = bytes_new
     intrinsic fn len(b: Bytes) -> I64 = bytes_len
 
     // 第 i 个字节（0 到 255）；越界时 panic。

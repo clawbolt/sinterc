@@ -17,7 +17,7 @@ fn main() {
         .None => "."
     }
     println("{count_files(home)}")
-    var args: Vec<Str> = vec_new()
+    var args: Vec<Str> = Vec.new()
     args.push("hi")
     match process.run("echo", args) {
         Ok(c) => if c != 0 { env.exit(c) },

@@ -54,7 +54,7 @@
   >     println("{c.show()}")
   >     println("{twice(c)}")
   >     println("{4.show()}")
-  >     var v: Vec<Box<I64>> = vec_new()
+  >     var v: Vec<Box<I64>> = Vec.new()
   >     v.push(box(1))
   >     v.push(box(2))
   >     println("{v.len()}")
@@ -121,7 +121,7 @@ get 的投影还活着时 push（和 v[i] / push 一样）：
 
   $ cat > lock.sn <<'EOF'
   > fn main() {
-  >     var v: Vec<Box<I64>> = vec_new()
+  >     var v: Vec<Box<I64>> = Vec.new()
   >     v.push(box(1))
   >     let e = v.get(0)
   >     v.push(box(2))

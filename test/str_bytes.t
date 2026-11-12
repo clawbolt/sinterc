@@ -26,7 +26,7 @@ str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`�
   > }
   > 
   > fn main() {
-  >     var b = bytes_new()
+  >     var b = Bytes.new()
   >     b.push(0)
   >     b.push(255)
   >     b.push(10)
@@ -51,17 +51,17 @@ str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`�
   >     check(u)
   >     u.append(t.slice(3, 4))
   >     check(u)
-  >     var w = bytes_new()
+  >     var w = Bytes.new()
   >     w.push(239)
   >     w.push(191)
   >     w.push(189)
   >     check(w)
   >     let c = b.clone()
-  >     var all: Vec<Bytes> = vec_new()
+  >     var all: Vec<Bytes> = Vec.new()
   >     all.push(c)
   >     all.push(t)
   >     println("{all.len()} {all[1].len()}")
-  >     var o = bytes_new()
+  >     var o = Bytes.new()
   >     o.push(104)
   >     o.push(105)
   >     o.push(10)
@@ -86,7 +86,7 @@ str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`�
 
   $ cat > big.sn <<'EOF'
   > fn main() {
-  >     var b = bytes_new()
+  >     var b = Bytes.new()
   >     b.push(256)
   > }
   > EOF
@@ -110,7 +110,7 @@ Bytes 只能移动；== 不能比较字节串：
 
   $ cat > moved.sn <<'EOF'
   > fn main() {
-  >     let a = bytes_new()
+  >     let a = Bytes.new()
   >     let b = a
   >     println("{a.len()}")
   > }
@@ -120,8 +120,8 @@ Bytes 只能移动；== 不能比较字节串：
 
   $ cat > eq.sn <<'EOF'
   > fn main() {
-  >     let a = bytes_new()
-  >     let b = bytes_new()
+  >     let a = Bytes.new()
+  >     let b = Bytes.new()
   >     println("{a == b}")
   > }
   > EOF

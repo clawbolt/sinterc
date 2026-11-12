@@ -71,7 +71,7 @@ impl &str in r {
     // 按 sep 切开（sep 不能为空）：n 个 sep 得到 n + 1 段，段可以是空的。
     fn split(v: &str in r, sep: Str) -> Vec<&str in r> {
         if str_len(sep) == 0 { panic("split 的分隔符不能为空") }
-        var out: Vec<&str in r> = vec_new()
+        var out: Vec<&str in r> = Vec.new()
         var start = 0
         var i = view_find(v, sep, 0)
         while i >= 0 {
@@ -85,7 +85,7 @@ impl &str in r {
 
     // 按行切开：去掉行尾的 \n 和 \r\n；最后一行后面有没有换行都一样，空的切片没有行。
     fn lines(v: &str in r) -> Vec<&str in r> {
-        var out: Vec<&str in r> = vec_new()
+        var out: Vec<&str in r> = Vec.new()
         let n = v.len()
         var start = 0
         while start < n {

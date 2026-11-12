@@ -1,6 +1,6 @@
 // C31：break / continue 跳走之前析构循环里的值、释放循环里的区域。
 fn main() {
-    var v: Vec<Box<I64>> = vec_new()
+    var v: Vec<Box<I64>> = Vec.new()
     for i in 0..5 {
         v.push(box(i))
     }

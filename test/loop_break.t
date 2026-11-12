@@ -25,11 +25,11 @@ break 和 continue。break 跳出最内层的循环，continue 进入它的下�
   >         if n > 2 { break }
   >     }
   >     println("{n}")
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     for i in 0..5 { v.push(i * 3) }
   >     println("{find(v, 9)}")
   >     println("{find(v, 4)}")
-  >     var names: Vec<Str> = vec_new()
+  >     var names: Vec<Str> = Vec.new()
   >     names.push("甲")
   >     names.push("乙")
   >     names.push("丙")

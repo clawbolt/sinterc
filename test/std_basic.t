@@ -23,7 +23,7 @@ std.vec、std.math、std.map、std.hashmap、std.bigint。标准库的代码和�
   >     println("x".parse_i64().is_none().to_str())
   >     println(parse("7").is_ok().to_str())
   >     println(parse("oops").unwrap_or(0).to_str())
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     v.push(3)
   >     v.push(1)
   >     v.push(4)
@@ -34,7 +34,7 @@ std.vec、std.math、std.map、std.hashmap、std.bigint。标准库的代码和�
   >     v.reverse()
   >     println("{v[0]}")
   >     let parts = "a, b ,c".split(",")
-  >     var trimmed: Vec<Str> = vec_new()
+  >     var trimmed: Vec<Str> = Vec.new()
   >     for p in parts {
   >         trimmed.push(p.trim())
   >     }

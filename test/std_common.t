@@ -26,7 +26,7 @@ I64 的 gcd、lcm；std.fs 的 read_lines、write_lines 和 std.io 的 input_lin
   >         println("[{l}]")
   >     }
   >     show(vec.range(5))
-  >     var d: Vec<I64> = vec_new()
+  >     var d: Vec<I64> = Vec.new()
   >     d.push(1)
   >     d.push(1)
   >     d.push(2)
@@ -50,7 +50,7 @@ I64 的 gcd、lcm；std.fs 的 read_lines、write_lines 和 std.io 的 input_lin
   >         .Some(i) => println("10 在 {i}"),
   >         .None => println("没有 10")
   >     }
-  >     var f: Vec<F64> = vec_new()
+  >     var f: Vec<F64> = Vec.new()
   >     f.push(0.5)
   >     f.push(1.25)
   >     f.push(2.0)
@@ -58,7 +58,7 @@ I64 的 gcd、lcm；std.fs 的 read_lines、write_lines 和 std.io 的 input_lin
   >     println("{(12).gcd(-18)}")
   >     println("{(4).lcm(6)}")
   >     println("{(0).gcd(0)}")
-  >     var ls: Vec<Str> = vec_new()
+  >     var ls: Vec<Str> = Vec.new()
   >     ls.push("第一行")
   >     ls.push("second")
   >     match fs.write_lines("out.txt", ls) {

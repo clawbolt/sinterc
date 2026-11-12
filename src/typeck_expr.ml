@@ -46,7 +46,7 @@ and check1 env want (x : expr) : t =
       | TVec t ->
           vec_inst x "new" t;
           Ty want
-      | _ -> err x.pos "这里需要 %s，vec_new() 是 Vec" (string_of_ty want))
+      | _ -> err x.pos "这里需要 %s，Vec.new() 是 Vec" (string_of_ty want))
   | Call (f, args) when not (List.mem f special) ->
       let t = call env (Some want) x f args in
       expect x.pos want t;
@@ -197,7 +197,7 @@ and expr1 env (x : expr) : t =
       | Ty t -> err v.pos "%s 的第一个参数必须是字符串切片 &str in …，%s 不是" f (string_of_ty t))
   | Call (f, []) when List.mem_assoc f view_sigs -> err pos "%s 的参数个数不对" f
   | Call ("vec_new", []) ->
-      err pos "无法确定 vec_new() 的元素类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方"
+      err pos "无法确定 Vec.new() 的元素类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方"
   | Call (("vec_push" | "vec_pop" | "vec_len" | "vec_get" | "vec_swap") as f, v :: rest) -> (
       match expr env v, f, rest with
       | Never, _, _ -> Never
@@ -308,7 +308,9 @@ and trait_method env (x : expr) t base m =
       match cands with
       | [ (_, k) ] -> k
       | _ ->
-          if Hashtbl.mem env.fns m || List.mem_assoc m builtins then
+          if Hashtbl.mem Ast.statics (type_head t ^ "." ^ base) then
+            err x.pos "%s 没有方法 %s（%s 是类型函数：写成 %s.%s(…)）" (string_of_ty t) base base (type_head t) base
+          else if Hashtbl.mem env.fns m || List.mem_assoc m builtins then
             err x.pos "%s 没有方法 %s（%s 是普通函数：写成 %s(…)，或者放进 impl %s { … }）" (string_of_ty t) base base base
               (string_of_ty t)
           else err x.pos "%s 没有方法 %s" (string_of_ty t) base)

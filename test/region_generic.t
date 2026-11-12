@@ -33,7 +33,7 @@ inout 实参里的区域不能放宽（不变），否则被调用的函数能�
   >             println("{*pick(false, s, r)}")
   >             println("{*id(s) + *id(r)}")
   >         }
-  >         var v: Vec<&I64 in a> = vec_new()
+  >         var v: Vec<&I64 in a> = Vec.new()
   >         v.push(r)
   >         v.push(alloc(a, 2))
   >         v.push(id(alloc(a, 3)))

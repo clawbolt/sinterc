@@ -34,7 +34,7 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
   > }
   > 
   > fn main() {
-  >     var a: Vec<I64> = vec_new()
+  >     var a: Vec<I64> = Vec.new()
   >     a.push(5)
   >     a.push(3)
   >     a.push(8)
@@ -47,13 +47,13 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
   >     show(a)
   >     a.sort_by(|x, y| x > y)
   >     show(a)
-  >     var e: Vec<I64> = vec_new()
+  >     var e: Vec<I64> = Vec.new()
   >     e.sort()
   >     println("{e.len()}")
   >     e.push(4)
   >     e.sort()
   >     show(e)
-  >     var w: Vec<Str> = vec_new()
+  >     var w: Vec<Str> = Vec.new()
   >     w.push("pear")
   >     w.push("apple")
   >     w.push("fig")
@@ -62,7 +62,7 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
   >     for s in w {
   >         println(s)
   >     }
-  >     var ps: Vec<Person> = vec_new()
+  >     var ps: Vec<Person> = Vec.new()
   >     ps.push(Person { name: "Ann", age: 30 })
   >     ps.push(Person { name: "Bo", age: 25 })
   >     ps.push(Person { name: "Cy", age: 35 })
@@ -71,7 +71,7 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
   >     for p in ps {
   >         println("{p.name} {p.age}")
   >     }
-  >     var f: Vec<F64> = vec_new()
+  >     var f: Vec<F64> = Vec.new()
   >     f.push(3.0)
   >     f.push(-1.5)
   >     f.push(2.25)
@@ -82,8 +82,8 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
   >     }
   >     // 和插入排序对照：2000 个伪随机数
   >     var seed = 42
-  >     var b: Vec<I64> = vec_new()
-  >     var c: Vec<I64> = vec_new()
+  >     var b: Vec<I64> = Vec.new()
+  >     var c: Vec<I64> = Vec.new()
   >     for i in 0..2000 {
   >         let x = next(seed)
   >         b.push(x)

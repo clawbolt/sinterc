@@ -27,7 +27,7 @@
   >             println(sum(Pair { a: r, b: s }).to_str())
   >             println("{get_or(some(s), 0)}")
   >         }
-  >         var v: Vec<&I64 in a> = vec_new()
+  >         var v: Vec<&I64 in a> = Vec.new()
   >         v.push(r)
   >         v.push(alloc(a, 5))
   >         match v.pop() {

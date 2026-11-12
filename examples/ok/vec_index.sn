@@ -3,7 +3,7 @@
 use std.io
 
 fn sieve(n: I64) -> Vec<Bool> {
-    var s: Vec<Bool> = vec_new()
+    var s: Vec<Bool> = Vec.new()
     for i in 0..n + 1 { s.push(true) }
     s[0] = false
     s[1] = false
@@ -27,7 +27,7 @@ fn main() {
         if s[i] { print("{i} ") }
     }
     io.write_byte(10)
-    var names: Vec<Str> = vec_new()
+    var names: Vec<Str> = Vec.new()
     names.push("a")
     names.push("b")
     names[1] = "B"

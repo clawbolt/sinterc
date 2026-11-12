@@ -29,7 +29,7 @@
   >     let s = swap(("左", 5))
   >     println("{s.0}")
   >     println(s.1)
-  >     var names: Vec<(Str, I64)> = vec_new()
+  >     var names: Vec<(Str, I64)> = Vec.new()
   >     names.push(("ann", 31))
   >     names.push(("bob", 27))
   >     for x in names {

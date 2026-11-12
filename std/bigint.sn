@@ -2,7 +2,8 @@
 // 各位的加、减、乘、比较、除以小数和 `Library.BigInt` 的 addL、subL、mul1 / mulL、cmpL、divS 一一对应，结果都经过 make
 // （`Library.BigInt` 的 norm：去掉高位的 0，值是 0 时符号取正），所以每个数只有一种写法。
 // 一位乘一位再加进位不超过 10^18，I64 不会溢出；除以小数时余数乘 10^9 再加一位也不超过 10^18。
-// 实现了 Eq 和 Ord，可以用 a.eq(b)、a.cmp(b)，也可以用 v.sort() 排序。构造用 bigint.zero()、bigint.from_i64(x)、bigint.parse(s)，
+// 实现了 Eq 和 Ord，可以用 a.eq(b)、a.cmp(b)，也可以用 v.sort() 排序。构造用类型函数 BigInt.zero()、BigInt.from_i64(x)、BigInt.parse(s)
+// （模块外写 bigint.BigInt.from_i64(x)，或者 use std.bigint { BigInt }），
 // 运算是方法：a.add(b)、a.mul(b)、a.pow(e)…；转成字符串用 a.to_str() 或 "{a}"。
 
 pub struct BigInt { neg: Bool, mag: Vec<I64> }
@@ -13,7 +14,7 @@ fn base() -> I64 { 1000000000 }
 fn digit(v: Vec<I64>, i: I64) -> I64 { if i < v.len() { v[i] } else { 0 } }
 
 fn copy(v: Vec<I64>) -> Vec<I64> {
-    var r: Vec<I64> = vec_new()
+    var r: Vec<I64> = Vec.new()
     for x in v { r.push(x) }
     r
 }
@@ -35,7 +36,7 @@ fn make(minus: Bool, sink mag: Vec<I64>) -> BigInt {
 
 // `Library.BigInt` 的 addL：逐位相加带进位
 fn add_mag(a: Vec<I64>, b: Vec<I64>) -> Vec<I64> {
-    var r: Vec<I64> = vec_new()
+    var r: Vec<I64> = Vec.new()
     var c = 0
     for i in 0..a.len().max(b.len()) {
         let x = digit(a, i) + digit(b, i) + c
@@ -48,7 +49,7 @@ fn add_mag(a: Vec<I64>, b: Vec<I64>) -> Vec<I64> {
 
 // `Library.BigInt` 的 subL：逐位相减带借位，要求 a 不小于 b
 fn sub_mag(a: Vec<I64>, b: Vec<I64>) -> Vec<I64> {
-    var r: Vec<I64> = vec_new()
+    var r: Vec<I64> = Vec.new()
     var br = 0
     for i in 0..a.len() {
         var x = a[i] - digit(b, i) - br
@@ -65,7 +66,7 @@ fn sub_mag(a: Vec<I64>, b: Vec<I64>) -> Vec<I64> {
 
 // `Library.BigInt` 的 mul1：乘一位
 fn mul1(a: Vec<I64>, d: I64) -> Vec<I64> {
-    var r: Vec<I64> = vec_new()
+    var r: Vec<I64> = Vec.new()
     var c = 0
     for x in a {
         let y = x * d + c
@@ -78,10 +79,10 @@ fn mul1(a: Vec<I64>, d: I64) -> Vec<I64> {
 
 // `Library.BigInt` 的 mulL：从 b 的最高位开始，acc = mul1(a, b[j]) + acc 左移一位
 fn mul_mag(a: Vec<I64>, b: Vec<I64>) -> Vec<I64> {
-    var acc: Vec<I64> = vec_new()
+    var acc: Vec<I64> = Vec.new()
     var j = b.len() - 1
     while j >= 0 {
-        var s: Vec<I64> = vec_new()
+        var s: Vec<I64> = Vec.new()
         s.push(0)
         for x in acc { s.push(x) }
         acc = add_mag(mul1(a, b[j]), s)
@@ -103,18 +104,20 @@ fn cmp_mag(a: Vec<I64>, b: Vec<I64>) -> I64 {
     0
 }
 
-pub fn zero() -> BigInt { BigInt { neg: false, mag: vec_new() } }
+impl BigInt {
+    fn zero() -> BigInt { BigInt { neg: false, mag: Vec.new() } }
 
-// 负数逐位取 -(y % 10^9)，不先取绝对值，所以 I64 最小的数也不会溢出
-pub fn from_i64(x: I64) -> BigInt {
-    var m: Vec<I64> = vec_new()
-    var y = x
-    while y != 0 {
-        let d = y % base()
-        if d < 0 { m.push(-d) } else { m.push(d) }
-        y = y / base()
+    // 负数逐位取 -(y % 10^9)，不先取绝对值，所以 I64 最小的数也不会溢出
+    fn from_i64(x: I64) -> BigInt {
+        var m: Vec<I64> = Vec.new()
+        var y = x
+        while y != 0 {
+            let d = y % base()
+            if d < 0 { m.push(-d) } else { m.push(d) }
+            y = y / base()
+        }
+        make(x < 0, m)
     }
-    make(x < 0, m)
 }
 
 impl BigInt {
@@ -151,7 +154,7 @@ impl BigInt {
 
     fn pow(a: BigInt, e: I64) -> BigInt {
         if e < 0 { panic("BigInt 的 pow 的指数不能是负数") }
-        var r = from_i64(1)
+        var r = BigInt.from_i64(1)
         var b = a.clone()
         var k = e
         while k > 0 {
@@ -166,7 +169,7 @@ impl BigInt {
     fn divmod_small(a: BigInt, d: I64) -> (BigInt, I64) {
         if d < 1 || d > base() { panic("BigInt 的 divmod_small 的除数要在 1 到 1000000000 之间") }
         let n = a.mag.len()
-        var q: Vec<I64> = vec_new()
+        var q: Vec<I64> = Vec.new()
         for i in 0..n { q.push(0) }
         var r = 0
         var i = n - 1
@@ -202,32 +205,34 @@ pub fn to_str(a: BigInt) -> Str {
     s
 }
 
-// 十进制，可以有一个正负号（45 是 '-'，43 是 '+'），后面至少一个数字；格式不对时 .None。
-// 从末尾起每 9 个数字是一位。
-pub fn parse(s: Str) -> Option<BigInt> {
-    let n = s.len()
-    var start = 0
-    var minus = false
-    if n > 0 && (s.byte(0) == 45 || s.byte(0) == 43) {
-        minus = s.byte(0) == 45
-        start = 1
-    }
-    if start == n { return .None }
-    for i in start..n {
-        let c = s.byte(i)
-        if c < 48 || c > 57 { return .None }
-    }
-    var m: Vec<I64> = vec_new()
-    var j = n
-    while j > start {
-        let k = (j - 9).max(start)
-        match s.slice(k, j).parse_i64() {
-            .Some(d) => m.push(d),
-            .None => ()
+impl BigInt {
+    // 十进制，可以有一个正负号（45 是 '-'，43 是 '+'），后面至少一个数字；格式不对时 .None。
+    // 从末尾起每 9 个数字是一位。
+    fn parse(s: Str) -> Option<BigInt> {
+        let n = s.len()
+        var start = 0
+        var minus = false
+        if n > 0 && (s.byte(0) == 45 || s.byte(0) == 43) {
+            minus = s.byte(0) == 45
+            start = 1
         }
-        j = k
+        if start == n { return .None }
+        for i in start..n {
+            let c = s.byte(i)
+            if c < 48 || c > 57 { return .None }
+        }
+        var m: Vec<I64> = Vec.new()
+        var j = n
+        while j > start {
+            let k = (j - 9).max(start)
+            match s.slice(k, j).parse_i64() {
+                .Some(d) => m.push(d),
+                .None => ()
+            }
+            j = k
+        }
+        .Some(make(minus, m))
     }
-    .Some(make(minus, m))
 }
 
 // 0 只有一种写法，所以相等就是符号和各位都相同

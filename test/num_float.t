@@ -23,7 +23,7 @@
   >     println("{1.5e3}")
   >     println("{-0.25}")
   >     println("{area(2.0)}")
-  >     var v: Vec<F64> = vec_new()
+  >     var v: Vec<F64> = Vec.new()
   >     v.push(1.0)
   >     v.push(2.5)
   >     v.push(4.0)

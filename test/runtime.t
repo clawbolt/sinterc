@@ -5,7 +5,7 @@ C 运行时在 runtime/ 下，sinterc 原样放进生成的 C 文件：sinter.h 
   $ cc -std=gnu11 -fsyntax-only -Wall -Wno-unused-function -x c ../runtime/sinter.h
   $ cat > hello.sn <<'SN'
   > fn main() {
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     v.push(1)
   >     println("hi {v.len()}")
   > }

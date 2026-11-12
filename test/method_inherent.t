@@ -1,5 +1,5 @@
 类型自己的方法（Lean `Traits.Inherent`）。impl 类型 { … } 给一个类型加方法，类型可以是自己的结构体，也可以是内建的
-（I64、Str、Vec<T>、&str in a），还可以是具体的实例（Vec<I64> 和 Vec<F64> 各有一个 total）。第一个参数是接收者，
+（I64、Str、Vec<T>、&str in a），还可以是具体的实例（Vec<I64> 和 Vec<F64> 各有一个 total）。第一个参数的类型是头部的是方法，它是接收者，
 参数约定照常写；签名里可以用 Self。方法调用按接收者的类型查找，找不到再按原来的规则（内建的方法、trait 的方法、同名函数）。
 
 结构体、I64、Vec 的两个实例、泛型的 Vec<T>（方法可以有 fn(…) 参数）、Str、字符串切片（区域跟着接收者走）：
@@ -57,12 +57,12 @@
   >     println("{p.norm1()}")
   >     p.shift(10)
   >     println("{p.norm1()}")
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     v.push(1)
   >     v.push(2)
   >     v.push(3)
   >     println("{v.total()}")
-  >     var w: Vec<F64> = vec_new()
+  >     var w: Vec<F64> = Vec.new()
   >     w.push(1.5)
   >     w.push(2.0)
   >     println("{w.total()}")
@@ -150,20 +150,49 @@
      |     ^
   [1]
 
-第一个参数是接收者：
+第一个参数的类型不是头部的是类型函数，写成 类型.函数(…)（像 Vec.new()）；它不能当方法调用：
 
   $ cat > recv.sn <<'EOF'
   > struct P { x: I64 }
   > impl P {
-  >     fn get(x: I64) -> I64 { x }
+  >     fn origin() -> P { P { x: 0 } }
+  >     fn at(x: I64) -> P { P { x: x } }
+  >     fn get(p: P) -> I64 { p.x }
   > }
   > fn main() {
+  >     let p = P.at(4)
+  >     println("{P.origin().get() + p.get()}")
   > }
   > EOF
-  $ sinterc recv.sn
-  recv.sn:3:5: 错误：方法 get 的第一个参数是接收者，类型要写成 P（或 Self）
-   3 |     fn get(x: I64) -> I64 { x }
-     |     ^
+  $ sinterc run recv.sn
+  4
+
+  $ cat > recv2.sn <<'EOF'
+  > struct P { x: I64 }
+  > impl P {
+  >     fn at(x: I64) -> P { P { x: x } }
+  > }
+  > fn main() {
+  >     let p = P.at(4)
+  >     let q = p.at()
+  > }
+  > EOF
+  $ sinterc recv2.sn
+  recv2.sn:7:15: 错误：P 没有方法 at（at 是类型函数：写成 P.at(…)）
+   7 |     let q = p.at()
+     |               ^
+  [1]
+
+  $ cat > recv3.sn <<'EOF'
+  > struct P { x: I64 }
+  > fn main() {
+  >     let p = P.make()
+  > }
+  > EOF
+  $ sinterc recv3.sn
+  recv3.sn:3:13: 错误：P 没有类型函数 make
+   3 |     let p = P.make()
+     |             ^
   [1]
 
 不能给类型参数本身写方法：

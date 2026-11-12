@@ -15,10 +15,10 @@ for x in v 按借用依次取 Vec 的每个元素：可复制的元素复制，�
   >     for i in 0..3 {
   >         println("{i}")
   >     }
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     for i in 1..5 { v.push(i * i) }
   >     println("{sum(v)}")
-  >     var names: Vec<Str> = vec_new()
+  >     var names: Vec<Str> = Vec.new()
   >     names.push("甲")
   >     names.push("乙")
   >     for n in names {
@@ -65,7 +65,7 @@ for x in v 按借用依次取 Vec 的每个元素：可复制的元素复制，�
 
   $ cat > lock.sn <<'EOF'
   > fn main() {
-  >     var v: Vec<Str> = vec_new()
+  >     var v: Vec<Str> = Vec.new()
   >     v.push("a")
   >     for s in v {
   >         v.push("b")
@@ -83,7 +83,7 @@ for x in v 按借用依次取 Vec 的每个元素：可复制的元素复制，�
 
   $ cat > tmp.sn <<'EOF'
   > fn make() -> Vec<I64> {
-  >     var v: Vec<I64> = vec_new()
+  >     var v: Vec<I64> = Vec.new()
   >     v.push(1)
   >     v.push(2)
   >     v

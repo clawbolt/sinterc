@@ -7,7 +7,7 @@
   > 
   > struct P { x: I64, name: Str }
   > fn sieve(n: I64) -> Vec<Bool> {
-  >     var s: Vec<Bool> = vec_new()
+  >     var s: Vec<Bool> = Vec.new()
   >     for i in 0..n + 1 { s.push(true) }
   >     s[0] = false
   >     s[1] = false
@@ -34,21 +34,21 @@
   >         }
   >     }
   >     println(out)
-  >     var names: Vec<Str> = vec_new()
+  >     var names: Vec<Str> = Vec.new()
   >     names.push("a")
   >     names.push("b")
   >     names[1] = "B"
   >     names.get(0) = names[0].concat("!")
   >     println(names[0])
   >     println(names[1])
-  >     var ps: Vec<P> = vec_new()
+  >     var ps: Vec<P> = Vec.new()
   >     ps.push(P { x: 1, name: "p" })
   >     ps[0].x = ps[0].x + 41
   >     ps[0] = P { x: ps[0].x + 1, name: "q" }
   >     println("{ps[0].x} {ps[0].name}")
-  >     var m: Vec<Vec<I64>> = vec_new()
+  >     var m: Vec<Vec<I64>> = Vec.new()
   >     for i in 0..2 {
-  >         var row: Vec<I64> = vec_new()
+  >         var row: Vec<I64> = Vec.new()
   >         row.push(i)
   >         m.push(row)
   >     }
@@ -74,7 +74,7 @@
 
   $ cat > oob.sn <<'EOF'
   > fn main() {
-  >     var v: Vec<Str> = vec_new()
+  >     var v: Vec<Str> = Vec.new()
   >     v.push("a")
   >     v[3] = "x"
   > }
@@ -87,7 +87,7 @@ let 声明的 Vec 不能改：
 
   $ cat > let.sn <<'EOF'
   > fn main() {
-  >     let v: Vec<I64> = vec_new()
+  >     let v: Vec<I64> = Vec.new()
   >     v[0] = 1
   > }
   > EOF
@@ -101,9 +101,9 @@ let 声明的 Vec 不能改：
 
   $ cat > move.sn <<'EOF'
   > fn main() {
-  >     var v: Vec<Str> = vec_new()
+  >     var v: Vec<Str> = Vec.new()
   >     v.push("a")
-  >     var w: Vec<Str> = vec_new()
+  >     var w: Vec<Str> = Vec.new()
   >     w.push("b")
   >     w[0] = v[0]
   > }

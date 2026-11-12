@@ -3,18 +3,18 @@
 use std.bigint
 
 fn fact(n: I64) -> bigint.BigInt {
-    var r = bigint.from_i64(1)
+    var r = bigint.BigInt.from_i64(1)
     for i in 1..n + 1 {
-        r = r.mul(bigint.from_i64(i))
+        r = r.mul(bigint.BigInt.from_i64(i))
     }
     r
 }
 
 fn main() {
     println(fact(30).to_str())
-    println(bigint.from_i64(2).pow(100).to_str())
-    var a = bigint.zero()
-    var b = bigint.from_i64(1)
+    println(bigint.BigInt.from_i64(2).pow(100).to_str())
+    var a = bigint.BigInt.zero()
+    var b = bigint.BigInt.from_i64(1)
     for i in 0..100 {
         let c = a.add(b)
         a = b
