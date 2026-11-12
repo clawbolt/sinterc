@@ -38,7 +38,7 @@ v[i]、for、字符串插值展开出的内建调用不算用户写的。
   > }
   > EOF
   $ sinterc conv.sn
-  conv.sn:2:13: 错误：str_from_i64 是内建函数，标准库以外不能直接调用：写成 x.to_str() 或 "{x}"
+  conv.sn:2:13: 错误：str_from_i64 是内建函数，标准库以外不能直接调用：写成 n.to_str() 或 "{n}"
    2 |     let s = str_from_i64(3)
      |             ^
   [1]
@@ -81,5 +81,21 @@ v[i]、for、字符串插值展开出的内建调用不算用户写的。
   $ sinterc old.sn
   old.sn:2:5: 错误：print_i64 已经去掉了：写成 println("{x}")
    2 |     print_i64(3)
+     |     ^
+  [1]
+
+内建方法在核心部分里用 intrinsic fn 声明（例如 impl Str { intrinsic fn len(s: Str) -> I64 = str_len }），签名由编译器核对；
+标准库以外不能这样写：
+
+  $ cat > prim.sn <<'EOF2'
+  > struct P { x: I64 }
+  > impl P {
+  >     intrinsic fn size(p: P) -> I64 = str_len
+  > }
+  > fn main() {}
+  > EOF2
+  $ sinterc prim.sn
+  prim.sn:3:5: 错误：intrinsic fn 只能写在标准库里
+   3 |     intrinsic fn size(p: P) -> I64 = str_len
      |     ^
   [1]

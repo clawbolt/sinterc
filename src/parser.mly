@@ -399,7 +399,7 @@ item:
 fn_item:
   | FN n = IDENT tp = tparams LPAREN ps = separated_list(COMMA, param) RPAREN r = ret b = block
     { let tp, bs = split_tparams tp in
-      Fn { name = n; tparams = tp; bounds = bs; params = ps; ret = r; body = b; ipos = p $startpos } }
+      Fn { name = n; tparams = tp; bounds = bs; params = ps; ret = r; body = b; prim = None; ipos = p $startpos } }
 
 (* trait 里的方法签名；写了函数体的是默认方法 *)
 msigs:
@@ -412,6 +412,11 @@ msigs:
 impl_fns:
   | { [] }
   | f = fn_item nls fs = impl_fns { f :: fs }
+  (* 内建方法：intrinsic fn len(s: Str) -> I64 = str_len，没有函数体，只能写在标准库里（modules.ml 检查） *)
+  | k = IDENT FN n = IDENT tp = tparams LPAREN ps = separated_list(COMMA, param) RPAREN r = ret EQ b = IDENT nls fs = impl_fns
+    { if k <> "intrinsic" then raise (Syntax (p $startpos, Printf.sprintf "impl 里只能写 fn（%s 是什么？）" k));
+      let tp, bs = split_tparams tp in
+      Fn { name = n; tparams = tp; bounds = bs; params = ps; ret = r; body = { stmts = []; tail = None }; prim = Some b; ipos = p $startpos } :: fs }
 
 (* 类型参数：<T, U: linear, V: Show + Eq> *)
 tparams:

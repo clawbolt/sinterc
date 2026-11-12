@@ -1,6 +1,12 @@
 // 预导入：Char 的分类和大小写转换。只认 ASCII：'中'、'é' 既不是字母也不是数字，大小写转换原样返回。
 
 impl Char {
+    // Unicode 码点。
+    intrinsic fn code(sink c: Char) -> I64 = char_code
+
+    // UTF-8 编码的一个字符。
+    intrinsic fn to_str(sink c: Char) -> Str = str_from_char
+
     fn is_digit(c: Char) -> Bool { c >= '0' && c <= '9' }
 
     fn is_upper(c: Char) -> Bool { c >= 'A' && c <= 'Z' }

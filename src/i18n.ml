@@ -278,6 +278,11 @@ let table =
     ("%s 没有方法 %s（%s 是普通函数：写成 %s(…)，或者放进 impl %s { … }）",
      "{1} has no method {2} ({3} is a plain function: write {4}(…), or put it in impl {5} { … })");
     ("%s 没有方法 %s", "{1} has no method {2}");
+    ("intrinsic fn 只能写在标准库里", "intrinsic fn can only be written in the standard library");
+    ("intrinsic fn 只能写在 impl 类型 { … } 里，不能实现 trait", "intrinsic fn can only appear in impl Type { … }, not in a trait impl");
+    ("impl 里只能写 fn（%s 是什么？）", "only fn can appear in an impl (what is {1}?)");
+    ("%s 的声明和内建函数 %s 的签名不一致", "the declaration of {1} does not match the signature of built-in function {2}");
+    ("没有内建函数 %s", "there is no built-in function {1}");
     ("%s 已经去掉了：写成 %s", "{1} has been removed: write {2}");
     ("不能给 Arena 写方法", "methods cannot be defined on Arena");
     ("不能给函数类型写方法", "methods cannot be defined on a function type");

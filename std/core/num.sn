@@ -1,7 +1,9 @@
-// 预导入：I64、F64 的方法。
+// 预导入：I64、F64、Bool 的方法。intrinsic fn 是编译器实现的（= 后面是内建函数，签名由编译器检查）。
 // F64 按 IEEE 754：溢出得到 inf，0.0 / 0.0 得到 NaN；NaN 和任何数比较（包括自己）都不相等。
 
 impl I64 {
+    intrinsic fn to_str(sink n: I64) -> Str = str_from_i64
+
     // 最小的 I64 没有相反数，abs 会因为溢出而 panic。
     fn abs(n: I64) -> I64 { if n < 0 { -n } else { n } }
 
@@ -42,21 +44,24 @@ impl I64 {
         if a == 0 || b == 0 { 0 } else { (a / a.gcd(b) * b).abs() }
     }
 
-    fn to_f64(n: I64) -> F64 { to_f64(n) }
+    intrinsic fn to_f64(sink n: I64) -> F64 = to_f64
 
     // 码点 n 的字符；不是合法码点（负数、代理区、超过 0x10FFFF）时 .None。
-    fn to_char(n: I64) -> Option<Char> { char_from(n) }
+    intrinsic fn to_char(sink n: I64) -> Option<Char> = char_from
 }
 
 impl F64 {
-    fn sqrt(x: F64) -> F64 { f64_sqrt(x) }
+    // 能还原的最短写法，整数值带 .0（1.0、0.1、1e+20）。
+    intrinsic fn to_str(sink x: F64) -> Str = str_from_f64
 
-    fn floor(x: F64) -> F64 { f64_floor(x) }
+    intrinsic fn sqrt(sink x: F64) -> F64 = f64_sqrt
 
-    fn ceil(x: F64) -> F64 { f64_ceil(x) }
+    intrinsic fn floor(sink x: F64) -> F64 = f64_floor
+
+    intrinsic fn ceil(sink x: F64) -> F64 = f64_ceil
 
     // 四舍五入，正好在中间时远离 0（2.5 是 3.0，-2.5 是 -3.0）。
-    fn round(x: F64) -> F64 { f64_round(x) }
+    intrinsic fn round(sink x: F64) -> F64 = f64_round
 
     fn abs(x: F64) -> F64 { if x < 0.0 { -x } else { x } }
 
@@ -64,7 +69,7 @@ impl F64 {
 
     fn max(a: F64, b: F64) -> F64 { if a > b { a } else { b } }
 
-    fn is_nan(x: F64) -> Bool { f64_is_nan(x) }
+    intrinsic fn is_nan(sink x: F64) -> Bool = f64_is_nan
 
     // b 的 e 次方（e 是整数，可以是负数）。
     fn powi(b: F64, e: I64) -> F64 {
@@ -79,5 +84,9 @@ impl F64 {
     }
 
     // 向 0 取整；NaN 和超出 I64 范围的数 panic。
-    fn to_i64(x: F64) -> I64 { to_i64(x) }
+    intrinsic fn to_i64(sink x: F64) -> I64 = to_i64
+}
+
+impl Bool {
+    intrinsic fn to_str(sink b: Bool) -> Str = str_from_bool
 }

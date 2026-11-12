@@ -1,9 +1,28 @@
-// 预导入：Bytes（任意字节）的方法。len、get、set、push、append、slice、clone、eq 还是编译器的内建方法。
+// 预导入：Bytes（任意字节）的方法。intrinsic fn 是编译器实现的（= 后面是内建函数），签名由编译器检查。
 
 impl Bytes {
+    intrinsic fn len(b: Bytes) -> I64 = bytes_len
+
+    // 第 i 个字节（0 到 255）；越界时 panic。
+    intrinsic fn get(b: Bytes, sink i: I64) -> I64 = bytes_get
+
+    // 把第 i 个字节换成 x（0 到 255，否则 panic）。
+    intrinsic fn set(inout b: Bytes, sink i: I64, sink x: I64) = bytes_set
+
+    intrinsic fn push(inout b: Bytes, sink x: I64) = bytes_push
+
+    intrinsic fn append(inout b: Bytes, c: Bytes) = bytes_append
+
+    // [i, j) 的新字节串；越界时 panic。
+    intrinsic fn slice(b: Bytes, sink i: I64, sink j: I64) -> Bytes = bytes_slice
+
+    intrinsic fn clone(b: Bytes) -> Bytes = bytes_clone
+
+    intrinsic fn eq(b: Bytes, c: Bytes) -> Bool = bytes_eq
+
     fn is_empty(b: Bytes) -> Bool { bytes_len(b) == 0 }
 
     // 按 UTF-8 解码：只在是合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`）。
     // 不叫 to_str：字符串插值 "{x}" 用 to_str，它要返回 Str。
-    fn decode(b: Bytes) -> Option<Str> { str_from_utf8(b) }
+    intrinsic fn decode(b: Bytes) -> Option<Str> = str_from_utf8
 }

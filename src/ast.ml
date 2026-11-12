@@ -107,6 +107,7 @@ type item =
       params : (mode * string * ty) list;
       ret : ty;
       body : block;
+      prim : string option;   (* intrinsic fn … = 内建函数：没有函数体，调用换成这个内建函数（只在标准库里） *)
       ipos : pos;
     }
   | Trait of { name : string; methods : msig list; ipos : pos }   (* 方法签名里可以用 Self *)
@@ -182,3 +183,7 @@ let rec string_of_ty = function
   | TOFn (ps, r) ->
       let m = function MLet -> "" | MInout -> "inout " | MSink -> "sink " in
       "Fn(" ^ String.concat ", " (List.map (fun (md, t) -> m md ^ string_of_ty t) ps) ^ ") -> " ^ string_of_ty r
+
+(* 内建方法（intrinsic fn）：编译成的函数名（例如 Str.len）→ (内建函数名, 参数, 返回类型, 类型参数, 位置)。
+   modules.ml 登记（不生成函数），类型检查核对签名，方法调用直接换成内建函数。 *)
+let prims : (string, string * (mode * string * ty) list * ty * (string * bool) list * pos) Hashtbl.t = Hashtbl.create 64

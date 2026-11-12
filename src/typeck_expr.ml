@@ -273,30 +273,18 @@ and expr1 env (x : expr) : t =
 
 (* 函数调用。want：期望的返回类型（知道时用来推断泛型函数的类型实参）。 *)
 (* 方法调用 r.f(…) 的函数名：先按接收者的类型找类型自己的方法（Lean `Traits.Inherent`，在定义处查一次，
-   实例沿用这里的结果）；没有时接收者是 Vec 的 push / pop / len / get 是内建的 vec_…，
-   是 Str 时 len / eq / concat / push / clone / to_i64 / byte / slice 是内建的 str_…，否则是函数 f。
-   f 可能已经被 modules.ml 换成了带模块前缀的名字，找方法时用最后一段。 *)
+   实例沿用这里的结果）；是核心部分里的 intrinsic fn 时换成它的内建函数（s.len() 就是 str_len(s)），
+   否则找 trait 的方法。f 可能已经被 modules.ml 换成了带模块前缀的名字，找方法时用最后一段。 *)
 and method_name env (x : expr) f (r : expr) =
   let m = String.sub f 1 (String.length f - 1) in
   let base = match String.rindex_opt m '.' with Some i -> String.sub m (i + 1) (String.length m - i - 1) | None -> m in
   let rt = expr env r in
   let g =
-    match (match rt with Ty t -> find_inherent base t | Never -> None), rt, m with
-    | Some g, _, _ -> g
-    | None, Ty (TVec _), ("push" | "pop" | "len" | "get" | "swap") -> "vec_" ^ m
-    | None, Ty TStr, m when List.mem m str_methods -> "str_" ^ m
-    | None, Ty TBytes, m when List.mem m bytes_methods -> "bytes_" ^ m
-    | None, Ty (TRef (TView, _)), m when List.mem m view_methods -> "view_" ^ m
-    | None, Ty TChar, "code" -> "char_code"
-    (* x.to_str()，也是字符串插值 "{x}" 用的 *)
-    | None, Ty TI64, "to_str" -> "str_from_i64"
-    | None, Ty TF64, "to_str" -> "str_from_f64"
-    | None, Ty TChar, "to_str" -> "str_from_char"
-    | None, Ty TBool, "to_str" -> "str_from_bool"
-    | None, Ty TStr, "to_str" -> "str_clone"
-    | None, Ty (TOFn _ as t), "call" -> fcall_name env.fns t   (* f.call(x)：字段、Vec 元素里的闭包也能这样调用 *)
-    | None, Ty t, _ -> trait_method env x t base m
-    | None, Never, _ -> m
+    match (match rt with Ty t -> find_inherent base t | Never -> None), rt with
+    | Some g, _ -> ( match Hashtbl.find_opt Ast.prims g with Some (b, _, _, _, _) -> b | None -> g)
+    | None, Ty (TOFn _ as t) when base = "call" -> fcall_name env.fns t   (* f.call(x)：字段、Vec 元素里的闭包也能这样调用 *)
+    | None, Ty t -> trait_method env x t base m
+    | None, Never -> m
   in
   Hashtbl.replace method_res x.id g;
   g
@@ -427,7 +415,7 @@ and lambda env (a : expr) ys body pts r : closure * t =
         let b = match body.e with Block b -> b | _ -> { stmts = []; tail = Some body } in
         let body = map_body ~fresh:true (fun _ t -> rename s t) b in
         Queue.add
-          (Fn { name = cname; tparams = []; bounds = []; params; ret = r; body; ipos = pos }, [], [], rord)
+          (Fn { name = cname; tparams = []; bounds = []; params; ret = r; body; prim = None; ipos = pos }, [], [], rord)
           pending_items
       end
   | _ -> if not !concrete then Hashtbl.replace skip_lower !cur_fn ());

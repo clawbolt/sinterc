@@ -1,8 +1,22 @@
-// 预导入：Vec<T> 的方法。push、pop、len、get、swap 和 v[i] 还是编译器的内建方法（get 是位置，不是调用）。
-// 接收闭包的方法（Lean `Closures.Param`）：闭包只能当实参传，可以读、改外面的变量，例如
+// 预导入：Vec<T> 的方法。intrinsic fn 是编译器实现的（= 后面是内建函数）；它们的元素类型不固定，类型由编译器单独检查，这里的签名是说明。
+// v[i] 是位置（可以读、借用、赋值），v.get(i) 同 v[i]。接收闭包的方法（Lean `Closures.Param`）：闭包只能当实参传，可以读、改外面的变量，例如
 //   v.map(|x| x * k)、v.for_each(|x| { total = total + x })。
 
 impl<T> Vec<T> {
+    intrinsic fn len(v: Vec<T>) -> I64 = vec_len
+
+    // 放到末尾（容量不够时翻倍）。
+    intrinsic fn push(inout v: Vec<T>, sink x: T) = vec_push
+
+    // 拿走最后一个；空的时候是 .None。
+    intrinsic fn pop(inout v: Vec<T>) -> Option<T> = vec_pop
+
+    // 交换第 i、j 个元素；越界时 panic（Lean `Datatypes.VecSwap`）。
+    intrinsic fn swap(inout v: Vec<T>, sink i: I64, sink j: I64) = vec_swap
+
+    // 第 i 个元素这个位置，同 v[i]；越界时 panic。
+    intrinsic fn get(v: Vec<T>, sink i: I64) -> T = vec_get
+
     fn is_empty(v: Vec<T>) -> Bool { vec_len(v) == 0 }
 
     // 原地反转：把元素依次 pop 进一个新的 Vec，再换回去。

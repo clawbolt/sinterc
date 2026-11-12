@@ -173,6 +173,21 @@ let prepare (p : program) =
         (Hashtbl.find_all inherent_heads m);
       Hashtbl.add inherent_heads m (st, List.map fst tps, g))
     (Hashtbl.fold (fun m v acc -> (m, v) :: acc) Ast.inherent []);
+  (* intrinsic fn 的签名要和编译器里的内建函数一致（参数约定和类型都相同），核心部分里写的就是真正的签名。
+     类型不固定的（Vec 的、切片的，见 special）由类型检查单独处理，只检查有这个内建函数 *)
+  Hashtbl.iter
+    (fun g (b, ps, r, tps, ipos) ->
+      let tenv = List.map (fun (t, lin) -> (t, TParam (t, lin))) tps in
+      match List.assoc_opt b builtins with
+      | Some (bps, br) ->
+          let same =
+            List.length ps = List.length bps
+            && List.for_all2 (fun (m, _, t) (m', t') -> m = m' && resolve tenv ipos t = resolve [] ipos t') ps bps
+            && resolve tenv ipos r = resolve [] ipos br
+          in
+          if not same then err ipos "%s 的声明和内建函数 %s 的签名不一致" g b
+      | None -> if not (List.mem b special) then err ipos "没有内建函数 %s" b)
+    Ast.prims;
   (* 函数签名：泛型函数的类型参数解析成 TParam；trait 的方法是带类型参数 Self 的泛型函数；
      impl 里的方法登记成 方法<类型> *)
   List.iter
@@ -409,6 +424,7 @@ let resolve_items = function
                      params = m.mparams;
                      ret = m.mret;
                      body;
+                     prim = None;
                      ipos = m.mpos;
                    }))
             m.mbody)
@@ -418,7 +434,7 @@ let resolve_items = function
 (* 检查一个函数。特化：clos 是 fn(…) 参数绑定的闭包，fvars 是这些参数（已经从参数里去掉，函数体里仍按名字用）。
    rord：闭包捕获的区域参数之间的先后关系（`Closures.CapRef`）；其余区域参数之间没有顺序（D3）。 *)
 let check_fn ?(clos = []) ?(fvars = []) ?(rord = []) env0 = function
-  | Fn { name; tparams; params; ret; body; ipos; bounds } ->
+  | Fn { name; tparams; params; ret; body; ipos; bounds; _ } ->
       cur_fn := name;
       concrete := tparams = [] && not (List.exists (fun (_, _, t) -> is_fn t) params);
       (* 区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3） *)

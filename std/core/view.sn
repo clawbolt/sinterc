@@ -1,6 +1,6 @@
 // 预导入：字符串切片 &str in a 的方法。切片不拥有内存，这里的方法都不分配新的字符串，
 // 结果是同一块缓冲区里的切片（Lean `Strings.Slice`：子切片仍在缓冲区里）。缓冲区用 text(a, s) 放进区域 a。
-// len、byte、sub、to_str、eq、eq_view、print_str 还是编译器的内建方法；find、find_from 和 Str 的一样返回 Option。
+// intrinsic fn 是编译器实现的（= 后面是内建函数）：结果的区域跟着参数走，类型由编译器单独检查，这里的签名是说明。find、find_from 和 Str 的一样返回 Option。
 //
 //     arena |a| {
 //         let line = text(a, "x, 42 ,y")
@@ -9,6 +9,24 @@
 //     }
 
 impl &str in r {
+    intrinsic fn len(v: &str in r) -> I64 = view_len
+
+    // 第 i 个字节；越界时 panic。
+    intrinsic fn byte(v: &str in r, sink i: I64) -> I64 = view_byte
+
+    // [i, j) 的子切片，同一块缓冲区；越界时 panic。
+    intrinsic fn sub(v: &str in r, sink i: I64, sink j: I64) -> &str in r = view_sub
+
+    // 复制成新的 Str。
+    intrinsic fn to_str(v: &str in r) -> Str = view_to_str
+
+    intrinsic fn eq(v: &str in r, s: Str) -> Bool = view_eq
+
+    intrinsic fn eq_view(v: &str in r, w: &str in r) -> Bool = view_eq_view
+
+    // 原样写到标准输出，不换行。
+    intrinsic fn print_str(v: &str in r) = view_print_str
+
     fn is_empty(v: &str in r) -> Bool { v.len() == 0 }
 
     // p 第一次出现的位置；没有时是 .None。

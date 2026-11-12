@@ -1,7 +1,39 @@
 // 预导入：Str 的方法。按字节处理（没有 Unicode 的字符边界）；返回的新字符串都是新分配的。
-// len、eq、concat、push、clone、byte、slice、chars、push_char、to_bytes 等还是编译器的内建方法。
+// intrinsic fn 是编译器实现的（= 后面是内建函数，签名由编译器检查）。
 
 impl Str {
+    // 字节数。
+    intrinsic fn len(s: Str) -> I64 = str_len
+
+    intrinsic fn eq(s: Str, t: Str) -> Bool = str_eq
+
+    // 新的字符串 s 加上 t。
+    intrinsic fn concat(s: Str, t: Str) -> Str = str_concat
+
+    // 原地追加（容量不够时翻倍）。
+    intrinsic fn push(inout s: Str, t: Str) = str_push
+
+    intrinsic fn push_char(inout s: Str, sink c: Char) = str_push_char
+
+    intrinsic fn clone(s: Str) -> Str = str_clone
+
+    // 复制一份（字符串插值 "{s}" 用它）。
+    intrinsic fn to_str(s: Str) -> Str = str_clone
+
+    // 第 i 个字节（0 到 255）；越界时 panic。
+    intrinsic fn byte(s: Str, sink i: I64) -> I64 = str_byte
+
+    // [i, j) 字节的新字符串；越界时 panic。
+    intrinsic fn slice(s: Str, sink i: I64, sink j: I64) -> Str = str_slice
+
+    // 按 UTF-8 逐个解码（不合法的字节是 U+FFFD，Lean `Library.Utf8`），新的 Vec。
+    intrinsic fn chars(s: Str) -> Vec<Char> = str_chars
+
+    intrinsic fn char_count(s: Str) -> I64 = str_char_count
+
+    // 复制成字节串。
+    intrinsic fn to_bytes(s: Str) -> Bytes = str_to_bytes
+
     fn is_empty(s: Str) -> Bool { str_len(s) == 0 }
 
     fn starts_with(s: Str, p: Str) -> Bool {
@@ -130,10 +162,10 @@ impl Str {
     }
 
     // 十进制整数（可以有一个负号）；格式不对或超出 I64 范围时是 .None。
-    fn parse_i64(s: Str) -> Option<I64> { str_to_i64(s) }
+    intrinsic fn parse_i64(s: Str) -> Option<I64> = str_to_i64
 
     // 浮点数；格式不对时是 .None。
-    fn parse_f64(s: Str) -> Option<F64> { str_to_f64(s) }
+    intrinsic fn parse_f64(s: Str) -> Option<F64> = str_to_f64
 }
 
 impl Vec<Str> {
