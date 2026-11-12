@@ -13,7 +13,7 @@ fn main() {
         }
     }
     for l in lines {
-        match l.to_i64() {
+        match l.parse_i64() {
             .Some(n) => println("{n}"),
             .None => println(l)
         }

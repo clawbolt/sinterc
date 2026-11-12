@@ -5,8 +5,6 @@ open Typeck_env
 (* 内建函数按值接收可复制的参数，记作 sink；字符串按 let（只读借用）或 inout 传入。 *)
 let builtins =
   [
-    "print_i64", ([ (MSink, TI64) ], TUnit);
-    "print_bool", ([ (MSink, TBool) ], TUnit);
     "print", ([ (MLet, TStr) ], TUnit);
     (* 不换行的输出。print_str 原样写出字符串的字节；print_byte 写一个原始字节（0 到 255，否则 panic）。
        输出经过 C 的缓冲，read_line 之前、panic 和程序结束时都会刷新 *)
@@ -22,10 +20,9 @@ let builtins =
     "str_clone", ([ (MLet, TStr) ], TStr);
     "str_from_i64", ([ (MSink, TI64) ], TStr);
     "str_from_bool", ([ (MSink, TBool) ], TStr);
-    (* F64。print_f64 按能还原的最短写法打印（整数值带 .0）；to_f64 把 I64 换成 F64，
+    (* F64。str_from_f64 是能还原的最短写法（整数值带 .0）；to_f64 把 I64 换成 F64，
        to_i64 向零取整（NaN 或超出 I64 范围时 panic）；str_to_f64 解析（格式不对时 .None）。
-       f64_* 是 std.math 里 sqrt 等函数用的内建函数 *)
-    "print_f64", ([ (MSink, TF64) ], TUnit);
+       f64_* 是核心部分 F64 的 sqrt 等方法用的内建函数 *)
     "str_from_f64", ([ (MSink, TF64) ], TStr);
     "str_to_f64", ([ (MLet, TStr) ], TApp ("Option", [ TF64 ]));
     "to_f64", ([ (MSink, TI64) ], TF64);
@@ -37,7 +34,6 @@ let builtins =
     "f64_is_nan", ([ (MSink, TF64) ], TBool);
     (* 字符（Lean `Library.Utf8`）。char_from 在不是合法码点时返回 .None；str_chars 按 `Library.Utf8` 的 decode1 逐个解码
        （不合法的字节解成 U+FFFD），结果是新的 Vec<Char>；str_char_count 是字符的个数 *)
-    "print_char", ([ (MSink, TChar) ], TUnit);
     "char_code", ([ (MSink, TChar) ], TI64);
     "char_from", ([ (MSink, TI64) ], TApp ("Option", [ TChar ]));
     "str_from_char", ([ (MSink, TChar) ], TStr);
@@ -89,7 +85,7 @@ let builtins =
 
 (* 字符串的方法调用：s.len() 就是 str_len(s)。 *)
 let str_methods =
-  [ "len"; "eq"; "concat"; "push"; "clone"; "to_i64"; "to_f64"; "byte"; "slice"; "chars"; "char_count"; "push_char"; "to_bytes" ]
+  [ "len"; "eq"; "concat"; "push"; "clone"; "byte"; "slice"; "chars"; "char_count"; "push_char"; "to_bytes" ]
 
 (* 字节串的方法调用：b.get(i) 就是 bytes_get(b, i)。 *)
 let bytes_methods = [ "len"; "get"; "set"; "push"; "append"; "slice"; "clone"; "eq" ]

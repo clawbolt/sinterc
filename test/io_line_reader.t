@@ -9,7 +9,7 @@
   > fn main() {
   >     let a = env.args()
   >     var n = 4
-  >     match a[0].to_i64() {
+  >     match a[0].parse_i64() {
   >         .Some(x) => { n = x },
   >         .None => {}
   >     }

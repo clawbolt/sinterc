@@ -278,6 +278,7 @@ let table =
     ("%s 没有方法 %s（%s 是普通函数：写成 %s(…)，或者放进 impl %s { … }）",
      "{1} has no method {2} ({3} is a plain function: write {4}(…), or put it in impl {5} { … })");
     ("%s 没有方法 %s", "{1} has no method {2}");
+    ("%s 已经去掉了：写成 %s", "{1} has been removed: write {2}");
     ("不能给 Arena 写方法", "methods cannot be defined on Arena");
     ("不能给函数类型写方法", "methods cannot be defined on a function type");
     ("不能给类型参数 %s 本身写方法（impl<%s> %s 会和所有的头部重叠）",

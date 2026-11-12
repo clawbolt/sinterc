@@ -11,12 +11,12 @@ v[i]、for、字符串插值展开出的内建调用不算用户写的。
   > }
   > EOF
   $ sinterc direct.sn
-  direct.sn:2:13: 错误：str_len 是内建函数，标准库以外不能直接调用：写成 s.len(…)
+  direct.sn:2:13: 错误：str_len 是内建函数，标准库以外不能直接调用：写成 s.len()
    2 |     let n = str_len("ab")
      |             ^
   [1]
   $ sinterc --lang=en direct.sn
-  direct.sn:2:13: error: str_len is a built-in function and cannot be called directly outside the standard library: write s.len(…)
+  direct.sn:2:13: error: str_len is a built-in function and cannot be called directly outside the standard library: write s.len()
    2 |     let n = str_len("ab")
      |             ^
   [1]
@@ -70,3 +70,16 @@ v[i]、for、字符串插值展开出的内建调用不算用户写的。
   2
   not a
   3
+
+去掉了的 print_i64、print_bool、print_f64、print_char 也给出新的写法：
+
+  $ cat > old.sn <<'EOF2'
+  > fn main() {
+  >     print_i64(3)
+  > }
+  > EOF2
+  $ sinterc old.sn
+  old.sn:2:5: 错误：print_i64 已经去掉了：写成 println("{x}")
+   2 |     print_i64(3)
+     |     ^
+  [1]

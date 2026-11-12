@@ -58,6 +58,9 @@
     读写外部的内建函数在标准库里也只有 `std.io`、`std.fs`、`std.env`、`std.process` 和打印能调用。
   - 切片的 `find(p)`、`find_from(p, i)` 和 `Str` 的一样返回 `Option<I64>`（原来的 `find(p, from)` 没找到时是 -1）。
   - `migrate` 默认做这一步的改写；上一步的改写要加 `--modules`（每一步只能跑一次）。
+- **不兼容**：去掉重复的内建函数和方法（C70）。`Str` 的 `to_i64()`、`to_f64()` 去掉，用核心部分的 `parse_i64()`、`parse_f64()`
+  （和切片的 `parse_i64` 同名）；内建函数 `print_i64`、`print_bool`、`print_f64`、`print_char` 去掉，调用时提示写成 `println("{x}")`。
+  直接调用内建函数的报错按参数个数给出写法（`s.len()`、`s.push(…)`）。
 - 字符串的字面量标记和长度共用 8 字节，`Str` 保持 16 字节（C61 最初让它变成了 24 字节）。
 
 **验证**

@@ -38,8 +38,6 @@ static double sn_f_neg(double a) { return -a; }
 #define sn_div(a, b) _Generic((a), double: sn_f_div, default: sn_i_div)(a, b)
 #define sn_rem(a, b) sn_i_rem(a, b)
 #define sn_neg(a) _Generic((a), double: sn_f_neg, default: sn_i_neg)(a)
-static void u_print_i64(int64_t x) { printf("%lld\n", (long long)x); }
-static void u_print_bool(bool b) { puts(b ? "true" : "false"); }
 /* F64 的文字：能还原成同一个值的最短写法；1e-5 到 1e16 之间用定点写法（1500.0、0.1），
    其余用指数写法（1e+20）；整数值带 .0。 */
 static int sn_fmt_f64(char *b, size_t n, double x) {
@@ -56,7 +54,6 @@ static int sn_fmt_f64(char *b, size_t n, double x) {
   if (!strpbrk(b, ".e")) { b[k++] = '.'; b[k++] = '0'; b[k] = 0; }
   return k;
 }
-static void u_print_f64(double x) { char b[64]; sn_fmt_f64(b, sizeof b, x); puts(b); }
 static double u_to_f64(int64_t x) { return (double)x; }
 static int64_t u_to_i64(double x) { if (!(x >= -9223372036854775808.0 && x < 9223372036854775808.0)) sn_panic("F64 转换成 I64 时超出范围（或是 NaN）"); return (int64_t)x; }
 /* 用到 libm（Linux 上要 -lm，sinterc build / run 会加）。写成 static inline：没用到时 C 编译器不生成它们，
@@ -147,7 +144,6 @@ static uint32_t sn_utf8_get(const unsigned char *p, int64_t n, int64_t *k) {
 #undef SN_CONT
   return 0xFFFD;
 }
-static void u_print_char(uint32_t c) { char b[5]; int k = sn_utf8_put(b, c); b[k] = 0; puts(b); }
 static int64_t u_char_code(uint32_t c) { return (int64_t)c; }
 static sn_str u_str_from_char(uint32_t c) { char b[4]; int k = sn_utf8_put(b, c); return sn_str_make(b, k); }
 static void u_str_push_char(sn_str *s, uint32_t c) {

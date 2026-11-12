@@ -32,7 +32,7 @@ fn main() {
     println("{0.1 + 0.2 == 0.3}")
     println("{1.0 < 2.0}")
     println("x = ".concat((1.0 / 3.0).to_str()))
-    match "2.75".to_f64() {
+    match "2.75".parse_f64() {
         .Some(x) => println("{x * 2.0}"),
         .None => println("不是数")
     }

@@ -221,7 +221,7 @@ pub fn parse(s: Str) -> Option<BigInt> {
     var j = n
     while j > start {
         let k = (j - 9).max(start)
-        match s.slice(k, j).to_i64() {
+        match s.slice(k, j).parse_i64() {
             .Some(d) => m.push(d),
             .None => ()
         }

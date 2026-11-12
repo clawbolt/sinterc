@@ -81,7 +81,7 @@ let prelude_builtins = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "bytes_n
 
 let io_builtins =
   [
-    "print_i64"; "print_bool"; "print"; "print_str"; "print_byte"; "eprint"; "eprint_str"; "print_f64"; "print_char";
+    "print"; "print_str"; "print_byte"; "eprint"; "eprint_str";
     "print_bytes"; "read_line"; "args"; "read_file"; "write_file"; "read_bytes"; "write_bytes"; "read_file_in";
     "read_stdin_in"; "read_chunk"; "os_env"; "os_list_dir"; "os_exists"; "os_is_dir"; "os_make_dir"; "os_remove";
     "os_run"; "os_output"; "os_exit";
@@ -89,15 +89,24 @@ let io_builtins =
 
 let is_builtin f = List.mem_assoc f Typeck_builtins.builtins || List.mem f Typeck_builtins.special
 
+(* 去掉了的内建函数：旧程序调用时提示新的写法，而不是“未定义的函数” *)
+let removed_builtins = [ "print_i64"; "print_bool"; "print_f64"; "print_char" ]
+
 let builtin_hint f =
   let starts p = String.starts_with ~prefix:p f in
   let strip p = String.sub f (String.length p) (String.length f - String.length p) in
+  (* 写成方法时接收者之外还有没有参数：s.len()、s.push(…) *)
+  let rest =
+    if List.mem f [ "str_len"; "str_clone"; "str_chars"; "str_char_count"; "str_to_bytes"; "vec_len"; "vec_pop"; "bytes_len"; "bytes_clone";
+                    "view_len"; "view_to_str"; "view_print_str" ]
+    then "()" else "(…)"
+  in
   match f with
   | "print_str" -> "print(s)"
   | "print" -> "println(s)"
   | "eprint_str" -> "eprint(s)"
   | "eprint" -> "eprintln(s)"
-  | "print_i64" | "print_bool" | "print_f64" | "print_char" -> "println(\"{x}\")"
+  | "print_i64" | "print_bool" | "print_f64" | "print_char" -> "println(\"{x}\")"   (* 已经去掉的内建函数，见 removed_builtins *)
   | "print_byte" -> "io.write_byte(b)"
   | "print_bytes" -> "io.write_bytes(b)"
   | "read_line" -> "io.read_line()"
@@ -124,10 +133,10 @@ let builtin_hint f =
   | "char_from" -> "n.to_char()"
   | "vec_get" -> "v[i]"
   | _ when starts "f64_" -> "x." ^ strip "f64_" ^ "()"
-  | _ when starts "str_" -> "s." ^ strip "str_" ^ "(…)"
-  | _ when starts "vec_" -> "v." ^ strip "vec_" ^ "(…)"
-  | _ when starts "bytes_" -> "b." ^ strip "bytes_" ^ "(…)"
-  | _ when starts "view_" -> "v." ^ strip "view_" ^ "(…)"
+  | _ when starts "str_" -> "s." ^ strip "str_" ^ rest
+  | _ when starts "vec_" -> "v." ^ strip "vec_" ^ rest
+  | _ when starts "bytes_" -> "b." ^ strip "bytes_" ^ rest
+  | _ when starts "view_" -> "v." ^ strip "view_" ^ rest
   | _ -> f ^ "(…)"
 
 let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
@@ -183,6 +192,8 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
   in
   (* 直接调用的 f 不是本文件、引入或预导入的函数，而是内建函数 *)
   let builtin_check pos f =
+    if (not (Hashtbl.mem names f)) && List.mem f removed_builtins then
+      err pos "%s 已经去掉了：写成 %s" f (builtin_hint f);
     if (not (Hashtbl.mem names f)) && is_builtin f && not (List.mem f prelude_builtins) then
       if not in_std then err pos "%s 是内建函数，标准库以外不能直接调用：写成 %s" f (builtin_hint f) else io_check pos f
   in
