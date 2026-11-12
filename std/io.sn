@@ -1,8 +1,4 @@
-// std.io：标准输入、输出（Lean `Library.FileIO`）。打印一行的 println、eprintln 在预导入的核心部分。
-// read_lines、write_lines 读写的是文件，迁移时移到 std.fs（那里已经有同名的函数）。
-
-use std.str
-use std.view
+// std.io：标准输入、输出（Lean `Library.FileIO`）。打印的 print、println、eprint、eprintln 在预导入的核心部分。
 
 // 读一行（去掉行尾的换行）；读到末尾时是 .None。
 pub fn read_line() -> Option<Str> { intrinsic.read_line() }
@@ -12,13 +8,28 @@ pub fn read_all() -> Str {
     arena |a| { intrinsic.read_stdin_in(a).to_str() }
 }
 
-// 读标准输入直到结束，放进区域 a，不复制成 Str。
+// 读标准输入直到结束，放进区域 a，不复制成 Str（任意字节，包括 0）。
 pub fn read_all_in(a: Arena) -> &str in a { intrinsic.read_stdin_in(a) }
 
-// 最多读 n 个字节，放进区域 a；读完时是空的切片。
+// 最多读 n 个字节（n ≤ 0 时 panic），放进区域 a；读完时是空的切片。
 pub fn read_chunk(a: Arena, n: I64) -> &str in a { intrinsic.read_chunk(a, n) }
 
-// 逐块读行（Lean `Strings.ChunkLines`），见 std.view 的 line_reader：
+// 读标准输入直到结束，每行一个元素（去掉换行）。
+pub fn input_lines() -> Vec<Str> {
+    var out: Vec<Str> = vec_new()
+    var go = true
+    while go {
+        match read_line() {
+            .Some(l) => out.push(l),
+            .None => { go = false }
+        }
+    }
+    out
+}
+
+// 逐块读行（Lean `Strings.ChunkLines`）：峰值内存只和块大小、最长的一行有关，和输入大小无关。
+// 上一块最后一个换行之后不完整的部分（carry）留在 LineReader 里，接在下一块前面；不管输入怎么分块，
+// 逐块得到的行和整个读进来再 lines 的行相同（`Strings.ChunkLines` 的 stream_eq）。每块放在自己的区域里，处理完就释放：
 //
 //     var r = io.lines()
 //     var going = true
@@ -30,35 +41,34 @@ pub fn read_chunk(a: Arena, n: I64) -> &str in a { intrinsic.read_chunk(a, n) }
 //             }
 //         }
 //     }
-pub fn lines() -> view.LineReader { view.line_reader() }
+pub struct LineReader { carry: Str, done: Bool }
 
-pub fn next_block_in(inout r: view.LineReader, a: Arena, n: I64) -> Option<&str in a> { view.next_block(r, a, n) }
+pub fn lines() -> LineReader { LineReader { carry: "", done: false } }
 
-// 读整个文件，按行切开（见 str.lines）。
-pub fn read_lines(path: Str) -> Result<Vec<Str>, Str> {
-    let text = read_file(path)?
-    Ok(str.lines(text))
-}
-
-// 每行后面加一个换行，写进文件（写到临时文件再改名，见 write_file）。
-pub fn write_lines(path: Str, ls: Vec<Str>) -> Result<(), Str> {
-    var s = ""
-    for l in ls {
-        str_push(s, l)
-        str_push(s, "\n")
-    }
-    write_file(path, s)
-}
-
-// 读标准输入直到结束，每行一个元素（去掉换行）。
-pub fn input_lines() -> Vec<Str> {
-    var out: Vec<Str> = vec_new()
-    var go = true
-    while go {
-        match intrinsic.read_line() {
-            .Some(l) => out.push(l),
-            .None => { go = false }
+// 下一段完整的行（以换行结束；输入最后没有换行时，最后一段是剩下的部分），放在区域 a 里；读完时是 .None。
+// 每次最多读 n 个字节；一块里没有换行时接着读，直到碰到换行或者读完
+pub fn next_block_in(inout r: LineReader, a: Arena, n: I64) -> Option<&str in a> {
+    while !r.done {
+        let c = read_chunk(a, n)
+        if c.len() == 0 {
+            r.done = true
+            if r.carry.len() > 0 {
+                let rest = r.carry.clone()
+                r.carry = ""
+                return .Some(text(a, rest))
+            }
+            return .None
+        }
+        var i = c.len() - 1
+        while i >= 0 && c.byte(i) != 10 { i = i - 1 }
+        if i < 0 {
+            r.carry.push(c.to_str())
+        } else {
+            var s = r.carry.clone()
+            s.push(c.sub(0, i + 1).to_str())
+            r.carry = c.sub(i + 1, c.len()).to_str()
+            return .Some(text(a, s))
         }
     }
-    out
+    .None
 }

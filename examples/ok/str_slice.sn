@@ -1,5 +1,4 @@
 // C61：字符串切片 &str in a。text(a, s) 把字符串放进区域 a，之后取子切片、按分隔符切开、按行切开都不分配。
-use std.view
 
 struct Row<S> { name: S, qty: I64 }
 
@@ -10,10 +9,10 @@ fn first_field(line: &str in r) -> &str in r {
 }
 
 fn parse(line: &str in r) -> Option<Row<&str in r>> {
-    let parts = view.split(line, ",")
+    let parts = line.split(",")
     if parts.len() != 2 { return .None }
-    match view.to_i64(view.trim(parts[1])) {
-        .Some(q) => .Some(Row { name: view.trim(parts[0]), qty: q }),
+    match parts[1].trim().parse_i64() {
+        .Some(q) => .Some(Row { name: parts[0].trim(), qty: q }),
         .None => .None
     }
 }
@@ -21,35 +20,35 @@ fn parse(line: &str in r) -> Option<Row<&str in r>> {
 fn main() {
     arena |a| {
         let data = text(a, "apple, 3\nbanana,12\r\n  cherry ,x\nplum,-7\n")
-        let rows = view.lines(data)
-        print_i64(rows.len())
+        let rows = data.lines()
+        println("{rows.len()}")
         var total = 0
         for line in rows {
             match parse(line) {
                 .Some(r) => {
                     r.name.print_str()
-                    print(" {r.qty}")
+                    println(" {r.qty}")
                     total = total + r.qty
                 },
-                .None => print("跳过：{first_field(line)}")
+                .None => println("跳过：{first_field(line)}")
             }
         }
-        print_i64(total)
+        println("{total}")
         let w = data.sub(0, 5)
-        print(w.to_str())
-        print_bool(w.eq("apple"))
-        print_bool(view.starts_with(data, "app"))
-        print_bool(view.ends_with(data, "-7\n"))
-        print_i64(data.byte(0))
-        let empty = view.split(text(a, ""), ",")
-        print_i64(empty.len())
-        match view.to_i64(text(a, "-9223372036854775808")) {
-            .Some(x) => print_i64(x),
-            .None => print("None")
+        println(w.to_str())
+        println(w.eq("apple").to_str())
+        println(data.starts_with("app").to_str())
+        println(data.ends_with("-7\n").to_str())
+        println("{data.byte(0)}")
+        let empty = text(a, "").split(",")
+        println("{empty.len()}")
+        match text(a, "-9223372036854775808").parse_i64() {
+            .Some(x) => println("{x}"),
+            .None => println("None")
         }
-        match view.to_i64(text(a, "9223372036854775808")) {
-            .Some(x) => print_i64(x),
-            .None => print("None")
+        match text(a, "9223372036854775808").parse_i64() {
+            .Some(x) => println("{x}"),
+            .None => println("None")
         }
     }
 }

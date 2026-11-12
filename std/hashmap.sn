@@ -3,7 +3,7 @@
 // slots 是槽位表，每个槽位是 -1（空）或 keys 里的下标，长度 2 * cap。
 // 键的起始位置是 k.hash() % cap，线性探测不绕回；元素个数超过 3/4 cap 时容量翻倍，
 // 所以探测最远到 cap - 1 + n，走不出槽位表。删除用后移回填，不需要墓碑。
-// 插入、查找、删除平均 O(1)。
+// 插入、查找、删除平均 O(1)。接口和 std.map 的 Map 相同，遍历按插入顺序。
 
 pub struct HashMap<K, V> { keys: Vec<K>, vals: Vec<V>, slots: Vec<I64>, cap: I64 }
 
@@ -25,8 +25,6 @@ fn set_slot(inout s: Vec<I64>, i: I64, x: I64) {
 pub fn new<K, V>() -> HashMap<K, V> {
     HashMap { keys: vec_new(), vals: vec_new(), slots: empty_slots(16), cap: 8 }
 }
-
-pub fn len<K, V>(m: HashMap<K, V>) -> I64 { vec_len(m.keys) }
 
 // 从 hash(k) % cap 往后第一个空位或 k 所在的槽位（`Library.HashMap` 的 slot）。
 fn find_slot<K: Eq + Hash, V>(m: HashMap<K, V>, k: K) -> I64 {
@@ -50,16 +48,6 @@ fn entry<K: Eq + Hash, V>(m: HashMap<K, V>, k: K) -> I64 {
     vec_get(m.slots, find_slot(m, k))
 }
 
-pub fn contains<K: Eq + Hash, V>(m: HashMap<K, V>, k: K) -> Bool {
-    entry(m, k) != -1
-}
-
-// 有键 k 时把它的值交给 f，返回 f 的结果；没有时是 .None。
-pub fn get<K: Eq + Hash, V, R>(m: HashMap<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
-    let e = entry(m, k)
-    if e == -1 { .None } else { .Some(f(vec_get(m.vals, e))) }
-}
-
 // 容量翻倍，按 keys 的顺序重新放进槽位表（键各不相同，只需找空位）。
 fn grow<K: Eq + Hash, V>(inout m: HashMap<K, V>) {
     m.cap = m.cap * 2
@@ -73,60 +61,78 @@ fn grow<K: Eq + Hash, V>(inout m: HashMap<K, V>) {
     }
 }
 
-// 放进 (k, v)。已有键 k 时换掉它的值并返回旧值（这时 k 被析构，保留原来的键）；否则返回 .None。
-pub fn insert<K: Eq + Hash, V>(inout m: HashMap<K, V>, sink k: K, sink v: V) -> Option<V> {
-    let p = find_slot(m, k)
-    let e = vec_get(m.slots, p)
-    if e != -1 {
-        m.vals.push(v)
-        vec_swap(m.vals, e, vec_len(m.vals) - 1)
-        return m.vals.pop()
-    }
-    set_slot(m.slots, p, vec_len(m.keys))
-    m.keys.push(k)
-    m.vals.push(v)
-    if 4 * vec_len(m.keys) > 3 * m.cap { grow(m) }
-    .None
-}
+impl<K, V> HashMap<K, V> {
+    fn len(m: HashMap<K, V>) -> I64 { vec_len(m.keys) }
 
-// 去掉键 k，返回它的值；没有这个键时返回 .None。
-pub fn remove<K: Eq + Hash, V>(inout m: HashMap<K, V>, k: K) -> Option<V> {
-    let p = find_slot(m, k)
-    let e = vec_get(m.slots, p)
-    if e == -1 { return .None }
-    // 后移回填（`Library.HashMap` 的 shift）：起始位置不在空位后面的元素搬进空位
-    set_slot(m.slots, p, -1)
-    var hole = p
-    var j = p + 1
-    var go = true
-    while go && j < vec_len(m.slots) {
-        let f = vec_get(m.slots, j)
-        if f == -1 {
-            go = false
-        } else {
-            if vec_get(m.keys, f).hash() % m.cap <= hole {
-                set_slot(m.slots, hole, f)
-                set_slot(m.slots, j, -1)
-                hole = j
-            }
-            j = j + 1
+    fn is_empty(m: HashMap<K, V>) -> Bool { vec_len(m.keys) == 0 }
+
+    // 按 keys 的顺序把每个 (键, 值) 交给 f。
+    fn for_each(m: HashMap<K, V>, f: fn(K, V)) {
+        for i in 0..vec_len(m.keys) {
+            f(vec_get(m.keys, i), vec_get(m.vals, i))
         }
     }
-    // 紧凑数组：最后一个元素换到 e，改它的槽位
-    let last = vec_len(m.keys) - 1
-    if e != last {
-        let q = find_slot(m, vec_get(m.keys, last))
-        set_slot(m.slots, q, e)
-        vec_swap(m.keys, e, last)
-        vec_swap(m.vals, e, last)
-    }
-    let old_key = m.keys.pop()
-    m.vals.pop()
 }
 
-// 按 keys 的顺序把每个 (键, 值) 交给 f。
-pub fn for_each<K, V>(m: HashMap<K, V>, f: fn(K, V)) {
-    for i in 0..vec_len(m.keys) {
-        f(vec_get(m.keys, i), vec_get(m.vals, i))
+impl<K: Eq + Hash, V> HashMap<K, V> {
+    fn contains(m: HashMap<K, V>, k: K) -> Bool {
+        entry(m, k) != -1
+    }
+
+    // 有键 k 时把它的值交给 f，返回 f 的结果；没有时是 .None。
+    fn get<R>(m: HashMap<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
+        let e = entry(m, k)
+        if e == -1 { .None } else { .Some(f(vec_get(m.vals, e))) }
+    }
+
+    // 放进 (k, v)。已有键 k 时换掉它的值并返回旧值（这时 k 被析构，保留原来的键）；否则返回 .None。
+    fn insert(inout m: HashMap<K, V>, sink k: K, sink v: V) -> Option<V> {
+        let p = find_slot(m, k)
+        let e = vec_get(m.slots, p)
+        if e != -1 {
+            m.vals.push(v)
+            vec_swap(m.vals, e, vec_len(m.vals) - 1)
+            return m.vals.pop()
+        }
+        set_slot(m.slots, p, vec_len(m.keys))
+        m.keys.push(k)
+        m.vals.push(v)
+        if 4 * vec_len(m.keys) > 3 * m.cap { grow(m) }
+        .None
+    }
+
+    // 去掉键 k，返回它的值；没有这个键时返回 .None。
+    fn remove(inout m: HashMap<K, V>, k: K) -> Option<V> {
+        let p = find_slot(m, k)
+        let e = vec_get(m.slots, p)
+        if e == -1 { return .None }
+        // 后移回填（`Library.HashMap` 的 shift）：起始位置不在空位后面的元素搬进空位
+        set_slot(m.slots, p, -1)
+        var hole = p
+        var j = p + 1
+        var go = true
+        while go && j < vec_len(m.slots) {
+            let f = vec_get(m.slots, j)
+            if f == -1 {
+                go = false
+            } else {
+                if vec_get(m.keys, f).hash() % m.cap <= hole {
+                    set_slot(m.slots, hole, f)
+                    set_slot(m.slots, j, -1)
+                    hole = j
+                }
+                j = j + 1
+            }
+        }
+        // 紧凑数组：最后一个元素换到 e，改它的槽位
+        let last = vec_len(m.keys) - 1
+        if e != last {
+            let q = find_slot(m, vec_get(m.keys, last))
+            set_slot(m.slots, q, e)
+            vec_swap(m.keys, e, last)
+            vec_swap(m.vals, e, last)
+        }
+        let old_key = m.keys.pop()
+        m.vals.pop()
     }
 }

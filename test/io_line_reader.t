@@ -1,9 +1,9 @@
-逐块读行。std.view 的 line_reader()、next_block(r, a, n) 每次从标准输入最多读 n 个字节，
+逐块读行。std.io 的 lines()、next_block_in(r, a, n) 每次从标准输入最多读 n 个字节，
 上一块最后一个换行之后不完整的部分留到下一块前面，得到以换行结束的一段完整的行；每块放在自己的区域里，处理完就释放。
-不管怎么分块，逐块得到的行和整个读进来再 view.lines 的行相同（Lean `Strings.ChunkLines` 的 stream_eq）。
+不管怎么分块，逐块得到的行和整个读进来再 lines 的行相同（Lean `Strings.ChunkLines` 的 stream_eq）。
 
   $ cat > stream.sn <<'EOF'
-  > use std.view
+  > use std.io
   > 
   > fn main() {
   >     let a = args()
@@ -12,15 +12,15 @@
   >         .Some(x) => { n = x },
   >         .None => {}
   >     }
-  >     var r = view.line_reader()
+  >     var r = io.lines()
   >     var going = true
   >     var k = 0
   >     while going {
   >         arena |b| {
-  >             match view.next_block(r, b, n) {
+  >             match io.next_block_in(r, b, n) {
   >                 .Some(block) => {
-  >                     for line in view.lines(block) {
-  >                         print("{k}:[{line.to_str()}]")
+  >                     for line in block.lines() {
+  >                         println("{k}:[{line.to_str()}]")
   >                         k = k + 1
   >                     }
   >                 },
@@ -31,13 +31,12 @@
   > }
   > EOF
   $ cat > whole.sn <<'EOF'
-  > use std.view
   > 
   > fn main() {
   >     arena |b| {
   >         var k = 0
-  >         for line in view.lines(read_stdin_in(b)) {
-  >             print("{k}:[{line.to_str()}]")
+  >         for line in read_stdin_in(b).lines() {
+  >             println("{k}:[{line.to_str()}]")
   >             k = k + 1
   >         }
   >     }

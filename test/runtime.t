@@ -7,7 +7,7 @@ C 运行时在 runtime/ 下，sinterc 原样放进生成的 C 文件：sinter.h 
   > fn main() {
   >     var v: Vec<I64> = vec_new()
   >     v.push(1)
-  >     print("hi {v.len()}")
+  >     println("hi {v.len()}")
   > }
   > SN
   $ sinterc hello.sn -o hello.c

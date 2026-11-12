@@ -21,25 +21,25 @@ inout 参数的字段、旧值析构、移走后放回、只在一个分支里�
   >     bump(c)
   >     c.bump()
   >     c.n = c.n * 10
-  >     print_i64(c.n)
+  >     println("{c.n}")
   >     var p = P { a: box(1), b: box(2), n: 0 }
   >     p.a = box(5)
-  >     print_i64(*p.a + *p.b)
+  >     println("{*p.a + *p.b}")
   >     var x = p.b
   >     p.b = box(*x + 100)
-  >     print_i64(*p.b)
-  >     print_i64(sum(p))
+  >     println("{*p.b}")
+  >     println("{sum(p)}")
   >     let yes = true
   >     if yes { var y = p.a }
   >     p.a = box(9)
-  >     print_i64(sum(p))
+  >     println("{sum(p)}")
   >     var q = Q { p: P { a: box(1), b: box(2), n: 3 }, k: 0 }
   >     q.p.n = 4
   >     q.p.a = box(40)
-  >     print_i64(q.p.n + *q.p.a)
+  >     println("{q.p.n + *q.p.a}")
   >     var b = box(P { a: box(1), b: box(2), n: 0 })
   >     (*b).n = 7
-  >     print_i64((*b).n)
+  >     println("{(*b).n}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -106,7 +106,7 @@ let 参数不可修改：
   >     var p = P { a: box(1), n: 0 }
   >     let r = p.a
   >     p.a = box(3)
-  >     print_i64(*r)
+  >     println("{*r}")
   > }
   > EOF
   $ sinterc lock.sn

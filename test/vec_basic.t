@@ -22,22 +22,22 @@ push、pop、用 get 求和；作用域结束时剩下的元素一起析构：
   >         vec_push(v, box(i))
   >         i = i + 1
   >     }
-  >     print_i64(vec_len(v))
-  >     print_i64(sum(v))
+  >     println("{vec_len(v)}")
+  >     println("{sum(v)}")
   >     match vec_pop(v) {
-  >         .Some(b) => print_i64(*b),
-  >         .None => print_i64(0)
+  >         .Some(b) => println("{*b}"),
+  >         .None => println("{0}")
   >     }
-  >     print_i64(sum(v))
+  >     println("{sum(v)}")
   >     var w: Vec<I64> = vec_new()
   >     match vec_pop(w) {
-  >         .Some(x) => print_i64(x),
-  >         .None => print_i64(-1)
+  >         .Some(x) => println("{x}"),
+  >         .None => println("{-1}")
   >     }
   >     vec_push(w, 7)
   >     vec_push(w, 8)
   >     let a = vec_get(w, 1)
-  >     print_i64(a)
+  >     println("{a}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -54,7 +54,7 @@ push、pop、用 get 求和；作用域结束时剩下的元素一起析构：
   > fn main() {
   >     var w: Vec<I64> = vec_new()
   >     vec_push(w, 1)
-  >     print_i64(vec_get(w, 5))
+  >     println("{vec_get(w, 5)}")
   > }
   > EOF
   $ sinterc oob.sn -o oob.c && cc -std=gnu11 -w oob.c -o oob && ./oob
@@ -69,7 +69,7 @@ get 的投影还活着时 push：
   >     vec_push(v, box(1))
   >     let e = vec_get(v, 0)
   >     vec_push(v, box(2))
-  >     print_i64(*e)
+  >     println("{*e}")
   > }
   > EOF
   $ sinterc lock.sn

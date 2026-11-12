@@ -5,7 +5,7 @@ fn main() {
         some(alloc(b, 1))
     }
     match o {
-        .Some(r) => print_i64(*r),
-        .None => print_i64(0)
+        .Some(r) => println("{*r}"),
+        .None => println("{0}")
     }
 }

@@ -1,59 +1,59 @@
 预导入的核心部分 std/core/：每个程序都自动读进来，不用 use。trait（Eq、Ord、Hash、Ordering）、泛型的 min / max，
 以及 I64、F64、Char、Option、Result、Str、&str in a、Bytes、Vec<T> 的方法（impl 类型 { … }，Lean `Traits.Inherent`）。
-和旧模块（std.str、std.vec）重复的方法对照旧模块的结果。
+从旧模块（std.str、std.vec）迁移过来的方法，结果和原来的函数相同。
 
 数、字符、Option、Result、比较：
 
   $ cat > num.sn <<'EOF'
   > fn main() {
   >     let a = -7
-  >     print_i64(a.abs())
-  >     print_i64(a.sign())
-  >     print_i64(a.min(3))
-  >     print_i64(a.max(3))
+  >     println("{a.abs()}")
+  >     println("{a.sign()}")
+  >     println("{a.min(3)}")
+  >     println("{a.max(3)}")
   >     let b = 15
-  >     print_i64(b.clamp(0, 10))
-  >     print_i64(b.pow(2))
-  >     print_i64(b.gcd(-25))
-  >     print_i64(b.lcm(4))
-  >     print_f64(b.to_f64())
+  >     println("{b.clamp(0, 10)}")
+  >     println("{b.pow(2)}")
+  >     println("{b.gcd(-25)}")
+  >     println("{b.lcm(4)}")
+  >     println("{b.to_f64()}")
   >     let x = 2.5
   >     let y = -2.5
-  >     print_f64(x.round())
-  >     print_f64(y.round())
-  >     print_f64(x.floor())
-  >     print_f64(x.ceil())
-  >     print_f64(y.abs())
-  >     print_f64(x.powi(-2))
-  >     print_f64(x.max(y))
-  >     print_i64(x.to_i64())
+  >     println("{x.round()}")
+  >     println("{y.round()}")
+  >     println("{x.floor()}")
+  >     println("{x.ceil()}")
+  >     println("{y.abs()}")
+  >     println("{x.powi(-2)}")
+  >     println("{x.max(y)}")
+  >     println("{x.to_i64()}")
   >     let q = 16.0
-  >     print_f64(q.sqrt())
+  >     println("{q.sqrt()}")
   >     let c = 'q'
-  >     print_bool(c.is_alpha())
-  >     print(str_from_char(c.to_upper()))
+  >     println("{c.is_alpha()}")
+  >     println(str_from_char(c.to_upper()))
   >     let d = '7'
-  >     print_i64(d.to_digit().unwrap_or(-1))
-  >     print_i64(c.to_digit().unwrap_or(-1))
+  >     println("{d.to_digit().unwrap_or(-1)}")
+  >     println("{c.to_digit().unwrap_or(-1)}")
   >     let o: Option<I64> = .Some(4)
-  >     print_bool(o.is_some())
+  >     println("{o.is_some()}")
   >     let none: Option<I64> = .None
-  >     print_bool(none.is_none())
-  >     print_i64(none.unwrap_or(9))
-  >     print_i64(o.map(|v| v * 10).unwrap())
+  >     println("{none.is_none()}")
+  >     println("{none.unwrap_or(9)}")
+  >     println("{o.map(|v| v * 10).unwrap()}")
   >     let r: Result<I64, Str> = Err("bad")
-  >     print_bool(r.is_err())
-  >     print_i64(r.unwrap_or(0))
+  >     println("{r.is_err()}")
+  >     println("{r.unwrap_or(0)}")
   >     let r2: Result<I64, Str> = Ok(5)
-  >     print_i64(r2.ok().unwrap())
+  >     println("{r2.ok().unwrap()}")
   >     let p = 3
-  >     print_i64(p.cmp(5).to_i64())
-  >     print_bool(p.cmp(3).is_eq())
-  >     print_i64(p.cmp(1).reverse().to_i64())
-  >     print_i64(max(4, 9))
-  >     print(min("pear", "apple"))
+  >     println("{p.cmp(5).to_i64()}")
+  >     println("{p.cmp(3).is_eq()}")
+  >     println("{p.cmp(1).reverse().to_i64()}")
+  >     println("{max(4, 9)}")
+  >     println(min("pear", "apple"))
   >     let w = "b"
-  >     print_bool(w.cmp("a").is_gt())
+  >     println(w.cmp("a").is_gt().to_str())
   > }
   > EOF
   $ sinterc run num.sn
@@ -96,51 +96,50 @@
 字符串、字符串切片、字节串：
 
   $ cat > text.sn <<'EOF'
-  > use std.str
   > fn main() {
   >     let s = "  Hello, World  "
   >     let t = s.trim()
-  >     print(t)
-  >     print_bool(t.eq(str.trim(s)))
-  >     print_bool(t.starts_with("Hell"))
-  >     print_bool(t.ends_with("x"))
-  >     print_i64(t.find("o").unwrap_or(-1))
-  >     print_i64(t.find_from("o", 5).unwrap_or(-1))
-  >     print_bool(t.contains("World"))
-  >     print(t.to_upper())
-  >     print(t.to_lower())
-  >     print(t.replace("l", "L"))
-  >     print_bool(t.replace("l", "L").eq(str.replace(t, "l", "L")))
+  >     println(t)
+  >     println("{t.eq(s.trim())}")
+  >     println(t.starts_with("Hell").to_str())
+  >     println(t.ends_with("x").to_str())
+  >     println(t.find("o").unwrap_or(-1).to_str())
+  >     println(t.find_from("o", 5).unwrap_or(-1).to_str())
+  >     println(t.contains("World").to_str())
+  >     println(t.to_upper())
+  >     println(t.to_lower())
+  >     println(t.replace("l", "L"))
+  >     println(t.replace("l", "L").eq(t.replace("l", "L")).to_str())
   >     let ab = "ab"
-  >     print(ab.repeat(3))
+  >     println(ab.repeat(3))
   >     let csv = "a,,b"
   >     let parts = csv.split(",")
-  >     print_i64(parts.len())
-  >     print(parts.join("|"))
-  >     print_bool(parts.join("|").eq(str.join(str.split(csv, ","), "|")))
+  >     println("{parts.len()}")
+  >     println(parts.join("|"))
+  >     println(parts.join("|").eq(csv.split(",").join("|")).to_str())
   >     let crlf = "x\r\ny\n"
-  >     print_i64(crlf.lines().len())
-  >     print(crlf.lines().join("+"))
+  >     println("{crlf.lines().len()}")
+  >     println(crlf.lines().join("+"))
   >     let num = "-42"
-  >     print_i64(num.parse_i64().unwrap_or(0))
+  >     println("{num.parse_i64().unwrap_or(0)}")
   >     let e = ""
-  >     print_bool(e.is_empty())
+  >     println("{e.is_empty()}")
   >     arena |a| {
   >         let line = text(a, " x, 42 ,y\n")
   >         let fs = line.trim().split(",")
-  >         print_i64(fs.len())
-  >         print(fs[1].trim().to_str())
-  >         print_i64(fs[1].trim().parse_i64().unwrap_or(0) + 1)
-  >         print(line.field(",", 2).unwrap().trim().to_str())
-  >         print_bool(line.field(",", 3).is_none())
-  >         print_bool(line.trim().starts_with("x"))
-  >         print_i64(line.line_end(0))
-  >         print_i64(line.find_from("4", 0).unwrap_or(-1))
+  >         println("{fs.len()}")
+  >         println(fs[1].trim().to_str())
+  >         println("{fs[1].trim().parse_i64().unwrap_or(0) + 1}")
+  >         println(line.field(",", 2).unwrap().trim().to_str())
+  >         println(line.field(",", 3).is_none().to_str())
+  >         println(line.trim().starts_with("x").to_str())
+  >         println("{line.line_end(0)}")
+  >         println(line.find_from("4", 0).unwrap_or(-1).to_str())
   >     }
   >     let hs = "hé"
   >     let raw = hs.to_bytes()
-  >     print_bool(raw.decode().is_some())
-  >     print_bool(raw.is_empty())
+  >     println("{raw.decode().is_some()}")
+  >     println("{raw.is_empty()}")
   > }
   > EOF
   $ sinterc run text.sn
@@ -183,40 +182,40 @@ Vec：
   >     v.push(1)
   >     v.push(2)
   >     v.push(3)
-  >     print_i64(v.sum())
-  >     print_i64(v.max().unwrap())
-  >     print_i64(v.min().unwrap())
-  >     print_bool(v.contains(2))
-  >     print_i64(v.index_of(3).unwrap_or(-1))
-  >     print_i64(v.count(|x| x > 1))
-  >     print_bool(v.any(|x| x == 1))
-  >     print_bool(v.all(|x| x > 0))
-  >     print_i64(v.fold(0, |acc, x| acc * 10 + x))
+  >     println("{v.sum()}")
+  >     println("{v.max().unwrap()}")
+  >     println("{v.min().unwrap()}")
+  >     println("{v.contains(2)}")
+  >     println("{v.index_of(3).unwrap_or(-1)}")
+  >     println("{v.count(|x| x > 1)}")
+  >     println("{v.any(|x| x == 1)}")
+  >     println("{v.all(|x| x > 0)}")
+  >     println("{v.fold(0, |acc, x| acc * 10 + x)}")
   >     let doubled = v.map(|x| x * 2)
-  >     print_i64(doubled.sum())
+  >     println("{doubled.sum()}")
   >     v.sort()
-  >     print_i64(v.fold(0, |acc, x| acc * 10 + x))
-  >     print_i64(v.binary_search(3).unwrap_or(-1))
+  >     println("{v.fold(0, |acc, x| acc * 10 + x)}")
+  >     println("{v.binary_search(3).unwrap_or(-1)}")
   >     v.dedup()
-  >     print_i64(v.fold(0, |acc, x| acc * 10 + x))
+  >     println("{v.fold(0, |acc, x| acc * 10 + x)}")
   >     v.reverse()
-  >     print_i64(v.fold(0, |acc, x| acc * 10 + x))
+  >     println("{v.fold(0, |acc, x| acc * 10 + x)}")
   >     let big = v.filter(|x| x >= 2)
-  >     print_i64(big.fold(0, |acc, x| acc * 10 + x))
+  >     println("{big.fold(0, |acc, x| acc * 10 + x)}")
   >     var total = 0
   >     big.for_each(|x| { total = total + x })
-  >     print_i64(total)
+  >     println("{total}")
   >     var f: Vec<F64> = vec_new()
   >     f.push(1.5)
   >     f.push(-2.0)
-  >     print_f64(f.sum())
-  >     print_f64(f.max().unwrap())
-  >     print_bool(f.is_empty())
+  >     println("{f.sum()}")
+  >     println("{f.max().unwrap()}")
+  >     println("{f.is_empty()}")
   >     var names: Vec<Str> = vec_new()
   >     names.push("b")
   >     names.push("a")
   >     names.sort()
-  >     print(names.join(","))
+  >     println(names.join(","))
   > }
   > EOF
   $ sinterc run vec.sn
@@ -246,7 +245,7 @@ Vec：
   $ cat > own.sn <<'EOF'
   > fn max(a: I64, b: I64) -> I64 { 0 }
   > fn main() {
-  >     print_i64(max(4, 9))
+  >     println("{max(4, 9)}")
   > }
   > EOF
   $ sinterc run own.sn
@@ -256,7 +255,7 @@ Vec：
 
   $ cat > tiny.sn <<'EOF'
   > fn main() {
-  >     print_i64(1)
+  >     println("{1}")
   > }
   > EOF
   $ sinterc tiny.sn -o tiny.c && grep -c "is_digit" tiny.c
@@ -265,7 +264,7 @@ Vec：
   $ cat > used.sn <<'EOF'
   > fn main() {
   >     let c = '5'
-  >     print_bool(c.is_digit())
+  >     println("{c.is_digit()}")
   > }
   > EOF
   $ sinterc used.sn -o used.c && grep -q "is_digit" used.c && echo 输出了

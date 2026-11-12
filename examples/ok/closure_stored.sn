@@ -1,5 +1,4 @@
 // C59：可以存起来的闭包 Fn(T) -> U（Lean M26）：返回、存进 Vec 和结构体、计数器、按值拿进来的 Str、组合。
-use std.vec
 
 struct Button { label: Str, on_click: Fn(I64) -> I64 }
 
@@ -21,22 +20,22 @@ fn compose(sink f: Fn(I64) -> I64, sink g: Fn(I64) -> I64) -> Fn(I64) -> I64 {
 
 fn main() {
     var c = counter()
-    print_i64(c())
-    print_i64(c())
+    println("{c()}")
+    println("{c()}")
     var fs: Vec<Fn(I64) -> I64> = vec_new()
     fs.push(adder(1))
     fs.push(compose(adder(2), adder(3)))
     for i in 0..fs.len() {
-        print_i64(fs[i].call(10))
+        println("{fs[i].call(10)}")
     }
     let name = "ann"
-    var greet: Fn() -> () = || print(name)
+    var greet: Fn() -> () = || println(name)
     greet()
     var b = Button { label: "ok", on_click: |n| n * 2 }
-    print_i64(b.on_click.call(21))
+    println("{b.on_click.call(21)}")
     var v: Vec<I64> = vec_new()
     v.push(1)
     var add = adder(5)
-    let w = vec.map(v, add)
-    print_i64(w[0])
+    let w = v.map(add)
+    println("{w[0]}")
 }

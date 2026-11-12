@@ -2,7 +2,6 @@
 提升出的函数里，这些区域换成区域参数，按闭包所在位置的嵌套顺序编号，只保留那里真实成立的先后关系。
 
   $ cat > ok.sn <<'EOF'
-  > use std.vec
   > 
   > fn main() {
   >     var v: Vec<I64> = vec_new()
@@ -12,16 +11,16 @@
   >     arena |a| {
   >         let base = alloc(a, 100)
   >         // 读外层区域里的值
-  >         let w = vec.map(v, |x| x + *base)
+  >         let w = v.map(|x| x + *base)
   >         for x in w {
-  >             print_i64(x)
+  >             println("{x}")
   >         }
   >         arena |b| {
   >             // 捕获区域 b 本身，在里面分配；改外层的 Vec<&I64 in b>
   >             var refs: Vec<&I64 in b> = vec_new()
-  >             vec.for_each(v, |x| { refs.push(alloc(b, x * 2)) })
+  >             v.for_each(|x| { refs.push(alloc(b, x * 2)) })
   >             // 外层区域 a 的引用可以放进 Vec<&I64 in b>（a 比 b 活得久）
-  >             vec.for_each(v, |x| {
+  >             v.for_each(|x| {
   >                 if x == 1 { refs.push(base) }
   >             })
   >             var s = 0
@@ -30,8 +29,8 @@
   >                 s = s + *vec_get(refs, i)
   >                 i = i + 1
   >             }
-  >             print_i64(s)
-  >             print_i64(vec.count(v, |x| x * 50 > *vec_get(refs, 3)))
+  >             println("{s}")
+  >             println("{v.count(|x| x * 50 > *vec_get(refs, 3))}")
   >         }
   >     }
   > }
@@ -46,19 +45,18 @@
 闭包里也不能把内层区域的引用放进外层区域的 Vec：
 
   $ cat > short.sn <<'EOF'
-  > use std.vec
   > fn main() {
   >     var v: Vec<I64> = vec_new()
   >     arena |a| {
   >         var outer: Vec<&I64 in a> = vec_new()
   >         arena |b| {
-  >             vec.for_each(v, |x| { outer.push(alloc(b, x)) })
+  >             v.for_each(|x| { outer.push(alloc(b, x)) })
   >         }
   >     }
   > }
   > EOF
   $ sinterc short.sn
-  short.sn:7:46: 错误：类型不匹配：需要 &I64 in a，实际是 &I64 in b
-   7 |             vec.for_each(v, |x| { outer.push(alloc(b, x)) })
-     |                                              ^
+  short.sn:6:41: 错误：类型不匹配：需要 &I64 in a，实际是 &I64 in b
+   6 |             v.for_each(|x| { outer.push(alloc(b, x)) })
+     |                                         ^
   [1]

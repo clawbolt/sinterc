@@ -17,20 +17,20 @@
   > fn main() {
   >     let q = mk(1)
   >     var a = q.p.a
-  >     print_i64(*a + *q.p.b + *q.c)
-  >     print_i64(take(q.p.b))
-  >     print_i64(take(q.c))
+  >     println("{*a + *q.p.b + *q.c}")
+  >     println("{take(q.p.b)}")
+  >     println("{take(q.c)}")
   >     var r = mk(10)
   >     var p = r.p
-  >     print_i64(sum_p(p))
-  >     print_i64(*r.c)
+  >     println("{sum_p(p)}")
+  >     println("{*r.c}")
   >     r.p = P { a: box(100), b: box(200) }
-  >     print_i64(sum_p(r.p))
+  >     println("{sum_p(r.p)}")
   >     var s = mk(20)
   >     let yes = true
-  >     if yes { print_i64(take(s.p.a)) }
+  >     if yes { println("{take(s.p.a)}") }
   >     s.p.a = box(7)
-  >     print_i64(sum_p(s.p) + *s.c)
+  >     println("{sum_p(s.p) + *s.c}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -52,12 +52,12 @@
   > fn main() {
   >     let q = Q { p: P { a: box(1), b: box(2) }, c: box(3) }
   >     var a = q.p.a
-  >     print_i64(sum_p(q.p))
+  >     println("{sum_p(q.p)}")
   > }
   > EOF
   $ sinterc whole.sn
   whole.sn:7:21: 错误：q.p.a 已被移走，不能整体使用 q.p
-   7 |     print_i64(sum_p(q.p))
+   7 |     println("{sum_p(q.p)}")
      |                     ^
   [1]
 
@@ -70,11 +70,11 @@
   > fn main() {
   >     let q = Q { p: P { a: box(1), b: box(2) }, c: box(3) }
   >     var p = q.p
-  >     print_i64(*q.p.a)
+  >     println("{*q.p.a}")
   > }
   > EOF
   $ sinterc inner.sn
   inner.sn:7:15: 错误：q.p.a 已被移走，不能再使用
-   7 |     print_i64(*q.p.a)
+   7 |     println("{*q.p.a}")
      |               ^
   [1]

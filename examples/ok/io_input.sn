@@ -12,8 +12,8 @@ fn main() {
     }
     for l in lines {
         match l.to_i64() {
-            .Some(n) => print_i64(n),
-            .None => print(l)
+            .Some(n) => println("{n}"),
+            .None => println(l)
         }
     }
 }

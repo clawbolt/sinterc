@@ -1,5 +1,3 @@
-use std.vec
-
 fn main() {
     var v: Vec<I64> = vec_new()
     v.push(1)
@@ -8,16 +6,16 @@ fn main() {
     arena |a| {
         let base = alloc(a, 100)
         // 读外层区域里的值
-        let w = vec.map(v, |x| x + *base)
+        let w = v.map(|x| x + *base)
         for x in w {
-            print_i64(x)
+            println("{x}")
         }
         arena |b| {
             // 捕获区域 b 本身，在里面分配；改外层的 Vec<&I64 in b>
             var refs: Vec<&I64 in b> = vec_new()
-            vec.for_each(v, |x| { refs.push(alloc(b, x * 2)) })
+            v.for_each(|x| { refs.push(alloc(b, x * 2)) })
             // 外层区域 a 的引用可以放进 Vec<&I64 in b>（a 比 b 活得久）
-            vec.for_each(v, |x| {
+            v.for_each(|x| {
                 if x == 1 { refs.push(base) }
             })
             var s = 0
@@ -26,8 +24,8 @@ fn main() {
                 s = s + *vec_get(refs, i)
                 i = i + 1
             }
-            print_i64(s)
-            print_i64(vec.count(v, |x| x * 50 > *vec_get(refs, 3)))
+            println("{s}")
+            println("{v.count(|x| x * 50 > *vec_get(refs, 3))}")
         }
     }
 }

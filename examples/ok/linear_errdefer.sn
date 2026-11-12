@@ -7,17 +7,17 @@ fn begin(id: I64) -> Result<Tx, I64> {
 
 fn exec(t: Tx, v: I64) -> Result<(), I64> {
     if v > 100 { return Err(v) }
-    print_i64(*t.log + v)
+    println("{*t.log + v}")
     Ok(())
 }
 
 fn commit(sink t: Tx) {
-    print_i64(t.id)
+    println("{t.id}")
     consume(t)
 }
 
 fn rollback(sink t: Tx) {
-    print_i64(0 - t.id)
+    println("{0 - t.id}")
     consume(t)
 }
 
@@ -31,8 +31,8 @@ fn transfer(id: I64, v: I64) -> Result<(), I64> {
 
 fn report(r: Result<(), I64>) {
     match r {
-        Ok(_) => print_bool(true)
-        Err(e) => print_i64(e)
+        Ok(_) => println("{true}")
+        Err(e) => println("{e}")
     }
 }
 
@@ -45,5 +45,5 @@ fn main() {
         Ok(b) => *b,
         Err(e) => e
     }
-    print_i64(n)
+    println("{n}")
 }

@@ -12,17 +12,17 @@ linear 值、Result、?、match、errdefer。
   > 
   > fn exec(t: Tx, v: I64) -> Result<(), I64> {
   >     if v > 100 { return Err(v) }
-  >     print_i64(*t.log + v)
+  >     println("{*t.log + v}")
   >     Ok(())
   > }
   > 
   > fn commit(sink t: Tx) {
-  >     print_i64(t.id)
+  >     println("{t.id}")
   >     consume(t)
   > }
   > 
   > fn rollback(sink t: Tx) {
-  >     print_i64(0 - t.id)
+  >     println("{0 - t.id}")
   >     consume(t)
   > }
   > 
@@ -36,8 +36,8 @@ linear 值、Result、?、match、errdefer。
   > 
   > fn report(r: Result<(), I64>) {
   >     match r {
-  >         Ok(_) => print_bool(true)
-  >         Err(e) => print_i64(e)
+  >         Ok(_) => println("{true}")
+  >         Err(e) => println("{e}")
   >     }
   > }
   > 
@@ -50,7 +50,7 @@ linear 值、Result、?、match、errdefer。
   >         Ok(b) => *b,
   >         Err(e) => e
   >     }
-  >     print_i64(n)
+  >     println("{n}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok

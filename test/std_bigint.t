@@ -3,18 +3,15 @@ std.bigint（Lean `Library.BigInt`）。符号加上从低位到高位的各位�
 
   $ cat > ok.sn <<'EOF'
   > use std.bigint
-  > use std.math
-  > use std.option
-  > use std.vec
   > 
-  > fn big(s: Str) -> bigint.BigInt { option.unwrap(bigint.parse(s)) }
+  > fn big(s: Str) -> bigint.BigInt { bigint.parse(s).unwrap() }
   > 
-  > fn show(x: bigint.BigInt) { print(bigint.to_str(x)) }
+  > fn show(x: bigint.BigInt) { println(x.to_str()) }
   > 
   > fn fact(n: I64) -> bigint.BigInt {
   >     var r = bigint.from_i64(1)
   >     for i in 1..n + 1 {
-  >         r = bigint.mul(r, bigint.from_i64(i))
+  >         r = r.mul(bigint.from_i64(i))
   >     }
   >     r
   > }
@@ -23,7 +20,7 @@ std.bigint（Lean `Library.BigInt`）。符号加上从低位到高位的各位�
   >     var a = bigint.zero()
   >     var b = bigint.from_i64(1)
   >     for i in 0..n {
-  >         let c = bigint.add(a, b)
+  >         let c = a.add(b)
   >         a = b
   >         b = c
   >     }
@@ -37,34 +34,34 @@ std.bigint（Lean `Library.BigInt`）。符号加上从低位到高位的各位�
   > 
   > fn main() {
   >     show(fact(30))
-  >     show(bigint.pow(bigint.from_i64(2), 100))
+  >     show(bigint.from_i64(2).pow(100))
   >     show(fib(200))
   >     let mn = bigint.from_i64(-9223372036854775807 - 1)
   >     show(mn)
-  >     show(bigint.sub(mn, bigint.from_i64(1)))
-  >     show(bigint.sub(big("1000000000000000000000"), bigint.from_i64(1)))
-  >     show(bigint.add(bigint.from_i64(-5), bigint.from_i64(3)))
-  >     let z = bigint.add(bigint.from_i64(5), bigint.from_i64(-5))
-  >     print("{bigint.to_str(z)} {bigint.sign(z)}")
-  >     show(bigint.mul(bigint.from_i64(-12), bigint.from_i64(12)))
+  >     show(mn.sub(bigint.from_i64(1)))
+  >     show(big("1000000000000000000000").sub(bigint.from_i64(1)))
+  >     show(bigint.from_i64(-5).add(bigint.from_i64(3)))
+  >     let z = bigint.from_i64(5).add(bigint.from_i64(-5))
+  >     println("{z.to_str()} {z.sign()}")
+  >     show(bigint.from_i64(-12).mul(bigint.from_i64(12)))
   >     show(big("+000123"))
-  >     print_bool(option.is_none(bigint.parse("12a")))
-  >     print_bool(option.is_none(bigint.parse("-")))
+  >     println(bigint.parse("12a").is_none().to_str())
+  >     println(bigint.parse("-").is_none().to_str())
   >     let f = fact(30)
-  >     let (q, r) = bigint.divmod_small(f, 7)
+  >     let (q, r) = f.divmod_small(7)
   >     show(q)
-  >     print_i64(r)
-  >     let back = bigint.add(bigint.mul(q, bigint.from_i64(7)), bigint.from_i64(r))
-  >     print_bool(back.eq(f))
-  >     let (q2, r2) = bigint.divmod_small(bigint.from_i64(-7), 2)
-  >     print("{bigint.to_str(q2)} {r2}")
+  >     println("{r}")
+  >     let back = q.mul(bigint.from_i64(7)).add(bigint.from_i64(r))
+  >     println("{back.eq(f)}")
+  >     let (q2, r2) = bigint.from_i64(-7).divmod_small(2)
+  >     println("{q2.to_str()} {r2}")
   >     var v: Vec<bigint.BigInt> = vec_new()
   >     v.push(bigint.from_i64(5))
   >     v.push(bigint.from_i64(-3))
-  >     v.push(bigint.pow(bigint.from_i64(10), 20))
+  >     v.push(bigint.from_i64(10).pow(20))
   >     v.push(bigint.zero())
-  >     v.push(bigint.neg(bigint.pow(bigint.from_i64(10), 20)))
-  >     vec.sort(v)
+  >     v.push(bigint.from_i64(10).pow(20).neg())
+  >     v.sort()
   >     for x in v { show(x) }
   >     // 和 I64 对照：2000 组随机数，乘积不超过 10^18
   >     var seed = 11
@@ -74,16 +71,16 @@ std.bigint（Lean `Library.BigInt`）。符号加上从低位到高位的各位�
   >         let b = next(seed) * 30000 - next(seed)
   >         let x = bigint.from_i64(a)
   >         let y = bigint.from_i64(b)
-  >         if !str_eq(bigint.to_str(bigint.add(x, y)), str_from_i64(a + b)) { bad = bad + 1 }
-  >         if !str_eq(bigint.to_str(bigint.sub(x, y)), str_from_i64(a - b)) { bad = bad + 1 }
-  >         if !str_eq(bigint.to_str(bigint.mul(x, y)), str_from_i64(a * b)) { bad = bad + 1 }
+  >         if !str_eq(x.add(y).to_str(), str_from_i64(a + b)) { bad = bad + 1 }
+  >         if !str_eq(x.sub(y).to_str(), str_from_i64(a - b)) { bad = bad + 1 }
+  >         if !str_eq(x.mul(y).to_str(), str_from_i64(a * b)) { bad = bad + 1 }
   >         if x.cmp(y).to_i64() != a.cmp(b).to_i64() { bad = bad + 1 }
-  >         let (dq, dr) = bigint.divmod_small(x, 7)
-  >         if !str_eq(bigint.to_str(dq), str_from_i64(a / 7)) || dr != a % 7 { bad = bad + 1 }
+  >         let (dq, dr) = x.divmod_small(7)
+  >         if !str_eq(dq.to_str(), str_from_i64(a / 7)) || dr != a % 7 { bad = bad + 1 }
   >         let p = bigint.parse(str_from_i64(b))
-  >         if !option.unwrap(p).eq(y) { bad = bad + 1 }
+  >         if !p.unwrap().eq(y) { bad = bad + 1 }
   >     }
-  >     print_i64(bad)
+  >     println("{bad}")
   > }
   > EOF
   $ sinterc run ok.sn
@@ -116,9 +113,9 @@ std.bigint（Lean `Library.BigInt`）。符号加上从低位到高位的各位�
   > use std.bigint
   > 
   > fn main() {
-  >     let (q, r) = bigint.divmod_small(bigint.from_i64(1), 0)
+  >     let (q, r) = bigint.from_i64(1).divmod_small(0)
   > }
   > EOF
   $ sinterc run div0.sn
-  panic: bigint.divmod_small 的除数要在 1 到 1000000000 之间
+  panic: BigInt 的 divmod_small 的除数要在 1 到 1000000000 之间
   [101]

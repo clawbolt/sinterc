@@ -14,21 +14,21 @@ fn sum(p: Pair<&I64 in x, &I64 in y>) -> I64 { *p.a + *p.b }
 fn main() {
     arena |a| {
         let r = alloc(a, 1)
-        print_i64(get_or(some(r), 0))
+        println("{get_or(some(r), 0)}")
         let n: Option<&I64 in a> = .None
-        print_i64(get_or(n, -1))
+        println("{get_or(n, -1)}")
         arena |b| {
             let s = alloc(b, 10)
-            print_i64(sum(Pair { a: r, b: s }))
-            print_i64(get_or(some(s), 0))
+            println(sum(Pair { a: r, b: s }).to_str())
+            println("{get_or(some(s), 0)}")
         }
         var v: Vec<&I64 in a> = vec_new()
         v.push(r)
         v.push(alloc(a, 5))
         match v.pop() {
-            .Some(t) => print_i64(*t),
-            .None => print_i64(0)
+            .Some(t) => println("{*t}"),
+            .None => println("{0}")
         }
-        print_i64(vec_len(v))
+        println("{vec_len(v)}")
     }
 }

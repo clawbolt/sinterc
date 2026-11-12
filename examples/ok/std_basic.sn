@@ -1,9 +1,4 @@
 // C35：用标准库的程序。标准库的函数（含泛型和 trait）一起导出，由 Lean 检查。
-use std.math
-use std.option
-use std.result
-use std.vec
-use std.str
 
 fn parse(s: Str) -> Result<I64, Str> {
     match str_to_i64(s) {
@@ -13,12 +8,12 @@ fn parse(s: Str) -> Result<I64, Str> {
 }
 
 fn main() {
-    print_i64(math.clamp(math.pow(2, 5), 0, 20))
-    print(math.min_of("pear", "fig"))
-    print_i64(result.unwrap_or(parse("12"), 0))
-    var v: Vec<Str> = str.split("x,y,z", ",")
-    vec.reverse(v)
-    print(str.join(v, "-"))
-    print_bool(vec.contains(v, "y"))
-    print_i64(option.unwrap_or(vec.index_of(v, "z"), -1))
+    println("{(2).pow(5).clamp(0, 20)}")
+    println(min("pear", "fig"))
+    println(parse("12").unwrap_or(0).to_str())
+    var v: Vec<Str> = "x,y,z".split(",")
+    v.reverse()
+    println(v.join("-"))
+    println(v.contains("y").to_str())
+    println(v.index_of("z").unwrap_or(-1).to_str())
 }

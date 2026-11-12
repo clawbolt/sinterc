@@ -17,9 +17,9 @@ fn lower(sink b: Bytes) -> Bytes {
 
 fn main() {
     let b = lower("Hello, 世界".to_bytes())
-    print_i64(checksum(b))
+    println("{checksum(b)}")
     match str_from_utf8(b) {
-        .Some(s) => print(s),
-        .None => print("?")
+        .Some(s) => println(s),
+        .None => println("?")
     }
 }

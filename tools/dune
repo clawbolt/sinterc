@@ -1,0 +1,3 @@
+; 迁移到新标准库的改写工具：dune exec tools/migrate.exe -- [-w] 文件…
+(executable
+ (name migrate))

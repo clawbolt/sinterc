@@ -1,24 +1,26 @@
 // C58：std.os——环境变量、目录、子进程。
 
-use std.os
+use std.fs
+use std.env
+use std.process
 
 fn count_files(dir: Str) -> I64 {
-    match os.list_dir(dir) {
+    match fs.list_dir(dir) {
         Ok(ns) => ns.len(),
         Err(e) => 0
     }
 }
 
 fn main() {
-    let home = match os.env("HOME") {
+    let home = match env.get("HOME") {
         .Some(h) => h,
         .None => "."
     }
-    print_i64(count_files(home))
+    println("{count_files(home)}")
     var args: Vec<Str> = vec_new()
     args.push("hi")
-    match os.run("echo", args) {
-        Ok(c) => if c != 0 { os.exit(c) },
-        Err(e) => print(e)
+    match process.run("echo", args) {
+        Ok(c) => if c != 0 { env.exit(c) },
+        Err(e) => println(e)
     }
 }

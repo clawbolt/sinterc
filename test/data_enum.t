@@ -33,11 +33,11 @@ match 按标签选分支，必须穷尽，按移动拆开：载荷交给分支�
   > }
   > 
   > fn main() {
-  >     print_i64(area(.Circle(2)))
-  >     print_i64(area(.Rect(5)))
-  >     print_i64(area(.Dot))
-  >     print_i64(take(wrap(7)))
-  >     print_i64(take(wrap(0)))
+  >     println("{area(.Circle(2))}")
+  >     println("{area(.Rect(5))}")
+  >     println("{area(.Dot)}")
+  >     println("{take(wrap(7))}")
+  >     println("{take(wrap(0))}")
   >     let o: Opt = .Some(box(3))
   >     let p = wrap(4)
   >     var q: Opt = .None
@@ -48,7 +48,7 @@ match 按标签选分支，必须穷尽，按移动拆开：载荷交给分支�
   >         }
   >         .None => 0
   >     }
-  >     print_i64(r)
+  >     println("{r}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -83,12 +83,12 @@ match 按标签选分支，必须穷尽，按移动拆开：载荷交给分支�
   > fn main() {
   >     let b = box(1)
   >     let o: Opt = .Some(b)
-  >     print_i64(*b)
+  >     println("{*b}")
   > }
   > EOF
   $ sinterc moved.sn
   moved.sn:5:15: 错误：b 已被移动，不能再使用
-   5 |     print_i64(*b)
+   5 |     println("{*b}")
      |               ^
   [1]
 
@@ -125,12 +125,12 @@ match 之后枚举已被拆开，不能再用：
   >         .Some(b) => { k = b }
   >         .None => { }
   >     }
-  >     print_i64(*k)
+  >     println("{*k}")
   > }
   > EOF
   $ sinterc maybe.sn
   maybe.sn:9:15: 错误：k 可能已被移动（某条路径上或上一轮循环里），不能再使用
-   9 |     print_i64(*k)
+   9 |     println("{*k}")
      |               ^
   [1]
 

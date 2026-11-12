@@ -6,14 +6,14 @@ fn main() {
     var p = P { a: box(1), b: box(2) }
     let yes = true
     if yes {
-        print_i64(take(p.a))
+        println("{take(p.a)}")
     }
     p.a = box(3)
-    print_i64(*p.a + *p.b)
+    println("{*p.a + *p.b}")
     var x = box(5)
     if yes {
-        print_i64(take(x))
+        println("{take(x)}")
     }
     x = box(6)
-    print_i64(*x)
+    println("{*x}")
 }

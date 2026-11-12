@@ -8,7 +8,7 @@ fn main() {
         let c = box(*b)
         if *c == 1 { continue }
         if *c == 3 { break }
-        print_i64(*c)
+        println("{*c}")
     }
     var n = 0
     while n < 10 {
@@ -17,8 +17,8 @@ fn main() {
             let r = alloc(a, n)
             let s = "x"
             if *r == 2 { break }
-            print(s)
+            println(s)
         }
     }
-    print_i64(n)
+    println("{n}")
 }

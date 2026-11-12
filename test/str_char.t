@@ -3,12 +3,11 @@ s.chars() 逐个解码（不合法的字节解成 U+FFFD），s.char_count() 是
 std.char 提供 ASCII 的分类和大小写转换。for 也能直接遍历函数返回的 Vec。
 
   $ cat > ok.sn <<'EOF'
-  > use std.char
   > 
   > fn count_digits(s: Str) -> I64 {
   >     var n = 0
   >     for c in s.chars() {
-  >         if char.is_digit(c) { n = n + 1 }
+  >         if c.is_digit() { n = n + 1 }
   >     }
   >     n
   > }
@@ -16,7 +15,7 @@ std.char 提供 ASCII 的分类和大小写转换。for 也能直接遍历函数
   > fn upper(s: Str) -> Str {
   >     var r = ""
   >     for c in s.chars() {
-  >         r.push_char(char.to_upper(c))
+  >         r.push_char(c.to_upper())
   >     }
   >     r
   > }
@@ -42,36 +41,36 @@ std.char 提供 ASCII 的分类和大小写转换。for 也能直接遍历函数
   > 
   > fn main() {
   >     let s = "héllo, 世界 😀"
-  >     print_i64(str_len(s))
-  >     print_i64(s.char_count())
+  >     println("{str_len(s)}")
+  >     println("{s.char_count()}")
   >     for c in "a中😀".chars() {
-  >         print_i64(c.code())
+  >         println("{c.code()}")
   >     }
-  >     print_char('中')
-  >     print(upper("abc-xyz 中文"))
-  >     print(reverse("你好，abc"))
-  >     print_i64(count_digits("a1b22c333"))
-  >     print_bool('a' < 'b')
-  >     print_bool('中' == '中')
-  >     print_i64(char_code('\t'))
-  >     print_char(char.to_lower('Q'))
+  >     println("{'中'}")
+  >     println(upper("abc-xyz 中文"))
+  >     println(reverse("你好，abc"))
+  >     println(count_digits("a1b22c333").to_str())
+  >     println("{'a' < 'b'}")
+  >     println("{'中' == '中'}")
+  >     println("{char_code('\t')}")
+  >     println("{'Q'.to_lower()}")
   >     match char_from(65) {
-  >         .Some(c) => print_char(c),
-  >         .None => print("不是字符")
+  >         .Some(c) => println("{c}"),
+  >         .None => println("不是字符")
   >     }
   >     match char_from(55296) {
-  >         .Some(c) => print_char(c),
-  >         .None => print("不是字符")
+  >         .Some(c) => println("{c}"),
+  >         .None => println("不是字符")
   >     }
-  >     match char.to_digit('7') {
-  >         .Some(d) => print_i64(d),
-  >         .None => print("不是数字")
+  >     match '7'.to_digit() {
+  >         .Some(d) => println("{d}"),
+  >         .None => println("不是数字")
   >     }
   >     var t = str_from_char('😀')
   >     t.push_char('!')
-  >     print(t)
+  >     println(t)
   >     for x in squares(4) {
-  >         print_i64(x)
+  >         println("{x}")
   >     }
   > }
   > EOF

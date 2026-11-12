@@ -1,5 +1,5 @@
 fn show(x: I64) -> I64 {
-    print_i64(x)
+    println("{x}")
     x
 }
 
@@ -8,5 +8,5 @@ fn sub(a: I64, b: I64) -> I64 {
 }
 
 fn main() {
-    print_i64(sub(show(1), show(2)))
+    println("{sub(show(1), show(2))}")
 }

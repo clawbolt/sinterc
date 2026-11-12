@@ -1,48 +1,44 @@
 use std.map
-use std.option
-
-fn show(m: map.Map<Str, I64>) {
-    var i = 0
-    while i < map.len(m) {
-        print(vec_get(m.keys, i))
-        print_i64(vec_get(m.vals, i))
-        i = i + 1
-    }
-}
 
 fn main() {
-    var m: map.Map<Str, I64> = map.new()
-    print_bool(option.is_none(map.insert(m, "pear", 3)))
-    let a = map.insert(m, "apple", 1)
-    let b = map.insert(m, "fig", 2)
-    print_i64(option.unwrap_or(map.insert(m, "fig", 20), 0))
-    show(m)
-    print_bool(map.contains(m, "fig"))
-    print_bool(map.contains(m, "kiwi"))
-    match map.index_of(m, "pear") {
-        .Some(i) => print_i64(vec_get(m.vals, i)),
-        .None => print("没有")
+    var m: map.Map<I64, I64> = map.new()
+    for i in 0..1023 {
+        let o = m.insert(i, i * i)
     }
-    print_i64(option.unwrap_or(map.remove(m, "apple"), 0))
-    print_i64(option.unwrap_or(map.remove(m, "kiwi"), -1))
-    print_i64(map.len(m))
-    show(m)
-    var n: map.Map<I64, Str> = map.new()
-    var k = 5
-    while k > 0 {
-        let c = map.insert(n, k, str_concat("v", str_slice("abcde", k - 1, k)))
-        k = k - 1
+    println("{m.len()}")
+    println("{m.height()}")
+    match m.get(64, |v| v + 1) {
+        .Some(x) => println("{x}"),
+        .None => println("没有")
     }
-    print(option.unwrap_or(map.insert(n, 3, "C"), "?"))
-    for key in n.keys {
-        print_i64(key)
+    println("{m.contains(1022)}")
+    println("{m.contains(1023)}")
+    match m.insert(5, 0) {
+        .Some(x) => println("{x}"),
+        .None => println("新键")
     }
-    for val in n.vals {
-        print(val)
+    println("{m.len()}")
+    var k = 0
+    while k < 1023 {
+        let o = m.remove(k)
+        k = k + 2
     }
-    var v: Vec<I64> = vec_new()
-    v.push(1)
-    v.push(2)
-    v.swap(0, 1)
-    print_i64(vec_get(v, 0))
+    match m.remove(0) {
+        .Some(x) => println("{x}"),
+        .None => println("已经删掉")
+    }
+    println("{m.len()}")
+    println("{m.height() <= 10}")
+    var ok = true
+    var prev = -1
+    var total = 0
+    m.for_each(|key, v| {
+        if key <= prev || key % 2 == 0 { ok = false }
+        prev = key
+        total = total + 1
+    })
+    println("{ok}")
+    println("{total}")
+    println("{m.contains(50)}")
+    println("{m.contains(51)}")
 }

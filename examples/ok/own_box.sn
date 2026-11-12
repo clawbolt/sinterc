@@ -10,24 +10,24 @@ fn make(x: I64) -> Box<I64> {
 
 fn main() {
     let b = box(41)
-    print_i64(take(b))
+    println("{take(b)}")
     var c = make(1)
     c = make(2)
-    print_i64(*c)
+    println("{*c}")
     var i = 0
     while i < 3 {
         let t = box(i)
         i = *t + 1
     }
     let p = Pair { a: box(7), n: 3 }
-    print_i64(*p.a + p.n)
+    println("{*p.a + p.n}")
     let d = box(5)
-    if i > 100 { print_i64(take(d)) }
+    if i > 100 { println("{take(d)}") }
     let e = box(6)
-    if i < 100 { print_i64(take(e)) }
+    if i < 100 { println("{take(e)}") }
     var m = box(1)
-    print_i64(take(m))
+    println("{take(m)}")
     m = box(2)
-    print_i64(*m)
-    print_i64(*make(4))
+    println("{*m}")
+    println("{*make(4)}")
 }

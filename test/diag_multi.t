@@ -12,8 +12,8 @@
   > fn c() -> I64 { 1 }
   > 
   > fn main() {
-  >     print_i64(c())
-  >     print_bool(3)
+  >     println("{c()}")
+  >     let y: Bool = 3
   > }
   > EOF
   $ sinterc types.sn
@@ -23,9 +23,9 @@
   types.sn:4:18: 错误：类型不匹配：需要 I64，实际是 Bool
    4 |     let x: I64 = false
      |                  ^
-  types.sn:12:16: 错误：类型不匹配：需要 Bool，实际是 I64
-   12 |     print_bool(3)
-      |                ^
+  types.sn:12:19: 错误：类型不匹配：需要 Bool，实际是 I64
+   12 |     let y: Bool = 3
+      |                   ^
   [1]
 
 所有权错误：两个函数各报一个。
@@ -35,23 +35,23 @@
   > 
   > fn f() {
   >     let b = box(1)
-  >     print_i64(take(b))
-  >     print_i64(*b)
+  >     println("{take(b)}")
+  >     println("{*b}")
   > }
   > 
   > fn main() {
   >     let c = box(2)
-  >     print_i64(take(c))
-  >     print_i64(take(c))
+  >     println("{take(c)}")
+  >     println("{take(c)}")
   >     f()
   > }
   > EOF
   $ sinterc own.sn
   own.sn:6:15: 错误：b 已被移动，不能再使用
-   6 |     print_i64(*b)
+   6 |     println("{*b}")
      |               ^
   own.sn:12:20: 错误：c 已被移动，不能再使用
-   12 |     print_i64(take(c))
+   12 |     println("{take(c)}")
       |                    ^
   [1]
 

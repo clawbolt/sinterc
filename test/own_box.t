@@ -16,26 +16,26 @@ Box、移动、析构。程序结束时如果还有 Box 没释放，打印 leak 
   > 
   > fn main() {
   >     let b = box(41)
-  >     print_i64(take(b))
+  >     println("{take(b)}")
   >     var c = make(1)
   >     c = make(2)
-  >     print_i64(*c)
+  >     println("{*c}")
   >     var i = 0
   >     while i < 3 {
   >         let t = box(i)
   >         i = *t + 1
   >     }
   >     let p = Pair { a: box(7), n: 3 }
-  >     print_i64(*p.a + p.n)
+  >     println("{*p.a + p.n}")
   >     let d = box(5)
-  >     if i > 100 { print_i64(take(d)) }
+  >     if i > 100 { println("{take(d)}") }
   >     let e = box(6)
-  >     if i < 100 { print_i64(take(e)) }
+  >     if i < 100 { println("{take(e)}") }
   >     var m = box(1)
-  >     print_i64(take(m))
+  >     println("{take(m)}")
   >     m = box(2)
-  >     print_i64(*m)
-  >     print_i64(*make(4))
+  >     println("{*m}")
+  >     println("{*make(4)}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -54,13 +54,13 @@ Box、移动、析构。程序结束时如果还有 Box 没释放，打印 leak 
   > 
   > fn main() {
   >     let b = box(1)
-  >     print_i64(take(b))
-  >     print_i64(*b)
+  >     println("{take(b)}")
+  >     println("{*b}")
   > }
   > EOF
   $ sinterc move.sn
   move.sn:6:15: 错误：b 已被移动，不能再使用
-   6 |     print_i64(*b)
+   6 |     println("{*b}")
      |               ^
   [1]
 
@@ -71,13 +71,13 @@ Box、移动、析构。程序结束时如果还有 Box 没释放，打印 leak 
   > 
   > fn main() {
   >     let b = box(1)
-  >     if true { print_i64(take(b)) }
-  >     print_i64(*b)
+  >     if true { println("{take(b)}") }
+  >     println("{*b}")
   > }
   > EOF
   $ sinterc branch.sn
   branch.sn:6:15: 错误：b 可能已被移动（某条路径上或上一轮循环里），不能再使用
-   6 |     print_i64(*b)
+   6 |     println("{*b}")
      |               ^
   [1]
 
@@ -90,14 +90,14 @@ Box、移动、析构。程序结束时如果还有 Box 没释放，打印 leak 
   >     let b = box(1)
   >     var i = 0
   >     while i < 2 {
-  >         print_i64(take(b))
+  >         println("{take(b)}")
   >         i = i + 1
   >     }
   > }
   > EOF
   $ sinterc loop.sn
   loop.sn:7:24: 错误：b 可能已被移动（某条路径上或上一轮循环里），不能再使用
-   7 |         print_i64(take(b))
+   7 |         println("{take(b)}")
      |                        ^
   [1]
 

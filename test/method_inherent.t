@@ -54,26 +54,26 @@
   > 
   > fn main() {
   >     var p = Point { x: 3, y: -4 }
-  >     print_i64(p.norm1())
+  >     println("{p.norm1()}")
   >     p.shift(10)
-  >     print_i64(p.norm1())
+  >     println("{p.norm1()}")
   >     var v: Vec<I64> = vec_new()
   >     v.push(1)
   >     v.push(2)
   >     v.push(3)
-  >     print_i64(v.total())
+  >     println("{v.total()}")
   >     var w: Vec<F64> = vec_new()
   >     w.push(1.5)
   >     w.push(2.0)
-  >     print_f64(w.total())
-  >     print_i64(v.size())
-  >     print_i64(v.count_if(|x| x > 1))
+  >     println("{w.total()}")
+  >     println("{v.size()}")
+  >     println("{v.count_if(|x| x > 1)}")
   >     let s = "hi"
-  >     print(s.shout())
+  >     println(s.shout())
   >     arena |a| {
   >         let t = text(a, "xyz")
-  >         print_i64(t.first())
-  >         print_i64(t.tail().first())
+  >         println("{t.first()}")
+  >         println("{t.tail().first()}")
   >     }
   > }
   > EOF
@@ -108,8 +108,8 @@
   > 
   > fn main() {
   >     let k = 7
-  >     print_i64(k.show())
-  >     print_i64(via(k))
+  >     println("{k.show()}")
+  >     println("{via(k)}")
   > }
   > EOF
   $ sinterc trait.sn -o trait.c && cc -std=gnu11 -w trait.c -o trait && ./trait

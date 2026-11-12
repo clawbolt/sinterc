@@ -22,24 +22,24 @@ fn sum(v: Vec<Box<I64>>) -> I64 {
 fn make(a: Arena, n: I64) -> &I64 in a { alloc(a, n) }
 
 fn main() {
-    print("== Sinter 一览 ==")
+    println("== Sinter 一览 ==")
     var p = Point { x: 3, y: 4 }
-    print_i64(dist2(p))
+    println("{dist2(p)}")
     inc(p.x)
-    print_i64(p.x)
+    println("{p.x}")
 
     var v: Vec<Box<I64>> = vec_new()
     v.push(box(1))
     v.push(box(2))
     v.push(box(3))
-    print_i64(sum(v))
+    println("{sum(v)}")
     match v.pop() {
-        .Some(b) => print_i64(*b),
-        .None => print_i64(0)
+        .Some(b) => println("{*b}"),
+        .None => println("{0}")
     }
 
     arena |a| {
         let r = make(a, 42)
-        print_i64(*r)
+        println("{*r}")
     }
 }

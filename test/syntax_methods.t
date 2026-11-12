@@ -45,22 +45,22 @@
   >     var c = Counter { n: 1 }
   >     c.bump(2)
   >     c.bump(3)
-  >     print_i64(c.get_n())
-  >     print_i64(c.show())
-  >     print_i64(twice(c))
-  >     print_i64(4.show())
+  >     println("{c.get_n()}")
+  >     println("{c.show()}")
+  >     println("{twice(c)}")
+  >     println("{4.show()}")
   >     var v: Vec<Box<I64>> = vec_new()
   >     v.push(box(1))
   >     v.push(box(2))
-  >     print_i64(v.len())
-  >     print_i64(*v.get(1))
+  >     println("{v.len()}")
+  >     println("{*v.get(1)}")
   >     match v.pop() {
-  >         .Some(b) => print_i64(*b),
-  >         .None => print_i64(0)
+  >         .Some(b) => println("{*b}"),
+  >         .None => println("{0}")
   >     }
   >     let l: List = .Nil
   >     let l2 = l.push(5).push(6)
-  >     print_i64(l2.sum())
+  >     println("{l2.sum()}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -97,13 +97,13 @@ sink 的接收者被移走：
   > fn take(sink b: Box<I64>) -> I64 { *b }
   > fn main() {
   >     let b = box(1)
-  >     print_i64(b.take())
-  >     print_i64(*b)
+  >     println("{b.take()}")
+  >     println("{*b}")
   > }
   > EOF
   $ sinterc sink.sn
   sink.sn:5:15: 错误：b 已被移动，不能再使用
-   5 |     print_i64(*b)
+   5 |     println("{*b}")
      |               ^
   [1]
 
@@ -115,7 +115,7 @@ get 的投影还活着时 push（和 vec_get / vec_push 一样）：
   >     v.push(box(1))
   >     let e = v.get(0)
   >     v.push(box(2))
-  >     print_i64(*e)
+  >     println("{*e}")
   > }
   > EOF
   $ sinterc lock.sn
@@ -129,11 +129,11 @@ get 的投影还活着时 push（和 vec_get / vec_push 一样）：
   $ cat > undef.sn <<'EOF'
   > fn main() {
   >     let n = 1
-  >     print_i64(n.foo())
+  >     println("{n.foo()}")
   > }
   > EOF
   $ sinterc undef.sn
   undef.sn:3:17: 错误：未定义的函数 foo
-   3 |     print_i64(n.foo())
+   3 |     println("{n.foo()}")
      |                 ^
   [1]

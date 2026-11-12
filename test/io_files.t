@@ -2,43 +2,42 @@
 write_file 把文件换成新内容（先写临时文件再 rename，失败时原文件不变）；出错时 Err(“路径：系统的说明”)。
 
   $ cat > io.sn <<'EOF'
-  > use std.str
   > 
   > fn save(path: Str, lines: Vec<Str>) -> Result<(), Str> {
-  >     let text = str.join(lines, ",")
+  >     let text = lines.join(",")
   >     write_file(path, text)?
   >     Ok(())
   > }
   > 
   > fn main() {
   >     let a = args()
-  >     print_i64(vec_len(a))
+  >     println("{vec_len(a)}")
   >     for x in a {
-  >         print(x)
+  >         println(x)
   >     }
   >     match save("out.txt", args()) {
-  >         Ok(_) => print("写好了"),
-  >         Err(e) => print(e)
+  >         Ok(_) => println("写好了"),
+  >         Err(e) => println(e)
   >     }
   >     match read_file("out.txt") {
-  >         Ok(s) => print(s),
-  >         Err(e) => print(e)
+  >         Ok(s) => println(s),
+  >         Err(e) => println(e)
   >     }
   >     match write_file("out.txt", "覆盖") {
-  >         Ok(_) => print("又写了一次"),
-  >         Err(e) => print(e)
+  >         Ok(_) => println("又写了一次"),
+  >         Err(e) => println(e)
   >     }
   >     match read_file("out.txt") {
-  >         Ok(s) => print(s),
-  >         Err(e) => print(e)
+  >         Ok(s) => println(s),
+  >         Err(e) => println(e)
   >     }
   >     match read_file("nope.txt") {
-  >         Ok(s) => print(s),
-  >         Err(e) => print(e)
+  >         Ok(s) => println(s),
+  >         Err(e) => println(e)
   >     }
   >     match write_file("no/such/dir/x.txt", "x") {
-  >         Ok(_) => print("不该成功"),
-  >         Err(e) => print(e)
+  >         Ok(_) => println("不该成功"),
+  >         Err(e) => println(e)
   >     }
   > }
   > EOF
@@ -58,7 +57,7 @@ write_file 把文件换成新内容（先写临时文件再 rename，失败时�
 
   $ cat > empty.sn <<'EOF'
   > fn main() {
-  >     print_i64(vec_len(args()))
+  >     println("{vec_len(args())}")
   > }
   > EOF
   $ sinterc run empty.sn

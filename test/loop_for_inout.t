@@ -16,7 +16,7 @@ for x in inout v（Lean `Datatypes.VecInout`）。x 是第 i 个元素本身（�
   >         bump(x)
   >     }
   >     for x in v {
-  >         print_i64(x)
+  >         println("{x}")
   >     }
   >     var ps: Vec<P> = vec_new()
   >     ps.push(P { x: 1, name: "a" })
@@ -34,11 +34,11 @@ for x in inout v（Lean `Datatypes.VecInout`）。x 是第 i 个元素本身（�
   >         i = i + 1
   >     }
   >     for p in ps {
-  >         print_i64(p.x)
-  >         print(p.name)
+  >         println("{p.x}")
+  >         println(p.name)
   >     }
   >     for s in names {
-  >         print(s)
+  >         println(s)
   >     }
   >     var m: Vec<Vec<I64>> = vec_new()
   >     m.push(vec_new())
@@ -51,7 +51,7 @@ for x in inout v（Lean `Datatypes.VecInout`）。x 是第 i 个元素本身（�
   >     }
   >     for row in m {
   >         for y in row {
-  >             print_i64(y)
+  >             println("{y}")
   >         }
   >     }
   > }
@@ -89,7 +89,7 @@ for x in inout v（Lean `Datatypes.VecInout`）。x 是第 i 个元素本身（�
 不能把 x 移走：
 
   $ cat > move.sn <<'EOF'
-  > fn take(sink s: Str) { print(s) }
+  > fn take(sink s: Str) { println(s) }
   > 
   > fn main() {
   >     var v: Vec<Str> = vec_new()

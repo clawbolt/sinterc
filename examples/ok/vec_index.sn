@@ -22,12 +22,12 @@ fn sieve(n: I64) -> Vec<Bool> {
 fn main() {
     let s = sieve(50)
     for i in 0..51 {
-        if s[i] { print_str("{i} ") }
+        if s[i] { print("{i} ") }
     }
     print_byte(10)
     var names: Vec<Str> = vec_new()
     names.push("a")
     names.push("b")
     names[1] = "B"
-    print_str("{names[0]}{names[1]}\n")
+    print("{names[0]}{names[1]}\n")
 }

@@ -4,7 +4,7 @@ fn main() {
     let b = box(1)
     var i = 0
     while i < 2 {
-        print_i64(take(b))
+        println("{take(b)}")
         i = i + 1
     }
 }

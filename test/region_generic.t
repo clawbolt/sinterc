@@ -26,18 +26,18 @@ inout 实参里的区域不能放宽（不变），否则被调用的函数能�
   >     arena |a| {
   >         let r = alloc(a, 1)
   >         let r2 = id(r)
-  >         print_i64(*r2)
+  >         println("{*r2}")
   >         arena |b| {
   >             let s = alloc(b, 10)
-  >             print_i64(*pick(true, s, r))
-  >             print_i64(*pick(false, s, r))
-  >             print_i64(*id(s) + *id(r))
+  >             println("{*pick(true, s, r)}")
+  >             println("{*pick(false, s, r)}")
+  >             println("{*id(s) + *id(r)}")
   >         }
   >         var v: Vec<&I64 in a> = vec_new()
   >         v.push(r)
   >         v.push(alloc(a, 2))
   >         v.push(id(alloc(a, 3)))
-  >         print_i64(sum(v))
+  >         println("{sum(v)}")
   >     }
   > }
   > EOF
@@ -58,7 +58,7 @@ inout 实参里的区域不能放宽（不变），否则被调用的函数能�
   >         arena |b| {
   >             r = id(alloc(b, 2))
   >         }
-  >         print_i64(*r)
+  >         println("{*r}")
   >     }
   > }
   > EOF
@@ -78,7 +78,7 @@ inout 实参的区域不能放宽：区域 x 按第一个实参取成 b，r 的�
   >         arena |b| {
   >             set(alloc(b, 2), r)
   >         }
-  >         print_i64(*r)
+  >         println("{*r}")
   >     }
   > }
   > EOF

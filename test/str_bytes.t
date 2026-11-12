@@ -17,8 +17,8 @@ str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`�
   > 
   > fn check(b: Bytes) {
   >     match str_from_utf8(b) {
-  >         .Some(s) => print("utf8: {s}"),
-  >         .None => print("not utf8: {hex(b)}")
+  >         .Some(s) => println("utf8: {s}"),
+  >         .None => println("not utf8: {hex(b)}")
   >     }
   > }
   > 
@@ -28,20 +28,20 @@ str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`�
   >     b.push(255)
   >     b.push(10)
   >     b.set(2, 128)
-  >     print("{b.len()} {b.get(0)} {b.get(1)} {b.get(2)}")
+  >     println("{b.len()} {b.get(0)} {b.get(1)} {b.get(2)}")
   >     match write_bytes("out.bin", b) {
-  >         Ok(_) => print("written"),
-  >         Err(e) => print(e)
+  >         Ok(_) => println("written"),
+  >         Err(e) => println(e)
   >     }
   >     match read_bytes("out.bin") {
   >         Ok(c) => {
-  >             print(hex(c))
-  >             print("same: {c.eq(b)}")
+  >             println(hex(c))
+  >             println("same: {c.eq(b)}")
   >         },
-  >         Err(e) => print(e)
+  >         Err(e) => println(e)
   >     }
   >     let t = "a中".to_bytes()
-  >     print(hex(t))
+  >     println(hex(t))
   >     check(t)
   >     check(b)
   >     var u = t.slice(0, 3)
@@ -57,7 +57,7 @@ str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`�
   >     var all: Vec<Bytes> = vec_new()
   >     all.push(c)
   >     all.push(t)
-  >     print("{all.len()} {all[1].len()}")
+  >     println("{all.len()} {all[1].len()}")
   >     var o = bytes_new()
   >     o.push(104)
   >     o.push(105)
@@ -96,7 +96,7 @@ str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`�
   $ cat > oob.sn <<'EOF'
   > fn main() {
   >     let b = "ab".to_bytes()
-  >     print_i64(b.get(2))
+  >     println("{b.get(2)}")
   > }
   > EOF
   $ sinterc run oob.sn
@@ -109,7 +109,7 @@ Bytes 只能移动；== 不能比较字节串：
   > fn main() {
   >     let a = bytes_new()
   >     let b = a
-  >     print_i64(a.len())
+  >     println("{a.len()}")
   > }
   > EOF
   $ sinterc moved.sn -o /dev/null 2>&1 | head -1
@@ -119,11 +119,11 @@ Bytes 只能移动；== 不能比较字节串：
   > fn main() {
   >     let a = bytes_new()
   >     let b = bytes_new()
-  >     print_bool(a == b)
+  >     println("{a == b}")
   > }
   > EOF
   $ sinterc eq.sn
-  eq.sn:4:16: 错误：字节串用 a.eq(b) 比较
-   4 |     print_bool(a == b)
-     |                ^
+  eq.sn:4:15: 错误：字节串用 a.eq(b) 比较
+   4 |     println("{a == b}")
+     |               ^
   [1]

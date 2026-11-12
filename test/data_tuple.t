@@ -14,30 +14,30 @@
   > 
   > fn main() {
   >     let p = (1, true)
-  >     print_i64(p.0)
-  >     print_bool(p.1)
+  >     println("{p.0}")
+  >     println("{p.1}")
   >     let (q, r) = divmod(17, 5)
-  >     print_i64(q * 10 + r)
+  >     println("{q * 10 + r}")
   >     // 元素都可以复制时，元组也可以复制
   >     let a = (3, 4)
   >     let b = a
-  >     print_i64(a.0 + b.1)
+  >     println("{a.0 + b.1}")
   >     var v = ((1, 2), 3)
   >     v.0.1 = 20
   >     v.1 = 30
-  >     print_i64(v.0.0 + v.0.1 + v.1)
+  >     println("{v.0.0 + v.0.1 + v.1}")
   >     let s = swap(("左", 5))
-  >     print_i64(s.0)
-  >     print(s.1)
+  >     println("{s.0}")
+  >     println(s.1)
   >     var names: Vec<(Str, I64)> = vec_new()
   >     names.push(("ann", 31))
   >     names.push(("bob", 27))
   >     for x in names {
-  >         print(str_concat(x.0, str_from_i64(x.1)))
+  >         println(str_concat(x.0, str_from_i64(x.1)))
   >     }
   >     let (n, age) = swap((40, "cy"))
-  >     print(n)
-  >     print_i64(age)
+  >     println(n)
+  >     println("{age}")
   > }
   > EOF
   $ sinterc run ok.sn
@@ -59,13 +59,13 @@
   > fn main() {
   >     let s = ("a", 1)
   >     let t = s
-  >     print(s.0)
+  >     println(s.0)
   > }
   > EOF
   $ sinterc moved.sn
-  moved.sn:4:11: 错误：s 已被移动，不能再使用
-   4 |     print(s.0)
-     |           ^
+  moved.sn:4:13: 错误：s 已被移动，不能再使用
+   4 |     println(s.0)
+     |             ^
   [1]
 
 拆开时元素个数要对上：

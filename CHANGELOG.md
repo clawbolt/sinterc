@@ -41,6 +41,15 @@
   新的 `std.fs`（`read`、`read_in`、`read_bytes`、`write`、`write_bytes`、`read_lines`、`write_lines`、`exists`、`is_dir`、`list_dir`、`make_dir`、`remove`）、
   `std.env`（`args`、`get`、`exit`）、`std.process`（`run`、`output`）。预导入的 `println`、`eprintln`。
   标准库里可以写 `intrinsic.f(…)` 调用内建函数 `f`，即使模块里有同名的函数；别的代码里报错（C67）。
+- **不兼容**：标准库按类型和领域重新划分（C68）。
+  - 去掉 `std.str`、`std.char`、`std.option`、`std.result`、`std.view`、`std.os`：它们的函数是核心部分里的方法（`str.trim(s)` → `s.trim()`），
+    或者搬进了 `std.io`、`std.fs`、`std.env`、`std.process`（`os.exists(p)` → `fs.exists(p)`，`view.line_reader()` → `io.lines()`）。
+  - `std.vec` 只剩构造函数 `range`；`std.math` 只剩 `pi`、`e`，其余是 `I64`、`F64` 的方法（`math.abs(x)` → `x.abs()`，`math.fabs` → `abs`），
+    `min_of`、`max_of` 是预导入的 `min`、`max`。
+  - 有序 Vec 的 `std.map` 去掉，AVL 树的 `std.treemap` 改名为 `std.map`（`TreeMap` → `Map`）；`Map`、`HashMap`、`BigInt` 的操作是方法：
+    `m.insert(k, v)`、`m.get(k, |v| v)`、`a.add(b)`，构造函数留在模块里（`map.new()`、`bigint.from_i64(x)`）。
+  - 打印同 Rust：`println` 换行，`print` 不换行，`eprintln`、`eprint` 同样；`print_i64(x)` 等写成 `println("{x}")`。
+  - `tools/migrate.ml` 把旧的写法改成新的：`dune exec tools/migrate.exe -- -w 文件…`（`.sn`、cram 测试 `.t`、Markdown 里的代码块）。
 - 字符串的字面量标记和长度共用 8 字节，`Str` 保持 16 字节（C61 最初让它变成了 24 字节）。
 
 **验证**

@@ -18,17 +18,17 @@ fn main() {
     arena |a| {
         let r = alloc(a, 1)
         let r2 = id(r)
-        print_i64(*r2)
+        println("{*r2}")
         arena |b| {
             let s = alloc(b, 10)
-            print_i64(*pick(true, s, r))
-            print_i64(*pick(false, s, r))
-            print_i64(*id(s) + *id(r))
+            println("{*pick(true, s, r)}")
+            println("{*pick(false, s, r)}")
+            println("{*id(s) + *id(r)}")
         }
         var v: Vec<&I64 in a> = vec_new()
         v.push(r)
         v.push(alloc(a, 2))
         v.push(id(alloc(a, 3)))
-        print_i64(sum(v))
+        println("{sum(v)}")
     }
 }

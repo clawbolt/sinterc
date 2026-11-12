@@ -2,9 +2,8 @@
 // 各位的加、减、乘、比较、除以小数和 `Library.BigInt` 的 addL、subL、mul1 / mulL、cmpL、divS 一一对应，结果都经过 make
 // （`Library.BigInt` 的 norm：去掉高位的 0，值是 0 时符号取正），所以每个数只有一种写法。
 // 一位乘一位再加进位不超过 10^18，I64 不会溢出；除以小数时余数乘 10^9 再加一位也不超过 10^18。
-// 实现了 Eq 和 Ord，可以用 a.eq(b)、a.cmp(b)，也可以用 vec.sort 排序。转成字符串用 bigint.to_str(x)。
-
-use std.math
+// 实现了 Eq 和 Ord，可以用 a.eq(b)、a.cmp(b)，也可以用 v.sort() 排序。构造用 bigint.zero()、bigint.from_i64(x)、bigint.parse(s)，
+// 运算是方法：a.add(b)、a.mul(b)、a.pow(e)…；转成字符串用 a.to_str() 或 "{a}"。
 
 pub struct BigInt { neg: Bool, mag: Vec<I64> }
 
@@ -38,7 +37,7 @@ fn make(minus: Bool, sink mag: Vec<I64>) -> BigInt {
 fn add_mag(a: Vec<I64>, b: Vec<I64>) -> Vec<I64> {
     var r: Vec<I64> = vec_new()
     var c = 0
-    for i in 0..math.max(a.len(), b.len()) {
+    for i in 0..a.len().max(b.len()) {
         let x = digit(a, i) + digit(b, i) + c
         r.push(x % base())
         c = x / base()
@@ -93,7 +92,7 @@ fn mul_mag(a: Vec<I64>, b: Vec<I64>) -> Vec<I64> {
 
 // `Library.BigInt` 的 cmpL：从高位往低位找第一个不同的位
 fn cmp_mag(a: Vec<I64>, b: Vec<I64>) -> I64 {
-    var i = math.max(a.len(), b.len()) - 1
+    var i = a.len().max(b.len()) - 1
     while i >= 0 {
         let x = digit(a, i)
         let y = digit(b, i)
@@ -118,66 +117,68 @@ pub fn from_i64(x: I64) -> BigInt {
     make(x < 0, m)
 }
 
-pub fn clone(a: BigInt) -> BigInt { BigInt { neg: a.neg, mag: copy(a.mag) } }
+impl BigInt {
+    fn clone(a: BigInt) -> BigInt { BigInt { neg: a.neg, mag: copy(a.mag) } }
 
-pub fn is_zero(a: BigInt) -> Bool { a.mag.len() == 0 }
+    fn is_zero(a: BigInt) -> Bool { a.mag.len() == 0 }
 
-// -1、0、1
-pub fn sign(a: BigInt) -> I64 { if a.mag.len() == 0 { 0 } else if a.neg { -1 } else { 1 } }
+    // -1、0、1
+    fn sign(a: BigInt) -> I64 { if a.mag.len() == 0 { 0 } else if a.neg { -1 } else { 1 } }
 
-pub fn neg(a: BigInt) -> BigInt { make(!a.neg, copy(a.mag)) }
+    fn neg(a: BigInt) -> BigInt { make(!a.neg, copy(a.mag)) }
 
-pub fn abs(a: BigInt) -> BigInt { make(false, copy(a.mag)) }
+    fn abs(a: BigInt) -> BigInt { make(false, copy(a.mag)) }
 
-// `Library.BigInt` 的 addZ：同号时各位相加；异号时大的减小的，符号取大的那个的
-pub fn add(a: BigInt, b: BigInt) -> BigInt {
-    if a.neg == b.neg {
-        make(a.neg, add_mag(a.mag, b.mag))
-    } else if cmp_mag(a.mag, b.mag) == -1 {
-        make(b.neg, sub_mag(b.mag, a.mag))
-    } else {
-        make(a.neg, sub_mag(a.mag, b.mag))
+    // `Library.BigInt` 的 addZ：同号时各位相加；异号时大的减小的，符号取大的那个的
+    fn add(a: BigInt, b: BigInt) -> BigInt {
+        if a.neg == b.neg {
+            make(a.neg, add_mag(a.mag, b.mag))
+        } else if cmp_mag(a.mag, b.mag) == -1 {
+            make(b.neg, sub_mag(b.mag, a.mag))
+        } else {
+            make(a.neg, sub_mag(a.mag, b.mag))
+        }
     }
-}
 
-// `Library.BigInt` 的 subZ：a + (-b)
-pub fn sub(a: BigInt, b: BigInt) -> BigInt {
-    let nb = neg(b)
-    add(a, nb)
-}
-
-// `Library.BigInt` 的 mulZ
-pub fn mul(a: BigInt, b: BigInt) -> BigInt { make(a.neg != b.neg, mul_mag(a.mag, b.mag)) }
-
-pub fn pow(a: BigInt, e: I64) -> BigInt {
-    if e < 0 { panic("bigint.pow 的指数不能是负数") }
-    var r = from_i64(1)
-    var b = clone(a)
-    var k = e
-    while k > 0 {
-        if k % 2 == 1 { r = mul(r, b) }
-        k = k / 2
-        if k > 0 { b = mul(b, b) }
+    // `Library.BigInt` 的 subZ：a + (-b)
+    fn sub(a: BigInt, b: BigInt) -> BigInt {
+        let nb = b.neg()
+        a.add(nb)
     }
-    r
-}
 
-// `Library.BigInt` 的 divS：从高位往低位除以 d（1 ≤ d ≤ 10^9）。和 I64 的 / % 一样，商向零取整，余数的符号和 a 相同。
-pub fn divmod_small(a: BigInt, d: I64) -> (BigInt, I64) {
-    if d < 1 || d > base() { panic("bigint.divmod_small 的除数要在 1 到 1000000000 之间") }
-    let n = a.mag.len()
-    var q: Vec<I64> = vec_new()
-    for i in 0..n { q.push(0) }
-    var r = 0
-    var i = n - 1
-    while i >= 0 {
-        let cur = r * base() + a.mag[i]
-        q[i] = cur / d
-        r = cur % d
-        i = i - 1
+    // `Library.BigInt` 的 mulZ
+    fn mul(a: BigInt, b: BigInt) -> BigInt { make(a.neg != b.neg, mul_mag(a.mag, b.mag)) }
+
+    fn pow(a: BigInt, e: I64) -> BigInt {
+        if e < 0 { panic("BigInt 的 pow 的指数不能是负数") }
+        var r = from_i64(1)
+        var b = a.clone()
+        var k = e
+        while k > 0 {
+            if k % 2 == 1 { r = r.mul(b) }
+            k = k / 2
+            if k > 0 { b = b.mul(b) }
+        }
+        r
     }
-    let rr = if a.neg { -r } else { r }
-    (make(a.neg, q), rr)
+
+    // `Library.BigInt` 的 divS：从高位往低位除以 d（1 ≤ d ≤ 10^9）。和 I64 的 / % 一样，商向零取整，余数的符号和 a 相同。
+    fn divmod_small(a: BigInt, d: I64) -> (BigInt, I64) {
+        if d < 1 || d > base() { panic("BigInt 的 divmod_small 的除数要在 1 到 1000000000 之间") }
+        let n = a.mag.len()
+        var q: Vec<I64> = vec_new()
+        for i in 0..n { q.push(0) }
+        var r = 0
+        var i = n - 1
+        while i >= 0 {
+            let cur = r * base() + a.mag[i]
+            q[i] = cur / d
+            r = cur % d
+            i = i - 1
+        }
+        let rr = if a.neg { -r } else { r }
+        (make(a.neg, q), rr)
+    }
 }
 
 // 十进制：最高位直接写，其余每一位补足 9 个数字
@@ -219,7 +220,7 @@ pub fn parse(s: Str) -> Option<BigInt> {
     var m: Vec<I64> = vec_new()
     var j = n
     while j > start {
-        let k = math.max(start, j - 9)
+        let k = (j - 9).max(start)
         match s.slice(k, j).to_i64() {
             .Some(d) => m.push(d),
             .None => ()

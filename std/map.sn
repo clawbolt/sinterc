@@ -1,87 +1,254 @@
-// std.map：按键从小到大排好的映射 Map<K, V>。键要实现 预导入的 Ord（满足它的四条定律）。
-// 规格见 lean/Core/Library/Map.lean：插入、删除之后键仍严格递增（没有重复的键，遍历按键的顺序），
-// 插入后查得到刚放进的值，删除后查不到，别的键不受影响。
-// 存成两个一样长的 Vec：keys[i] 对应 vals[i]。可以读 m.keys、m.vals（例如 for k in m.keys、vec_get(m.vals, i)），
-// 但不要直接改它们，否则键不再有序，查找的结果就不对了。插入、删除用 vec_swap 挪动元素（Lean `Datatypes.VecSwap`）。
-use std.math
+// std.map：按键从小到大的映射 Map<K, V>，存成 AVL 树，查找、插入、删除都是对数时间。
+// 键要实现预导入的 Ord。规格见 lean/Core/Library/TreeMap.lean：树的中序遍历就是 `Library.Map` 的有序表，
+// 插入、删除和 `Library.Map` 的 ins、del 一致，所以 `Library.Map` 的定律照样成立（键严格递增，插入后查得到，删除后查不到，别的键不受影响）。
+// `Library.TreeMap`、`Library.TreeMapAvl`（Lean）：插入、删除和有序列表上的版本一致，并保持 AVL 平衡（树高是对数）。
+// 值不能直接拿出来，要传闭包：m.get(k, |v| …)、m.for_each(|k, v| …)。
 
-pub struct Map<K, V> { keys: Vec<K>, vals: Vec<V> }
+struct Node<K, V> { left: Box<Tree<K, V>>, key: K, val: V, h: I64, right: Box<Tree<K, V>> }
+enum Tree<K, V> { Br(Node<K, V>), Leaf }
+
+// 根放在一个只有一个元素的 Vec 里：inout 参数不能把值移走，用 pop / push 把根取出来、放回去
+pub struct Map<K, V> { slot: Vec<Tree<K, V>>, n: I64 }
 
 pub fn new<K, V>() -> Map<K, V> {
-    let ks: Vec<K> = vec_new()
-    let vs: Vec<V> = vec_new()
-    Map { keys: ks, vals: vs }
+    var s: Vec<Tree<K, V>> = vec_new()
+    s.push(.Leaf)
+    Map { slot: s, n: 0 }
 }
 
-pub fn len<K, V>(m: Map<K, V>) -> I64 { vec_len(m.keys) }
-
-// 第一个不小于 k 的键的下标；没有时是 len(m)。二分查找：lo 之前的键都小于 k，hi 开始的都不小于 k，
-// 和原来从头往后找的结果相同（lean/Core/Library/MapSearch.lean 的 bs_eq_lin）。
-fn lower<K: Ord, V>(m: Map<K, V>, k: K) -> I64 {
-    var lo = 0
-    var hi = vec_len(m.keys)
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2
-        if vec_get(m.keys, mid).cmp(k).is_lt() { lo = mid + 1 } else { hi = mid }
-    }
-    lo
-}
-
-// 键 k 的下标；没有时是 .None。取值写 vec_get(m.vals, i)。
-pub fn index_of<K: Ord, V>(m: Map<K, V>, k: K) -> Option<I64> {
-    let i = lower(m, k)
-    if i < vec_len(m.keys) {
-        if vec_get(m.keys, i).cmp(k).is_eq() { return .Some(i) }
-    }
-    .None
-}
-
-pub fn contains<K: Ord, V>(m: Map<K, V>, k: K) -> Bool {
-    match index_of(m, k) {
-        .Some(i) => true,
-        .None => false
+fn ht<K, V>(t: Tree<K, V>) -> I64 {
+    match t {
+        .Br(n) => n.h,
+        .Leaf => 0
     }
 }
 
-// 放进 (k, v)。已有键 k 时换掉它的值并返回旧值（这时 k 被析构，保留原来的键）；否则返回 .None。
-pub fn insert<K: Ord, V>(inout m: Map<K, V>, sink k: K, sink v: V) -> Option<V> {
-    let i = lower(m, k)
-    let n = vec_len(m.keys)
-    if i < n {
-        if vec_get(m.keys, i).cmp(k).is_eq() {
-            // 新值放到末尾，和旧值交换，再把旧值 pop 出来
-            m.vals.push(v)
-            vec_swap(m.vals, i, n)
-            return m.vals.pop()
+fn left_h<K, V>(t: Tree<K, V>) -> I64 {
+    match t {
+        .Br(n) => ht(*n.left),
+        .Leaf => 0
+    }
+}
+
+fn right_h<K, V>(t: Tree<K, V>) -> I64 {
+    match t {
+        .Br(n) => ht(*n.right),
+        .Leaf => 0
+    }
+}
+
+// 以下对应 `Library.TreeMap` 的 mk、rotR、rotL、bal
+fn mk<K, V>(sink l: Tree<K, V>, sink k: K, sink v: V, sink r: Tree<K, V>) -> Tree<K, V> {
+    let h = ht(l).max(ht(r)) + 1
+    .Br(Node { left: box(l), key: k, val: v, h: h, right: box(r) })
+}
+
+fn rot_r<K, V>(sink t: Tree<K, V>) -> Tree<K, V> {
+    match t {
+        .Br(n) => {
+            let Node { left, key, val, h, right } = n
+            let l = unbox(left)
+            match l {
+                .Br(ln) => {
+                    let Node { left: a, key: lk, val: lv, h: lh, right: b } = ln
+                    mk(unbox(a), lk, lv, mk(unbox(b), key, val, unbox(right)))
+                },
+                .Leaf => mk(.Leaf, key, val, unbox(right))
+            }
+        },
+        .Leaf => .Leaf
+    }
+}
+
+fn rot_l<K, V>(sink t: Tree<K, V>) -> Tree<K, V> {
+    match t {
+        .Br(n) => {
+            let Node { left, key, val, h, right } = n
+            let r = unbox(right)
+            match r {
+                .Br(rn) => {
+                    let Node { left: a, key: rk, val: rv, h: rh, right: b } = rn
+                    mk(mk(unbox(left), key, val, unbox(a)), rk, rv, unbox(b))
+                },
+                .Leaf => mk(unbox(left), key, val, .Leaf)
+            }
+        },
+        .Leaf => .Leaf
+    }
+}
+
+fn bal<K, V>(sink l: Tree<K, V>, sink k: K, sink v: V, sink r: Tree<K, V>) -> Tree<K, V> {
+    let hl = ht(l)
+    let hr = ht(r)
+    if hl > hr + 1 {
+        if left_h(l) >= right_h(l) { rot_r(mk(l, k, v, r)) } else { rot_r(mk(rot_l(l), k, v, r)) }
+    } else if hr > hl + 1 {
+        if right_h(r) >= left_h(r) { rot_l(mk(l, k, v, r)) } else { rot_l(mk(l, k, v, rot_r(r))) }
+    } else {
+        mk(l, k, v, r)
+    }
+}
+
+// `Library.TreeMap` 的 insT；已有键 k 时换掉值，旧值放进 old
+fn ins<K: Ord, V>(sink t: Tree<K, V>, sink k: K, sink v: V, inout old: Option<V>) -> Tree<K, V> {
+    match t {
+        .Br(n) => {
+            let Node { left, key, val, h, right } = n
+            let c = k.cmp(key).to_i64()
+            if c == -1 {
+                bal(ins(unbox(left), k, v, old), key, val, unbox(right))
+            } else if c == 0 {
+                old = .Some(val)
+                .Br(Node { left: left, key: key, val: v, h: h, right: right })
+            } else {
+                bal(unbox(left), key, val, ins(unbox(right), k, v, old))
+            }
+        },
+        .Leaf => mk(.Leaf, k, v, .Leaf)
+    }
+}
+
+struct Popped<K, V> { key: K, val: V, rest: Tree<K, V> }
+
+// `Library.TreeMap` 的 popK、popT：从以 (l, k, v, r) 组成的树里去掉最小的键
+fn pop_min<K, V>(sink l: Tree<K, V>, sink k: K, sink v: V, sink r: Tree<K, V>) -> Popped<K, V> {
+    match l {
+        .Br(n) => {
+            let Node { left, key, val, h, right } = n
+            let p = pop_min(unbox(left), key, val, unbox(right))
+            let Popped { key: k2, val: v2, rest } = p
+            Popped { key: k2, val: v2, rest: bal(rest, k, v, r) }
+        },
+        .Leaf => Popped { key: k, val: v, rest: r }
+    }
+}
+
+// `Library.TreeMap` 的 join：l 的键都小于 r 的键
+fn concat<K, V>(sink l: Tree<K, V>, sink r: Tree<K, V>) -> Tree<K, V> {
+    match r {
+        .Br(n) => {
+            let Node { left, key, val, h, right } = n
+            let p = pop_min(unbox(left), key, val, unbox(right))
+            let Popped { key: k2, val: v2, rest } = p
+            bal(l, k2, v2, rest)
+        },
+        .Leaf => l
+    }
+}
+
+// `Library.TreeMap` 的 delT；去掉的值放进 old
+fn del<K: Ord, V>(sink t: Tree<K, V>, k: K, inout old: Option<V>) -> Tree<K, V> {
+    match t {
+        .Br(n) => {
+            let Node { left, key, val, h, right } = n
+            let c = k.cmp(key).to_i64()
+            if c == -1 {
+                bal(del(unbox(left), k, old), key, val, unbox(right))
+            } else if c == 0 {
+                old = .Some(val)
+                concat(unbox(left), unbox(right))
+            } else {
+                bal(unbox(left), key, val, del(unbox(right), k, old))
+            }
+        },
+        .Leaf => .Leaf
+    }
+}
+
+fn has<K: Ord, V>(t: Tree<K, V>, k: K) -> Bool {
+    match t {
+        .Br(n) => {
+            let c = k.cmp(n.key).to_i64()
+            if c == -1 { has(*n.left, k) } else if c == 0 { true } else { has(*n.right, k) }
+        },
+        .Leaf => false
+    }
+}
+
+fn lookup<K: Ord, V, R>(t: Tree<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
+    match t {
+        .Br(n) => {
+            let c = k.cmp(n.key).to_i64()
+            if c == -1 { lookup(*n.left, k, f) } else if c == 0 { .Some(f(n.val)) } else { lookup(*n.right, k, f) }
+        },
+        .Leaf => .None
+    }
+}
+
+fn walk<K, V>(t: Tree<K, V>, f: fn(K, V)) {
+    match t {
+        .Br(n) => {
+            walk(*n.left, f)
+            f(n.key, n.val)
+            walk(*n.right, f)
+        },
+        .Leaf => {}
+    }
+}
+
+impl<K, V> Map<K, V> {
+    fn len(m: Map<K, V>) -> I64 { m.n }
+
+    fn is_empty(m: Map<K, V>) -> Bool { m.n == 0 }
+
+    // 树高（空树是 0）。
+    fn height(m: Map<K, V>) -> I64 {
+        var r = 0
+        for t in m.slot {
+            r = ht(t)
+        }
+        r
+    }
+
+    // 按键从小到大，对每一对 (k, v) 调用 f。
+    fn for_each(m: Map<K, V>, f: fn(K, V)) {
+        for t in m.slot {
+            walk(t, f)
         }
     }
-    // 放到末尾，再逐个往前换到下标 i
-    m.keys.push(k)
-    m.vals.push(v)
-    var j = n
-    while j > i {
-        vec_swap(m.keys, j, j - 1)
-        vec_swap(m.vals, j, j - 1)
-        j = j - 1
-    }
-    .None
 }
 
-// 去掉键 k，返回它的值；没有这个键时返回 .None。
-pub fn remove<K: Ord, V>(inout m: Map<K, V>, k: K) -> Option<V> {
-    match index_of(m, k) {
-        .Some(i) => {
-            // 逐个往后换到末尾，再 pop 出来
-            let n = vec_len(m.keys)
-            var j = i
-            while j + 1 < n {
-                vec_swap(m.keys, j, j + 1)
-                vec_swap(m.vals, j, j + 1)
-                j = j + 1
-            }
-            let old_key = m.keys.pop()
-            m.vals.pop()
-        },
-        .None => .None
+impl<K: Ord, V> Map<K, V> {
+    // 放进 (k, v)。已有键 k 时换掉它的值并返回旧值（这时 k 被析构，保留原来的键）；否则返回 .None。
+    fn insert(inout m: Map<K, V>, sink k: K, sink v: V) -> Option<V> {
+        var old: Option<V> = .None
+        match m.slot.pop() {
+            .Some(t) => m.slot.push(ins(t, k, v, old)),
+            .None => {}
+        }
+        match let old {
+            .Some(x) => {},
+            .None => { m.n = m.n + 1 }
+        }
+        old
+    }
+
+    // 去掉键 k，返回它的值；没有这个键时返回 .None。
+    fn remove(inout m: Map<K, V>, k: K) -> Option<V> {
+        var old: Option<V> = .None
+        match m.slot.pop() {
+            .Some(t) => m.slot.push(del(t, k, old)),
+            .None => {}
+        }
+        match let old {
+            .Some(x) => { m.n = m.n - 1 },
+            .None => {}
+        }
+        old
+    }
+
+    fn contains(m: Map<K, V>, k: K) -> Bool {
+        for t in m.slot {
+            return has(t, k)
+        }
+        false
+    }
+
+    // 有键 k 时返回 .Some(f(它的值))，否则返回 .None。例如 m.get(k, |v| v * 2)。
+    fn get<R>(m: Map<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
+        for t in m.slot {
+            return lookup(t, k, f)
+        }
+        .None
     }
 }

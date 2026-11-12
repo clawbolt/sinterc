@@ -35,20 +35,20 @@ Option<T>（内建）、Pair<A, B>，实例有 I64、Bool、Box<I64>、linear �
   > }
   > 
   > fn main() {
-  >     print_i64(unwrap_or(some(1), 2))
+  >     println("{unwrap_or(some(1), 2)}")
   >     let none: Option<I64> = .None
-  >     print_i64(unwrap_or(none, 3))
+  >     println("{unwrap_or(none, 3)}")
   >     let b = unwrap_or(some(box(4)), box(5))
-  >     print_i64(*b)
+  >     println("{*b}")
   >     let p = swap(true, 6)
-  >     print_i64(p.a)
-  >     print_bool(p.b)
+  >     println("{p.a}")
+  >     println("{p.b}")
   >     let q = pair(box(7), 8)
-  >     print_i64(*q.a)
+  >     println("{*q.a}")
   >     let t = pass(Token { id: 9 })
-  >     print_i64(close(t))
+  >     println("{close(t)}")
   >     let u = pass(10)
-  >     print_i64(u)
+  >     println("{u}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -86,7 +86,7 @@ Option<T>（内建）、Pair<A, B>，实例有 I64、Bool、Box<I64>、linear �
   >     x
   > }
   > fn main() {
-  >     print_i64(twice(1))
+  >     println("{twice(1)}")
   > }
   > EOF
   $ sinterc twice.sn
@@ -118,7 +118,7 @@ T: linear 的值必须交出去，即使只用 I64 实例化：
   >     a == b
   > }
   > fn main() {
-  >     print_bool(same(1, 2))
+  >     println("{same(1, 2)}")
   > }
   > EOF
   $ sinterc ops.sn

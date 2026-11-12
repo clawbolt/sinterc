@@ -1,7 +1,7 @@
 字符串类型 Str（Lean `Datatypes.Str`）。字符串拥有一块堆内存，和 Box 一样只能移动、作用域结束时自动析构；
 字面量每次求值分配一个新的 Str。内建函数（都可以写成方法调用）：
 str_len(s)、str_eq(a, b)、str_concat(a, b)（新的字符串）、str_push(inout s, t)（原地追加）、
-str_clone(s)、str_from_i64(n)；print(s) 打印并换行。实参都按 let 借用，只有 str_push 的第一个参数是 inout。
+str_clone(s)、str_from_i64(n)；println(s) 打印并换行。实参都按 let 借用，只有 str_push 的第一个参数是 inout。
 
   $ cat > ok.sn <<'EOF'
   > struct Person { name: Str, age: I64 }
@@ -16,24 +16,24 @@ str_clone(s)、str_from_i64(n)；print(s) 打印并换行。实参都按 let 借
   > fn main() {
   >     let a = "ab"
   >     let b = a.concat("cd")
-  >     print(b)
-  >     print_i64(b.len())
+  >     println(b)
+  >     println("{b.len()}")
   >     let p = Person { name: "小明", age: 3 }
-  >     print(greet(p))
+  >     println(greet(p))
   >     var v: Vec<Str> = vec_new()
   >     v.push("x")
   >     v.push(str_from_i64(42))
-  >     print_i64(v.len())
+  >     println("{v.len()}")
   >     match v.pop() {
-  >         .Some(s) => print(s),
-  >         .None => print("空")
+  >         .Some(s) => println(s),
+  >         .None => println("空")
   >     }
-  >     print_bool(a.eq("ab"))
-  >     print_bool(str_eq(a, b))
+  >     println(a.eq("ab").to_str())
+  >     println("{str_eq(a, b)}")
   >     let c = a.clone()
   >     let d = c
-  >     print(d)
-  >     print(str_from_i64(-7))
+  >     println(d)
+  >     println(str_from_i64(-7))
   > }
   > EOF
   $ sinterc run ok.sn
@@ -53,13 +53,13 @@ str_clone(s)、str_from_i64(n)；print(s) 打印并换行。实参都按 let 借
   > fn main() {
   >     let s = "a"
   >     let t = s
-  >     print(s)
+  >     println(s)
   > }
   > EOF
   $ sinterc move.sn
-  move.sn:4:11: 错误：s 已被移动，不能再使用
-   4 |     print(s)
-     |           ^
+  move.sn:4:13: 错误：s 已被移动，不能再使用
+   4 |     println(s)
+     |             ^
   [1]
 
 字符串不能用 == 比较：
@@ -67,18 +67,18 @@ str_clone(s)、str_from_i64(n)；print(s) 打印并换行。实参都按 let 借
   $ cat > eq.sn <<'EOF'
   > fn main() {
   >     let a = "a"
-  >     print_bool(a == "a")
+  >     println((a == "a").to_str())
   > }
   > EOF
   $ sinterc eq.sn
-  eq.sn:3:16: 错误：字符串用 str_eq(a, b) 或 a.eq(b) 比较
-   3 |     print_bool(a == "a")
-     |                ^
+  eq.sn:3:14: 错误：字符串用 str_eq(a, b) 或 a.eq(b) 比较
+   3 |     println((a == "a").to_str())
+     |              ^
   [1]
   $ sinterc --lang=en eq.sn
-  eq.sn:3:16: error: compare strings with str_eq(a, b) or a.eq(b)
-   3 |     print_bool(a == "a")
-     |                ^
+  eq.sn:3:14: error: compare strings with str_eq(a, b) or a.eq(b)
+   3 |     println((a == "a").to_str())
+     |              ^
   [1]
 
 let 变量不能追加：

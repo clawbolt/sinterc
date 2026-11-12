@@ -62,26 +62,26 @@ impl ToStr for P 的简写，可以给多种类型各写一个；模块里的 m.
   >     fn area(s: Circle) -> I64 { 3 * s.r * s.r }
   > }
   > 
-  > fn show<T: ToStr>(x: T) { print("<{x}>") }
+  > fn show<T: ToStr>(x: T) { println("<{x}>") }
   > 
-  > fn report<T: Shape>(x: T) { print(x.describe()) }
+  > fn report<T: Shape>(x: T) { println(x.describe()) }
   > 
   > fn main() {
   >     let p = Point { x: 1, y: 2 }
   >     let c: Color = .Green
-  >     print("p = {p}, c = {c}")
+  >     println("p = {p}, c = {c}")
   >     var v: Vec<I64> = vec_new()
   >     for i in 1..4 { v.push(i * i) }
-  >     print("{v}")
+  >     println("{v}")
   >     var ps: Vec<Point> = vec_new()
   >     ps.push(Point { x: 3, y: 4 })
   >     ps.push(p)
-  >     print("{ps}")
+  >     println("{ps}")
   >     var m: Vec<Vec<I64>> = vec_new()
   >     m.push(v)
   >     let w: Vec<I64> = vec_new()
   >     m.push(w)
-  >     print("{m}")
+  >     println("{m}")
   >     show(Pair { a: 1, b: 2 })
   >     show(Pair { a: "x", b: "y" })
   >     let o: Option<Color> = .Some(.Red)
@@ -89,11 +89,11 @@ impl ToStr for P 的简写，可以给多种类型各写一个；模块里的 m.
   >     let n: Option<I64> = .None
   >     show(n)
   >     show(true)
-  >     print((7).to_str())
+  >     println((7).to_str())
   >     let b = bigint.from_i64(-12345)
-  >     print("b = {b}")
+  >     println("b = {b}")
   >     let sq = Square { side: 2 }
-  >     print(sq.describe())
+  >     println(sq.describe())
   >     report(Circle { r: 1 })
   >     report(sq)
   > }
@@ -123,13 +123,13 @@ impl ToStr for P 的简写，可以给多种类型各写一个；模块里的 m.
   > }
   > fn main() {
   >     let v: Vec<P> = vec_new()
-  >     print("{v}")
+  >     println("{v}")
   > }
   > EOF
   $ sinterc noimpl.sn
-  noimpl.sn:7:12: 错误：P 没有实现 ToStr，而 Vec<P> 的 ToStr 要用到它
-   7 |     print("{v}")
-     |            ^
+  noimpl.sn:7:14: 错误：P 没有实现 ToStr，而 Vec<P> 的 ToStr 要用到它
+   7 |     println("{v}")
+     |              ^
   [1]
 
 两个 impl 有共同的实例（`Traits.ImplSearch` 的 Coherent，否则实例不唯一）：
@@ -141,7 +141,7 @@ impl ToStr for P 的简写，可以给多种类型各写一个；模块里的 m.
   > impl ToStr for Vec<I64> {
   >     fn to_str(v: Vec<I64>) -> Str { "ints" }
   > }
-  > fn main() { print("x") }
+  > fn main() { println("x") }
   > EOF
   $ sinterc overlap.sn
   overlap.sn:4:1: 错误：impl ToStr for Vec<I64> 和已有的 impl ToStr for Vec<T> 重叠（有的类型两个都能匹配）
@@ -155,7 +155,7 @@ impl ToStr for P 的简写，可以给多种类型各写一个；模块里的 m.
   > impl<T> ToStr for T {
   >     fn to_str(x: T) -> Str { "?" }
   > }
-  > fn main() { print("x") }
+  > fn main() { println("x") }
   > EOF
   $ sinterc bare.sn
   bare.sn:1:1: 错误：不能为类型参数 T 本身实现 trait（impl<T> … for T 会和所有的 impl 重叠）
@@ -167,14 +167,14 @@ impl ToStr for P 的简写，可以给多种类型各写一个；模块里的 m.
 
   $ cat > bound.sn <<'EOF'
   > fn show<T>(x: T) {
-  >     print("{x}")
+  >     println("{x}")
   > }
   > fn main() { show(1) }
   > EOF
   $ sinterc bound.sn
-  bound.sn:2:12: 错误：T 没有写约束 ToStr，不能调用 to_str（要写 T: ToStr）
-   2 |     print("{x}")
-     |            ^
+  bound.sn:2:14: 错误：T 没有写约束 ToStr，不能调用 to_str（要写 T: ToStr）
+   2 |     println("{x}")
+     |              ^
   [1]
 
 没有默认函数体的方法 impl 必须写：
@@ -188,7 +188,7 @@ impl ToStr for P 的简写，可以给多种类型各写一个；模块里的 m.
   > impl Shape for Sq {
   >     fn name(s: Sq) -> Str { "sq" }
   > }
-  > fn main() { print("x") }
+  > fn main() { println("x") }
   > EOF
   $ sinterc missing.sn
   missing.sn:6:1: 错误：impl Shape for Sq 缺少方法 area

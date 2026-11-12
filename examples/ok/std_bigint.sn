@@ -5,22 +5,22 @@ use std.bigint
 fn fact(n: I64) -> bigint.BigInt {
     var r = bigint.from_i64(1)
     for i in 1..n + 1 {
-        r = bigint.mul(r, bigint.from_i64(i))
+        r = r.mul(bigint.from_i64(i))
     }
     r
 }
 
 fn main() {
-    print(bigint.to_str(fact(30)))
-    print(bigint.to_str(bigint.pow(bigint.from_i64(2), 100)))
+    println(fact(30).to_str())
+    println(bigint.from_i64(2).pow(100).to_str())
     var a = bigint.zero()
     var b = bigint.from_i64(1)
     for i in 0..100 {
-        let c = bigint.add(a, b)
+        let c = a.add(b)
         a = b
         b = c
     }
-    print(bigint.to_str(a))
-    let (q, r) = bigint.divmod_small(a, 1000)
-    print("{bigint.to_str(q)} {r}")
+    println(a.to_str())
+    let (q, r) = a.divmod_small(1000)
+    println("{q.to_str()} {r}")
 }

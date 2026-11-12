@@ -20,20 +20,20 @@ Box 计入泄漏检查，程序正常退出就说明没有泄漏，也没有重�
   > fn main() {
   >     let p = mk(1)
   >     var a = p.a
-  >     print_i64(*a + *p.b + p.n)
-  >     print_i64(take(p.b))
-  >     print_i64(p.n)
+  >     println("{*a + *p.b + p.n}")
+  >     println("{take(p.b)}")
+  >     println("{p.n}")
   >     var q = mk(10)
   >     if q.n > 5 {
-  >         print_i64(take(q.a))
+  >         println("{take(q.a)}")
   >     }
-  >     print_i64(*q.b)
+  >     println("{*q.b}")
   >     q = mk(20)
-  >     print_i64(*q.a + *q.b)
+  >     println("{*q.a + *q.b}")
   >     let r = mk(30)
   >     let t = P { a: r.b, b: r.a, n: 0 }
-  >     print_i64(*t.a)
-  >     print_i64(split(mk(5)))
+  >     println("{*t.a}")
+  >     println("{split(mk(5))}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -54,12 +54,12 @@ Box 计入泄漏检查，程序正常退出就说明没有泄漏，也没有重�
   > fn main() {
   >     let p = P { a: box(1), b: box(2) }
   >     var a = p.a
-  >     print_i64(show(p))
+  >     println("{show(p)}")
   > }
   > EOF
   $ sinterc whole.sn
   whole.sn:6:20: 错误：p.a 已被移走，不能整体使用 p
-   6 |     print_i64(show(p))
+   6 |     println("{show(p)}")
      |                    ^
   [1]
 
@@ -87,12 +87,12 @@ Box 计入泄漏检查，程序正常退出就说明没有泄漏，也没有重�
   >     let p = P { a: box(1), b: box(2) }
   >     let c = true
   >     if c { var a = p.a }
-  >     print_i64(*p.a)
+  >     println("{*p.a}")
   > }
   > EOF
   $ sinterc maybe.sn
   maybe.sn:6:15: 错误：p.a 可能已被移走（某条路径上或上一轮循环里），不能再使用
-   6 |     print_i64(*p.a)
+   6 |     println("{*p.a}")
      |               ^
   [1]
 

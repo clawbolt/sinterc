@@ -43,15 +43,15 @@ consume 只能在定义这个 linear 类型的文件里用，别的模块只能�
   > fn twice<T: geom.Show>(a: T) -> I64 { a.show() + a.show() }
   > 
   > fn main() {
-  >     print_i64(geom.area(3, 4))
-  >     print_i64(area(2))
+  >     println("{geom.area(3, 4)}")
+  >     println("{area(2)}")
   >     let p = Point { x: 0 - 3, y: 4 }
-  >     print_i64(geom.norm1(p))
+  >     println("{geom.norm1(p)}")
   >     let q = geom.Point { x: 1, y: 2 }
-  >     print_i64(q.show())
-  >     print_i64(twice(q))
+  >     println("{q.show()}")
+  >     println("{twice(q)}")
   >     let t = geom.open(7)
-  >     print_i64(geom.close(t))
+  >     println("{geom.close(t)}")
   > }
   > EOF
   $ sinterc run ok.sn
@@ -67,12 +67,12 @@ consume 只能在定义这个 linear 类型的文件里用，别的模块只能�
   $ cat > private.sn <<'EOF'
   > use geom
   > fn main() {
-  >     print_i64(geom.scale(1))
+  >     println("{geom.scale(1)}")
   > }
   > EOF
   $ sinterc private.sn
   private.sn:3:20: 错误：geom.scale 不是 pub 的，不能在模块 geom 之外使用
-   3 |     print_i64(geom.scale(1))
+   3 |     println("{geom.scale(1)}")
      |                    ^
   [1]
 
@@ -127,7 +127,7 @@ linear 值只能在定义它的模块里 consume：
   $ cat > usebroken.sn <<'EOF'
   > use broken
   > fn main() {
-  >     print_i64(broken.f())
+  >     println("{broken.f()}")
   > }
   > EOF
   $ sinterc usebroken.sn

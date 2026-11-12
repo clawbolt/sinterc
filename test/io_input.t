@@ -17,8 +17,8 @@ str_to_i64(s) 解析整数，格式不对或超出 I64 范围时 .None；s.byte(
   >             .None => { break }
   >         }
   >     }
-  >     print_i64(total)
-  >     print_i64(bad)
+  >     println("{total}")
+  >     println("{bad}")
   > }
   > EOF
   $ printf '10\n20\nabc\n-5\n\n7' | sinterc run in.sn
@@ -30,22 +30,22 @@ str_to_i64(s) 解析整数，格式不对或超出 I64 范围时 .None；s.byte(
   $ cat > str.sn <<'EOF'
   > fn show(o: Option<I64>) {
   >     match o {
-  >         .Some(n) => print_i64(n),
-  >         .None => print("无")
+  >         .Some(n) => println("{n}"),
+  >         .None => println("无")
   >     }
   > }
   > 
   > fn main() {
   >     let s = "hello"
-  >     print_i64(s.byte(0))
-  >     print(s.slice(1, 4))
-  >     print_i64(s.slice(5, 5).len())
+  >     println("{s.byte(0)}")
+  >     println(s.slice(1, 4))
+  >     println("{s.slice(5, 5).len()}")
   >     show(str_to_i64("+12"))
   >     show(str_to_i64("9223372036854775807"))
   >     show(str_to_i64("9223372036854775808"))
   >     show(str_to_i64("-9223372036854775808"))
   >     show(str_to_i64("1x"))
-  >     print_i64(s.byte(5))
+  >     println("{s.byte(5)}")
   > }
   > EOF
   $ sinterc run str.sn

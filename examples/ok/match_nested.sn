@@ -30,7 +30,7 @@ fn fizz(n: I64) -> Str {
 }
 
 fn main() {
-    print_i64(area(.Rect((3, 4))))
-    print(first(.Some(("x", "y"))))
-    for i in 1..16 { print(fizz(i)) }
+    println("{area(.Rect((3, 4)))}")
+    println(first(.Some(("x", "y"))))
+    for i in 1..16 { println(fizz(i)) }
 }

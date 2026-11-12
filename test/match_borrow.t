@@ -15,7 +15,7 @@
   >     }
   > }
   > 
-  > fn show(b: Box<I64>) { print_i64(*b) }
+  > fn show(b: Box<I64>) { println("{*b}") }
   > 
   > fn main() {
   >     let o: Opt = .Some(box(5))
@@ -23,11 +23,11 @@
   >         .Some(b) => { show(b); *b + 1 }
   >         .None => 0
   >     }
-  >     print_i64(n)
-  >     print_i64(peek(o))
+  >     println("{n}")
+  >     println("{peek(o)}")
   >     let h = Holder { o: .Some(box(7)), n: 1 }
-  >     print_i64(match h.o { .Some(b) => *b, .None => 0 })
-  >     print_i64(match o { .Some(b) => *b, .None => -1 })
+  >     println((match h.o { .Some(b) => *b, .None => 0 }).to_str())
+  >     println((match o { .Some(b) => *b, .None => -1 }).to_str())
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -47,7 +47,7 @@
   >     match let o {
   >         .Some(b) => {
   >             eat(o)
-  >             print_i64(*b)
+  >             println("{*b}")
   >         }
   >         .None => { }
   >     }

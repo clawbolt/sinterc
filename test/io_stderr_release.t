@@ -1,13 +1,13 @@
-写到标准错误的 eprint(s)（末尾加换行）、eprint_str(s)（不加）；sinterc build / run 的 --release
+写到标准错误的 eprintln(s)（末尾加换行）、eprint(s)（不加）；sinterc build / run 的 --release
 （-O2，定义 SN_RELEASE：不统计分配次数，退出时不做泄漏检查）。
 
   $ cat > e.sn <<'EOF'
   > fn main() {
-  >     print("out 1")
-  >     eprint("err 1")
-  >     eprint_str("err ")
-  >     eprint_str("2\n")
-  >     print("out 2")
+  >     println("out 1")
+  >     eprintln("err 1")
+  >     eprint("err ")
+  >     eprint("2\n")
+  >     println("out 2")
   > }
   > EOF
 

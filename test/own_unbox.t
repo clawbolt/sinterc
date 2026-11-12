@@ -23,7 +23,7 @@ unbox(b) 按 sink 交出 Box，释放堆内存，得到里面的值；let Node {
   >     match l {
   >         .Cons(n) => {
   >             let Node { v, next } = n
-  >             print_i64(v)
+  >             println("{v}")
   >             unbox(next)
   >         }
   >         .Nil => .Nil
@@ -43,12 +43,12 @@ unbox(b) 按 sink 交出 Box，释放堆内存，得到里面的值；let Node {
   > fn main() {
   >     let l = push(push(push(.Nil, 1), 2), 3)
   >     let r = rev(l, .Nil)
-  >     print_i64(sum(r))
+  >     println("{sum(r)}")
   >     let t = pop(r)
-  >     print_i64(sum(t))
+  >     println("{sum(t)}")
   >     let b = box(box(7))
   >     let c = unbox(b)
-  >     print_i64(*c)
+  >     println("{*c}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -64,12 +64,12 @@ unbox(b) 按 sink 交出 Box，释放堆内存，得到里面的值；let Node {
   > fn main() {
   >     let p = P { a: box(1), b: 2 }
   >     let P { a, b } = p
-  >     print_i64(p.b)
+  >     println("{p.b}")
   > }
   > EOF
   $ sinterc after.sn
   after.sn:5:15: 错误：p 已被移动，不能再使用
-   5 |     print_i64(p.b)
+   5 |     println("{p.b}")
      |               ^
   [1]
 
@@ -94,11 +94,11 @@ unbox 之后 Box 已经被交出：
   > fn main() {
   >     let b = box(5)
   >     let x = unbox(b)
-  >     print_i64(*b)
+  >     println("{*b}")
   > }
   > EOF
   $ sinterc unboxed.sn
   unboxed.sn:4:15: 错误：b 已被移动，不能再使用
-   4 |     print_i64(*b)
+   4 |     println("{*b}")
      |               ^
   [1]

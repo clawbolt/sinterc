@@ -5,13 +5,13 @@
   > fn take(sink b: Box<I64>) -> I64 { *b }
   > fn main() {
   >     let b = box(1)
-  >     print_i64(take(b))
-  >     print_i64(*b)
+  >     println("{take(b)}")
+  >     println("{*b}")
   > }
   > EOF
   $ sinterc --lang=en run move.sn
   move.sn:5:15: error: b has been moved and cannot be used again
-   5 |     print_i64(*b)
+   5 |     println("{*b}")
      |               ^
   [1]
 
@@ -19,7 +19,7 @@
 
   $ sinterc run move.sn
   move.sn:5:15: 错误：b 已被移动，不能再使用
-   5 |     print_i64(*b)
+   5 |     println("{*b}")
      |               ^
   [1]
 
@@ -27,13 +27,13 @@
 
   $ cat > ty.sn <<'EOF'
   > fn main() {
-  >     print_i64(true)
+  >     let x: I64 = true
   > }
   > EOF
   $ SINTER_LANG=en sinterc ty.sn
-  ty.sn:2:15: error: type mismatch: expected I64, found Bool
-   2 |     print_i64(true)
-     |               ^
+  ty.sn:2:18: error: type mismatch: expected I64, found Bool
+   2 |     let x: I64 = true
+     |                  ^
   [1]
 
 linear 值没有被消费（信息由几段拼起来，填进去的短语也翻译）：
@@ -60,13 +60,13 @@ linear 值没有被消费（信息由几段拼起来，填进去的短语也翻�
   > fn main() {
   >     let p = P { a: box(1), n: 2 }
   >     let a = p.a
-  >     print_i64(eat(p))
-  >     print_i64(*a)
+  >     println("{eat(p)}")
+  >     println("{*a}")
   > }
   > EOF
   $ SINTER_LANG=en sinterc lock.sn
   lock.sn:8:19: error: p is borrowed by projection a (which is used later), so it cannot be moved
-   8 |     print_i64(eat(p))
+   8 |     println("{eat(p)}")
      |                   ^
   [1]
 
@@ -75,7 +75,7 @@ linear 值没有被消费（信息由几段拼起来，填进去的短语也翻�
   $ cat > oob.sn <<'EOF'
   > fn main() {
   >     var w: Vec<I64> = vec_new()
-  >     print_i64(vec_get(w, 3))
+  >     println("{vec_get(w, 3)}")
   > }
   > EOF
   $ SINTER_LANG=en sinterc run oob.sn

@@ -2,8 +2,6 @@
 也可以是变量、参数、字段、Box 里的值。Result<(), E> 的 Ok 有一个 () 载荷，写的时候可以省略（Ok 就是 Ok(())）。
 
   $ cat > unit.sn <<'EOF'
-  > use std.option
-  > use std.result
   > 
   > struct Pair<A, B> { a: A, b: B }
   > 
@@ -21,28 +19,28 @@
   > }
   > 
   > fn main() {
-  >     print_bool(result.is_ok(check(1)))
-  >     print_bool(result.is_err(check(-1)))
-  >     print_bool(option.is_some(result.ok(twice(3))))
+  >     println("{check(1).is_ok()}")
+  >     println("{check(-1).is_err()}")
+  >     println("{twice(3).ok().is_some()}")
   >     let u: () = id(())
   >     var v: Vec<()> = vec_new()
   >     v.push(u)
   >     v.push(())
-  >     print_i64(v.len())
+  >     println("{v.len()}")
   >     match v.pop() {
-  >         .Some(x) => print("弹出了一个 ()"),
-  >         .None => print("空")
+  >         .Some(x) => println("弹出了一个 ()"),
+  >         .None => println("空")
   >     }
   >     let o: Option<()> = .Some
-  >     print_bool(option.is_some(o))
+  >     println("{o.is_some()}")
   >     let p = Pair { a: (), b: 7 }
-  >     print_i64(p.b)
+  >     println("{p.b}")
   >     let b = box(())
   >     let w = unbox(b)
-  >     result.unwrap_or(twice(-5), w)
+  >     twice(-5).unwrap_or(w)
   >     match twice(-2) {
-  >         Ok(z) => print("成功"),
-  >         Err(e) => print(e)
+  >         Ok(z) => println("成功"),
+  >         Err(e) => println(e)
   >     }
   > }
   > EOF

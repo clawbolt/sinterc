@@ -32,15 +32,15 @@
   >         let p = alloc(a, P { x: 1, y: 2 })
   >         arena |b| {
   >             var s = alloc(b, 100)
-  >             print_i64(add(r, s))
+  >             println("{add(r, s)}")
   >             s = r
-  >             print_i64(add(r, s))
+  >             println("{add(r, s)}")
   >         }
   >         *r + (*p).x + (*p).y
   >     }
-  >     print_i64(total)
-  >     print_i64(match run(4) { Ok(v) => v, Err(e) => e })
-  >     print_i64(match run(-1) { Ok(v) => v, Err(e) => e })
+  >     println("{total}")
+  >     println((match run(4) { Ok(v) => v, Err(e) => e }).to_str())
+  >     println((match run(-1) { Ok(v) => v, Err(e) => e }).to_str())
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -75,7 +75,7 @@
   >         arena |b| {
   >             r = alloc(b, 2)
   >         }
-  >         print_i64(*r)
+  >         println("{*r}")
   >     }
   > }
   > EOF

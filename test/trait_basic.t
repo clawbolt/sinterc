@@ -44,12 +44,12 @@ Eq、Show 用在 I64、结构体、Box 上；impl 里可以写 Self；Box 计入
   > fn total<T: Show>(sink x: T) -> I64 { x.show() }
   > 
   > fn main() {
-  >     print_bool(same(3, 3))
-  >     print_bool(same(Point { x: 1, y: 2 }, Point { x: 1, y: 3 }))
-  >     print_i64(count(5, 5, 6))
-  >     print_i64(total(box(7)))
+  >     println("{same(3, 3)}")
+  >     println(same(Point { x: 1, y: 2 }, Point { x: 1, y: 3 }).to_str())
+  >     println("{count(5, 5, 6)}")
+  >     println("{total(box(7))}")
   >     let four = 4
-  >     print_bool(four.eq(4))
+  >     println("{four.eq(4)}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -83,12 +83,12 @@ Eq、Show 用在 I64、结构体、Box 上；impl 里可以写 Self；Box 计入
   > }
   > fn total<T: Show>(x: T) -> I64 { x.show() }
   > fn main() {
-  >     print_i64(total(true))
+  >     println("{total(true)}")
   > }
   > EOF
   $ sinterc noimpl.sn
   noimpl.sn:6:15: 错误：Bool 没有实现 Show（total 要求 T: Show）
-   6 |     print_i64(total(true))
+   6 |     println("{total(true)}")
      |               ^
   [1]
 
@@ -150,9 +150,9 @@ trait 的方法不占用全局的名字：自己的函数可以和 trait 的方�
   > fn main() {
   >     let k = 5
   >     let b = true
-  >     print_i64(k.show())
-  >     print_i64(b.show())
-  >     print_i64(show("abc"))
+  >     println("{k.show()}")
+  >     println("{b.show()}")
+  >     println(show("abc").to_str())
   > }
   > EOF
   $ sinterc names.sn -o names.c && cc -std=gnu11 -w names.c -o names && ./names
@@ -170,12 +170,12 @@ trait 的方法不占用全局的名字：自己的函数可以和 trait 的方�
   >     fn show(x: I64) -> I64 { x }
   > }
   > fn main() {
-  >     print_i64(show(3))
+  >     println("{show(3)}")
   > }
   > EOF
   $ sinterc direct.sn
   direct.sn:8:15: 错误：show 是 trait Show 的方法，要写成方法调用 x.show(…)
-   8 |     print_i64(show(3))
+   8 |     println("{show(3)}")
      |               ^
   [1]
 
@@ -196,11 +196,11 @@ trait 的方法不占用全局的名字：自己的函数可以和 trait 的方�
   > }
   > fn main() {
   >     let k = 5
-  >     print_i64(k.show())
+  >     println("{k.show()}")
   > }
   > EOF
   $ sinterc ambig.sn
   ambig.sn:15:17: 错误：I64 的方法 show 不确定：trait Show 和 Size 都有这个方法，I64 两个都满足
-   15 |     print_i64(k.show())
+   15 |     println("{k.show()}")
       |                 ^
   [1]

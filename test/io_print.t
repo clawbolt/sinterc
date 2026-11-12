@@ -3,10 +3,10 @@
 
   $ cat > ok.sn <<'EOF'
   > fn main() {
-  >     print("你好，Sinter")
-  >     print("tab:\tquote:\" backslash:\\")
-  >     print("两行\n第二行")
-  >     print_i64(1)
+  >     println("你好，Sinter")
+  >     println("tab:\tquote:\" backslash:\\")
+  >     println("两行\n第二行")
+  >     println("{1}")
   > }
   > EOF
   $ sinterc run ok.sn
@@ -20,13 +20,13 @@ print 的实参不是字符串：
 
   $ cat > num.sn <<'EOF'
   > fn main() {
-  >     print(1)
+  >     println(1)
   > }
   > EOF
   $ sinterc num.sn
-  num.sn:2:11: 错误：类型不匹配：需要 Str，实际是 I64
-   2 |     print(1)
-     |           ^
+  num.sn:2:13: 错误：类型不匹配：需要 Str，实际是 I64
+   2 |     println(1)
+     |             ^
   [1]
 
 字符串没有结束：

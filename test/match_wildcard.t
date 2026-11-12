@@ -41,29 +41,29 @@ _ 覆盖前面没写到的变体：按移动匹配时载荷在分支结束时析
   > fn main() {
   >     let c: Shape = .Circle(5)
   >     let t: Shape = .Tri(box(3))
-  >     print_i64(radius(c))
-  >     print_i64(radius(t))
-  >     print_bool(is_dot(t))
-  >     print_bool(is_dot(.Dot))
+  >     println("{radius(c)}")
+  >     println("{radius(t)}")
+  >     println("{is_dot(t)}")
+  >     println("{is_dot(.Dot)}")
   >     for i in -1..3 {
-  >         print(name(i))
+  >         println(name(i))
   >     }
-  >     print_i64(op("sub"))
-  >     print_i64(op(str_concat("a", "dd")))
-  >     print_i64(op("mul"))
+  >     println(op("sub").to_str())
+  >     println(op(str_concat("a", "dd")).to_str())
+  >     println(op("mul").to_str())
   >     let flag = 3 > 2
   >     match flag {
-  >         true => print("是"),
-  >         _ => print("否")
+  >         true => println("是"),
+  >         _ => println("否")
   >     }
   >     match str_concat("s", "ub") {
-  >         "sub" => print("减"),
-  >         _ => print("别的")
+  >         "sub" => println("减"),
+  >         _ => println("别的")
   >     }
   >     let o: Option<Str> = .Some("x")
   >     match o {
-  >         .None => print("空"),
-  >         _ => print("有值")
+  >         .None => println("空"),
+  >         _ => println("有值")
   >     }
   > }
   > EOF

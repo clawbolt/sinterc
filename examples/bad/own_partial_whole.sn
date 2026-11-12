@@ -5,5 +5,5 @@ fn show(p: P) -> I64 { *p.b }
 fn main() {
     let p = P { a: box(1), b: box(2) }
     var a = p.a
-    print_i64(show(p))
+    println("{show(p)}")
 }

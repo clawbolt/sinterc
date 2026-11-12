@@ -27,11 +27,11 @@ impl Shape for Square {
     fn area(s: Square) -> I64 { s.side * s.side }
 }
 
-fn report<T: Shape>(x: T) { print("{x.name()}: {x.area()}") }
+fn report<T: Shape>(x: T) { println("{x.name()}: {x.area()}") }
 
 fn main() {
     var ps: Vec<Point> = vec_new()
     ps.push(Point { x: 1, y: 2 })
-    print("{ps}")
+    println("{ps}")
     report(Square { side: 3 })
 }

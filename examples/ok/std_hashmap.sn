@@ -1,6 +1,5 @@
 use std.hashmap
 use std.map
-use std.option
 
 fn next(inout s: I64) -> I64 {
     s = (s * 1103515245 + 12345) % 2147483648
@@ -9,26 +8,26 @@ fn next(inout s: I64) -> I64 {
 
 fn main() {
     var ages: hashmap.HashMap<Str, I64> = hashmap.new()
-    hashmap.insert(ages, "Ann", 30)
-    hashmap.insert(ages, "Bo", 25)
-    hashmap.insert(ages, "Cy", 35)
-    match hashmap.insert(ages, "Bo", 26) {
-        .Some(old) => print("Bo 原来 {old}"),
-        .None => print("新键")
+    ages.insert("Ann", 30)
+    ages.insert("Bo", 25)
+    ages.insert("Cy", 35)
+    match ages.insert("Bo", 26) {
+        .Some(old) => println("Bo 原来 {old}"),
+        .None => println("新键")
     }
-    print_i64(hashmap.len(ages))
-    match hashmap.get(ages, "Bo", |a| a + 1) {
-        .Some(x) => print("Bo 明年 {x}"),
-        .None => print("没有 Bo")
+    println("{ages.len()}")
+    match ages.get("Bo", |a| a + 1) {
+        .Some(x) => println("Bo 明年 {x}"),
+        .None => println("没有 Bo")
     }
-    print_bool(hashmap.contains(ages, "Di"))
-    match hashmap.remove(ages, "Ann") {
-        .Some(a) => print("删掉 Ann {a}"),
-        .None => print("没有 Ann")
+    println(ages.contains("Di").to_str())
+    match ages.remove("Ann") {
+        .Some(a) => println("删掉 Ann {a}"),
+        .None => println("没有 Ann")
     }
-    print_bool(hashmap.contains(ages, "Ann"))
+    println(ages.contains("Ann").to_str())
     // 按 keys 的顺序：删掉 Ann 时最后一个（Cy）换到了它的位置
-    hashmap.for_each(ages, |k, v| print("{k}: {v}"))
+    ages.for_each(|k, v| println("{k}: {v}"))
     // 和 std.map 对照：3000 次随机的插入、删除、查找，键在 0..500 里
     var h: hashmap.HashMap<I64, I64> = hashmap.new()
     var m: map.Map<I64, I64> = map.new()
@@ -38,32 +37,32 @@ fn main() {
         let k = next(seed) % 500
         let op = next(seed) % 3
         if op == 0 {
-            let a = hashmap.insert(h, k, i)
-            let b = map.insert(m, k, i)
-            if option.is_some(a) != option.is_some(b) { bad = bad + 1 }
+            let a = h.insert(k, i)
+            let b = m.insert(k, i)
+            if a.is_some() != b.is_some() { bad = bad + 1 }
         } else if op == 1 {
-            let a = hashmap.remove(h, k)
-            let b = map.remove(m, k)
-            if option.is_some(a) != option.is_some(b) { bad = bad + 1 }
+            let a = h.remove(k)
+            let b = m.remove(k)
+            if a.is_some() != b.is_some() { bad = bad + 1 }
         } else {
-            if hashmap.contains(h, k) != map.contains(m, k) { bad = bad + 1 }
+            if h.contains(k) != m.contains(k) { bad = bad + 1 }
         }
-        if hashmap.len(h) != map.len(m) { bad = bad + 1 }
+        if h.len() != m.len() { bad = bad + 1 }
     }
     for k in 0..500 {
-        if hashmap.contains(h, k) != map.contains(m, k) { bad = bad + 1 }
+        if h.contains(k) != m.contains(k) { bad = bad + 1 }
     }
-    print("不一致 {bad} 次，最后 {hashmap.len(h)} 个键")
+    println("不一致 {bad} 次，最后 {h.len()} 个键")
     var big: hashmap.HashMap<I64, I64> = hashmap.new()
     for i in 0..10000 {
-        hashmap.insert(big, i * 1024, i)
+        big.insert(i * 1024, i)
     }
     var sum = 0
     for i in 0..10000 {
-        match hashmap.get(big, i * 1024, |v| v) {
+        match big.get(i * 1024, |v| v) {
             .Some(v) => { sum = sum + v },
             .None => {}
         }
     }
-    print_i64(sum)
+    println("{sum}")
 }

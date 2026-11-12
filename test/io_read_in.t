@@ -4,15 +4,14 @@
 
   $ printf 'apple,3\nbanana,12\ncherry,7\n' > data.csv
   $ cat > file.sn <<'EOF'
-  > use std.view
   > 
   > fn total(path: Str) -> Result<I64, Str> {
   >     arena |a| {
   >         let data = read_file_in(a, path)?
   >         var sum = 0
-  >         for line in view.lines(data) {
-  >             let f = view.split(line, ",")
-  >             match view.to_i64(f[1]) {
+  >         for line in data.lines() {
+  >             let f = line.split(",")
+  >             match f[1].parse_i64() {
   >                 .Some(x) => { sum = sum + x },
   >                 .None => {}
   >             }
@@ -23,12 +22,12 @@
   > 
   > fn main() {
   >     match total("data.csv") {
-  >         Ok(n) => print_i64(n),
-  >         Err(e) => print(e)
+  >         Ok(n) => println("{n}"),
+  >         Err(e) => println(e)
   >     }
   >     match total("missing.csv") {
-  >         Ok(n) => print_i64(n),
-  >         Err(e) => print("出错")
+  >         Ok(n) => println("{n}"),
+  >         Err(e) => println("出错")
   >     }
   > }
   > EOF
@@ -42,8 +41,8 @@
   > fn main() {
   >     arena |a| {
   >         let v = read_stdin_in(a)
-  >         print_i64(v.len())
-  >         print_i64(v.byte(1))
+  >         println("{v.len()}")
+  >         println("{v.byte(1)}")
   >         v.print_str()
   >     }
   > }
@@ -74,7 +73,7 @@
   >             }
   >             c = read_chunk(a, 4)
   >         }
-  >         print("{n} 字节，{lines} 行")
+  >         println("{n} 字节，{lines} 行")
   >     }
   > }
   > EOF
@@ -113,21 +112,20 @@
 段数不够时是 .None：
 
   $ cat > walk.sn <<'EOF'
-  > use std.view
   > 
   > fn check(a: Arena, sink s: Str) {
   >     let data = text(a, s)
-  >     let ls = view.lines(data)
+  >     let ls = data.lines()
   >     var k = 0
   >     var pos = 0
   >     var same = true
   >     while pos < data.len() {
-  >         let e = view.line_end(data, pos)
-  >         let line = view.trim_cr(data.sub(pos, e))
+  >         let e = data.line_end(pos)
+  >         let line = data.sub(pos, e).trim_cr()
   >         if k >= ls.len() || !line.eq_view(ls[k]) { same = false }
-  >         let parts = view.split(line, ",")
+  >         let parts = line.split(",")
   >         for i in 0..parts.len() + 1 {
-  >             match view.field(line, ",", i) {
+  >             match line.field(",", i) {
   >                 .Some(f) => { if i >= parts.len() || !f.eq_view(parts[i]) { same = false } },
   >                 .None => { if i < parts.len() { same = false } }
   >             }
@@ -135,7 +133,7 @@
   >         k = k + 1
   >         pos = e + 1
   >     }
-  >     print("{k} {ls.len()} {same && k == ls.len()}")
+  >     println("{k} {ls.len()} {same && k == ls.len()}")
   > }
   > 
   > fn main() {

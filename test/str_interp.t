@@ -12,19 +12,19 @@ I64、F64、Char、Bool 和 Str 是内建的，别的类型调用户写的 to_st
   > fn main() {
   >     let name = "世界"
   >     let n = 42
-  >     print("你好，{name}！")
-  >     print("n = {n}, n * 2 = {n * 2}")
-  >     print("{1.5} {'中'} {n > 40} {true}")
+  >     println("你好，{name}！")
+  >     println("n = {n}, n * 2 = {n * 2}")
+  >     println("{1.5} {'中'} {n > 40} {true}")
   >     let p = Point { x: 3, y: -4 }
-  >     print("p = {p}")
-  >     print("{{原样}} {n}")
-  >     print("嵌套：{"[{n}]"}")
+  >     println("p = {p}")
+  >     println("{{原样}} {n}")
+  >     println("嵌套：{"[{n}]"}")
   >     var s = "{n}"
   >     s.push("!")
-  >     print(s)
-  >     print(name)
-  >     print("{str_len(name)} 字节")
-  >     print(n.to_str())
+  >     println(s)
+  >     println(name)
+  >     println("{str_len(name)} 字节")
+  >     println(n.to_str())
   > }
   > EOF
   $ sinterc run ok.sn
@@ -43,26 +43,26 @@ I64、F64、Char、Bool 和 Str 是内建的，别的类型调用户写的 to_st
 
   $ cat > brace.sn <<'EOF'
   > fn main() {
-  >     print("a } b")
+  >     println("a } b")
   > }
   > EOF
   $ sinterc brace.sn
-  brace.sn:2:14: 错误：字符串里的 } 要写成 }}
-   2 |     print("a } b")
-     |              ^
+  brace.sn:2:16: 错误：字符串里的 } 要写成 }}
+   2 |     println("a } b")
+     |                ^
   [1]
 
 {} 中间要有表达式：
 
   $ cat > empty.sn <<'EOF'
   > fn main() {
-  >     print("a {} b")
+  >     println("a {} b")
   > }
   > EOF
   $ sinterc empty.sn
-  empty.sn:2:14: 错误：字符串里的 {} 中间要写一个表达式
-   2 |     print("a {} b")
-     |              ^
+  empty.sn:2:16: 错误：字符串里的 {} 中间要写一个表达式
+   2 |     println("a {} b")
+     |                ^
   [1]
 
 没有 to_str 的类型不能插值：
@@ -71,11 +71,11 @@ I64、F64、Char、Bool 和 Str 是内建的，别的类型调用户写的 to_st
   > struct P { x: I64 }
   > fn main() {
   >     let p = P { x: 1 }
-  >     print("{p}")
+  >     println("{p}")
   > }
   > EOF
   $ sinterc noshow.sn
-  noshow.sn:4:12: 错误：P 没有实现 ToStr，不能在字符串里插值或调用 to_str（先写 fn to_str(x: P) -> Str）
-   4 |     print("{p}")
-     |            ^
+  noshow.sn:4:14: 错误：P 没有实现 ToStr，不能在字符串里插值或调用 to_str（先写 fn to_str(x: P) -> Str）
+   4 |     println("{p}")
+     |              ^
   [1]

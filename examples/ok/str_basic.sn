@@ -18,8 +18,8 @@ fn main() {
         v.push(m.name)
     }
     match v.pop() {
-        .Some(s) => print(s),
-        .None => print("")
+        .Some(s) => println(s),
+        .None => println("")
     }
-    print_i64(v.len())
+    println("{v.len()}")
 }

@@ -13,24 +13,24 @@ for x in v 按借用依次取 Vec 的每个元素：可复制的元素复制，�
   > 
   > fn main() {
   >     for i in 0..3 {
-  >         print_i64(i)
+  >         println("{i}")
   >     }
   >     var v: Vec<I64> = vec_new()
   >     for i in 1..5 { v.push(i * i) }
-  >     print_i64(sum(v))
+  >     println("{sum(v)}")
   >     var names: Vec<Str> = vec_new()
   >     names.push("甲")
   >     names.push("乙")
   >     for n in names {
-  >         print(n)
+  >         println(n)
   >     }
   >     for i in 0..2 {
   >         for j in 0..2 {
-  >             print_i64(i * 10 + j)
+  >             println("{i * 10 + j}")
   >         }
   >     }
-  >     for i in 5..5 { print_i64(i) }
-  >     print("完")
+  >     for i in 5..5 { println("{i}") }
+  >     println("完")
   > }
   > EOF
   $ sinterc run ok.sn
@@ -69,7 +69,7 @@ for x in v 按借用依次取 Vec 的每个元素：可复制的元素复制，�
   >     v.push("a")
   >     for s in v {
   >         v.push("b")
-  >         print(s)
+  >         println(s)
   >     }
   > }
   > EOF
@@ -89,7 +89,7 @@ for x in v 按借用依次取 Vec 的每个元素：可复制的元素复制，�
   >     v
   > }
   > fn main() {
-  >     for x in make() { print_i64(x) }
+  >     for x in make() { println("{x}") }
   > }
   > EOF
   $ sinterc run tmp.sn

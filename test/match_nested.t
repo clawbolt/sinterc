@@ -65,36 +65,36 @@
   > }
   > 
   > fn main() {
-  >     print_i64(area(.Circle(2)))
-  >     print_i64(area(.Rect((3, 4))))
-  >     print_i64(area(.Rect((3, 0))))
-  >     print(classify(.Some((0, "a"))))
-  >     print(classify(.Some((-2, "b"))))
-  >     print(classify(.None))
-  >     print(first(.Some(("x", "y"))))
+  >     println("{area(.Circle(2))}")
+  >     println("{area(.Rect((3, 4)))}")
+  >     println("{area(.Rect((3, 0)))}")
+  >     println(classify(.Some((0, "a"))))
+  >     println(classify(.Some((-2, "b"))))
+  >     println(classify(.None))
+  >     println(first(.Some(("x", "y"))))
   >     var out = ""
   >     for i in 1..16 {
   >         if i > 1 { out.push(" ") }
   >         out.push(fizz(i))
   >     }
-  >     print(out)
-  >     print_i64(depth(.Some(.Some(7))))
-  >     print_i64(depth(.Some(.None)))
-  >     print_i64(depth(.None))
-  >     print_i64(both(true, false))
+  >     println(out)
+  >     println("{depth(.Some(.Some(7)))}")
+  >     println("{depth(.Some(.None))}")
+  >     println("{depth(.None)}")
+  >     println("{both(true, false)}")
   >     let q: Option<(Str, I64)> = .Some(("k", 5))
   >     match let q {
-  >         .Some((k, 5)) => print("five {k}"),
-  >         .Some((k, n)) => print("{k} {n}"),
-  >         .None => print("none")
+  >         .Some((k, 5)) => println("five {k}"),
+  >         .Some((k, n)) => println("{k} {n}"),
+  >         .None => println("none")
   >     }
   >     match q {
-  >         .Some((k, n)) => print(take(k)),
-  >         .None => print("none")
+  >         .Some((k, n)) => println(take(k)),
+  >         .None => println("none")
   >     }
-  >     print_i64(r(Ok(.Some(4))))
-  >     print_i64(r(Ok(.None)))
-  >     print_i64(r(Err("e")))
+  >     println("{r(Ok(.Some(4)))}")
+  >     println("{r(Ok(.None))}")
+  >     println(r(Err("e")).to_str())
   > }
   > EOF
   $ sinterc run ok.sn
@@ -126,7 +126,7 @@
   >     }
   > }
   > 
-  > fn main() { print_i64(f(.None)) }
+  > fn main() { println("{f(.None)}") }
   > EOF
   $ sinterc miss.sn 2>&1 | head -1
   miss.sn:2:5: 错误：match 没有覆盖所有情况，例如 .Some(.None)
@@ -141,7 +141,7 @@
   >     }
   > }
   > 
-  > fn main() { print_i64(f(.None)) }
+  > fn main() { println("{f(.None)}") }
   > EOF
   $ sinterc lit.sn 2>&1 | head -1
   lit.sn:2:5: 错误：match 没有覆盖所有情况，例如 .Some(_)
@@ -157,7 +157,7 @@
   >     }
   > }
   > 
-  > fn main() { print_i64(f(.None)) }
+  > fn main() { println("{f(.None)}") }
   > EOF
   $ sinterc dead.sn 2>&1 | head -1
   dead.sn:4:9: 错误：这个分支永远匹配不到（前面的分支已经覆盖了它能匹配的值）
@@ -172,7 +172,7 @@
   >     }
   > }
   > 
-  > fn main() { print_i64(f(.None)) }
+  > fn main() { println("{f(.None)}") }
   > EOF
   $ sinterc ty.sn 2>&1 | head -1
   ty.sn:3:15: 错误：模式 "a" 的类型是 Str，这里的值是 I64
@@ -184,7 +184,7 @@
   >     }
   > }
   > 
-  > fn main() { print_i64(f((1, 2))) }
+  > fn main() { println("{f((1, 2))}") }
   > EOF
   $ sinterc dup.sn 2>&1 | head -1
   dup.sn:3:9: 错误：变量 x 在同一个模式里出现了两次

@@ -15,17 +15,17 @@
   > 
   > fn main() {
   >     let p = add(Point { x: 1, y: 2 }, Point { x: 10, y: 20 })
-  >     print_i64(p.x)
-  >     print_i64(p.y)
-  >     print_i64(fact(20))
+  >     println("{p.x}")
+  >     println("{p.y}")
+  >     println("{fact(20)}")
   >     var i = 0
   >     var s = 0
   >     while i < 5 {
   >         i = i + 1
   >         s = s + i
   >     }
-  >     print_i64(s)
-  >     print_bool(s == 15 && !false)
+  >     println("{s}")
+  >     println("{s == 15 && !false}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -44,7 +44,7 @@
   > }
   > 
   > fn main() {
-  >     print_i64(fact(21))
+  >     println("{fact(21)}")
   > }
   > EOF
   $ sinterc ovf.sn -o ovf.c && cc -std=gnu11 -w ovf.c -o ovf && ./ovf
@@ -55,7 +55,7 @@
 
   $ cat > order.sn <<'EOF'
   > fn show(x: I64) -> I64 {
-  >     print_i64(x)
+  >     println("{x}")
   >     x
   > }
   > 
@@ -64,7 +64,7 @@
   > }
   > 
   > fn main() {
-  >     print_i64(sub(show(1), show(2)))
+  >     println("{sub(show(1), show(2))}")
   > }
   > EOF
   $ sinterc order.sn -o order.c && cc -std=gnu11 -w order.c -o order && ./order

@@ -10,15 +10,15 @@ fn fact(n: I64) -> I64 {
 
 fn main() {
     let p = add(Point { x: 1, y: 2 }, Point { x: 10, y: 20 })
-    print_i64(p.x)
-    print_i64(p.y)
-    print_i64(fact(20))
+    println("{p.x}")
+    println("{p.y}")
+    println("{fact(20)}")
     var i = 0
     var s = 0
     while i < 5 {
         i = i + 1
         s = s + i
     }
-    print_i64(s)
-    print_bool(s == 15 && !false)
+    println("{s}")
+    println("{s == 15 && !false}")
 }

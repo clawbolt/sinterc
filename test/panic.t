@@ -1,9 +1,7 @@
 panic（Lean `FlowGraph.Panic`）。panic(msg) 打印说明后立刻结束进程（退出码 101），不析构任何值、不执行 errdefer、
-不要求线性值已被消费；类型是 Never，后面的代码走不到。std.option、std.result 有了 unwrap 和 expect。
+不要求线性值已被消费；类型是 Never，后面的代码走不到。Option、Result 的方法 unwrap 和 expect 也用它。
 
   $ cat > ok.sn <<'EOF'
-  > use std.option
-  > use std.result
   > 
   > fn parse(s: Str) -> Result<I64, Str> {
   >     match str_to_i64(s) {
@@ -18,12 +16,12 @@ panic（Lean `FlowGraph.Panic`）。panic(msg) 打印说明后立刻结束进程
   > }
   > 
   > fn main() {
-  >     print_i64(option.unwrap(str_to_i64("42")))
-  >     print_i64(result.unwrap(parse("7")))
-  >     print_i64(option.expect(str_to_i64("8"), "要一个数"))
-  >     print_i64(half(10))
-  >     let n: I64 = result.expect(parse("x"), "读配置失败")
-  >     print_i64(n)
+  >     println(str_to_i64("42").unwrap().to_str())
+  >     println(parse("7").unwrap().to_str())
+  >     println(str_to_i64("8").expect("要一个数").to_str())
+  >     println("{half(10)}")
+  >     let n: I64 = parse("x").expect("读配置失败")
+  >     println("{n}")
   > }
   > EOF
   $ sinterc run ok.sn

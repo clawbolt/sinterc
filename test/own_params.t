@@ -17,24 +17,24 @@ let 绑定字段得到投影，投影存在时可以只读使用源对象，投�
   > 
   > fn main() {
   >     var b = box(1)
-  >     print_i64(get(b))
+  >     println("{get(b)}")
   >     reset(b, 5)
-  >     print_i64(*b)
+  >     println("{*b}")
   >     var n = 10
   >     inc(n)
-  >     print_i64(n)
+  >     println("{n}")
   >     let p = P { a: box(2), n: 3 }
-  >     print_i64(sum(p, p))
+  >     println("{sum(p, p)}")
   >     let a = p.a
-  >     print_i64(*a + p.n)
+  >     println("{*a + p.n}")
   >     var x = P { a: box(8), n: 0 }
   >     let pa = x.a
-  >     print_i64(*pa)
+  >     println("{*pa}")
   >     x = P { a: box(9), n: 1 }
-  >     print_i64(*x.a)
+  >     println("{*x.a}")
   >     inc(x.n)
-  >     print_i64(x.n)
-  >     print_i64(get(box(3)))
+  >     println("{x.n}")
+  >     println("{get(box(3))}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok
@@ -74,13 +74,13 @@ let 绑定字段得到投影，投影存在时可以只读使用源对象，投�
   > fn main() {
   >     let p = P { a: box(1), n: 2 }
   >     let a = p.a
-  >     print_i64(eat(p))
-  >     print_i64(*a)
+  >     println("{eat(p)}")
+  >     println("{*a}")
   > }
   > EOF
   $ sinterc lock.sn
   lock.sn:8:19: 错误：p 正被投影 a 借用（之后还会用到 a），不能移动
-   8 |     print_i64(eat(p))
+   8 |     println("{eat(p)}")
      |                   ^
   [1]
 
@@ -94,8 +94,8 @@ let 绑定字段得到投影，投影存在时可以只读使用源对象，投�
   > fn main() {
   >     let p = P { a: box(1), n: 2 }
   >     let a = p.a
-  >     print_i64(*a)
-  >     print_i64(eat(p))
+  >     println("{*a}")
+  >     println("{eat(p)}")
   > }
   > EOF
   $ sinterc nll.sn -o nll.c && cc -std=gnu11 -w nll.c -o nll && ./nll
@@ -114,7 +114,7 @@ let 绑定字段得到投影，投影存在时可以只读使用源对象，投�
   >     var p = P { a: box(1), n: 2 }
   >     let a = p.a
   >     inc(p.n)
-  >     print_i64(*a)
+  >     println("{*a}")
   > }
   > EOF
   $ sinterc inout.sn

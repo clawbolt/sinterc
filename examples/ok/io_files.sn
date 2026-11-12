@@ -9,7 +9,7 @@ fn copy_first(a: Vec<Str>) -> Result<(), Str> {
 fn main() {
     let a = args()
     match copy_first(a) {
-        Ok(_) => print("复制好了"),
-        Err(e) => print(e)
+        Ok(_) => println("复制好了"),
+        Err(e) => println(e)
     }
 }

@@ -1,5 +1,4 @@
 // C38：panic。走到 panic 的路径不析构、不要求消费线性值；导出时写成指向自己的空节点（Lean M19 的编码）。
-use std.option
 
 linear struct Tx { id: I64 }
 
@@ -7,9 +6,9 @@ fn close(sink t: Tx) { consume(t) }
 
 fn main() {
     let t = Tx { id: 1 }
-    let n = option.unwrap(str_to_i64("5"))
+    let n = str_to_i64("5").unwrap()
     if n < 0 { panic("负数") }
     close(t)
-    let s = option.expect(read_line(), "没有输入")
-    print(s)
+    let s = read_line().expect("没有输入")
+    println(s)
 }

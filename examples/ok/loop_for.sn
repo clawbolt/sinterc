@@ -13,8 +13,8 @@ fn main() {
         v.push(box(i))
     }
     for b in v {
-        print_i64(*b)
+        println("{*b}")
     }
     v.push(box(10))
-    print_i64(total(v))
+    println("{total(v)}")
 }

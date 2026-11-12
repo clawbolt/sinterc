@@ -2,7 +2,6 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
 `Library.HeapSort` 证明了结果排好序（heapSort_sorted），并且是原来元素的一个排列（heapSort_swaps）。
 
   $ cat > ok.sn <<'EOF'
-  > use std.vec
   > 
   > struct Person { name: Str, age: I64 }
   > 
@@ -14,7 +13,7 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
   >         s.push("{x}")
   >         first = false
   >     }
-  >     print(s)
+  >     println(s)
   > }
   > 
   > fn next(inout s: I64) -> I64 {
@@ -44,42 +43,42 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
   >     a.push(2)
   >     a.push(7)
   >     a.push(2)
-  >     vec.sort(a)
+  >     a.sort()
   >     show(a)
-  >     vec.sort_by(a, |x, y| x > y)
+  >     a.sort_by(|x, y| x > y)
   >     show(a)
   >     var e: Vec<I64> = vec_new()
-  >     vec.sort(e)
-  >     print_i64(vec_len(e))
+  >     e.sort()
+  >     println("{vec_len(e)}")
   >     e.push(4)
-  >     vec.sort(e)
+  >     e.sort()
   >     show(e)
   >     var w: Vec<Str> = vec_new()
   >     w.push("pear")
   >     w.push("apple")
   >     w.push("fig")
   >     w.push("banana")
-  >     vec.sort(w)
+  >     w.sort()
   >     for s in w {
-  >         print(s)
+  >         println(s)
   >     }
   >     var ps: Vec<Person> = vec_new()
   >     ps.push(Person { name: "Ann", age: 30 })
   >     ps.push(Person { name: "Bo", age: 25 })
   >     ps.push(Person { name: "Cy", age: 35 })
   >     ps.push(Person { name: "Di", age: 28 })
-  >     vec.sort_by(ps, |p, q| p.age < q.age)
+  >     ps.sort_by(|p, q| p.age < q.age)
   >     for p in ps {
-  >         print("{p.name} {p.age}")
+  >         println("{p.name} {p.age}")
   >     }
   >     var f: Vec<F64> = vec_new()
   >     f.push(3.0)
   >     f.push(-1.5)
   >     f.push(2.25)
   >     f.push(0.0)
-  >     vec.sort_by(f, |x, y| x < y)
+  >     f.sort_by(|x, y| x < y)
   >     for x in f {
-  >         print_f64(x)
+  >         println("{x}")
   >     }
   >     // 和插入排序对照：2000 个伪随机数
   >     var seed = 42
@@ -90,13 +89,13 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
   >         b.push(x)
   >         c.push(x)
   >     }
-  >     vec.sort(b)
+  >     b.sort()
   >     insertion(c)
   >     var same = true
   >     for i in 0..2000 {
   >         if vec_get(b, i) != vec_get(c, i) { same = false }
   >     }
-  >     print_bool(same)
+  >     println("{same}")
   > }
   > EOF
   $ sinterc run ok.sn

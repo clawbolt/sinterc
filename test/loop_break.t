@@ -17,18 +17,18 @@ break 和 continue。break 跳出最内层的循环，continue 进入它的下�
   >     for i in 0..10 {
   >         if i == 3 { continue }
   >         if i == 6 { break }
-  >         print_i64(i)
+  >         println("{i}")
   >     }
   >     var n = 0
   >     while true {
   >         n = n + 1
   >         if n > 2 { break }
   >     }
-  >     print_i64(n)
+  >     println("{n}")
   >     var v: Vec<I64> = vec_new()
   >     for i in 0..5 { v.push(i * 3) }
-  >     print_i64(find(v, 9))
-  >     print_i64(find(v, 4))
+  >     println("{find(v, 9)}")
+  >     println("{find(v, 4)}")
   >     var names: Vec<Str> = vec_new()
   >     names.push("甲")
   >     names.push("乙")
@@ -36,19 +36,19 @@ break 和 continue。break 跳出最内层的循环，continue 进入它的下�
   >     for s in names {
   >         let t = s.concat("!")
   >         if s.eq("乙") { continue }
-  >         print(t)
+  >         println(t)
   >     }
   >     for i in 0..3 {
   >         arena |a| {
   >             let r = alloc(a, i)
   >             if *r == 1 { break }
-  >             print_i64(*r)
+  >             println("{*r}")
   >         }
   >     }
   >     for i in 0..2 {
   >         for j in 0..5 {
   >             if j == 2 { break }
-  >             print_i64(i * 10 + j)
+  >             println("{i * 10 + j}")
   >         }
   >     }
   > }

@@ -7,17 +7,17 @@ fn to_str(p: Point) -> Str {
 fn main() {
     let name = "世界"
     let n = 42
-    print("你好，{name}！")
-    print("n = {n}, n * 2 = {n * 2}")
-    print("{1.5} {'中'} {n > 40} {true}")
+    println("你好，{name}！")
+    println("n = {n}, n * 2 = {n * 2}")
+    println("{1.5} {'中'} {n > 40} {true}")
     let p = Point { x: 3, y: -4 }
-    print("p = {p}")
-    print("{{原样}} {n}")
-    print("嵌套：{"[{n}]"}")
+    println("p = {p}")
+    println("{{原样}} {n}")
+    println("嵌套：{"[{n}]"}")
     var s = "{n}"
     s.push("!")
-    print(s)
-    print(name)
-    print("{str_len(name)} 字节")
-    print(n.to_str())
+    println(s)
+    println(name)
+    println("{str_len(name)} 字节")
+    println(n.to_str())
 }

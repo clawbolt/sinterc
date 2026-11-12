@@ -4,7 +4,6 @@
 Fn 变量也可以传给 fn(…) 参数。环境里不能有引用和区域。
 
   $ cat > ok.sn <<'EOF'
-  > use std.vec
   > 
   > struct Button { label: Str, on_click: Fn(I64) -> I64 }
   > 
@@ -31,41 +30,41 @@ Fn 变量也可以传给 fn(…) 参数。环境里不能有引用和区域。
   > 
   > fn main() {
   >     var add5 = adder(5)
-  >     print_i64(add5(1))
-  >     print_i64(apply(add5, 10))
+  >     println("{add5(1)}")
+  >     println("{apply(add5, 10)}")
   >     var c = counter()
-  >     print_i64(c())
-  >     print_i64(c())
+  >     println("{c()}")
+  >     println("{c()}")
   >     var d = counter()
-  >     print_i64(d())
-  >     print_i64(c())
+  >     println("{d()}")
+  >     println("{c()}")
   >     var fs: Vec<Fn(I64) -> I64> = vec_new()
   >     fs.push(adder(1))
   >     fs.push(adder(100))
   >     let m = 3
   >     fs.push(|x| x * m)
   >     for i in 0..fs.len() {
-  >         print_i64(fs[i].call(7))
+  >         println("{fs[i].call(7)}")
   >     }
   >     // 按值拿进来的 Str：移进环境，闭包析构时一起析构
   >     let name = "ann"
-  >     var greet: Fn() -> () = || print(name)
+  >     var greet: Fn() -> () = || println(name)
   >     greet()
   >     greet()
   >     var b = Button { label: "ok", on_click: |n| n * 2 }
-  >     print_i64(b.on_click.call(21))
-  >     print(b.label)
+  >     println("{b.on_click.call(21)}")
+  >     println(b.label)
   >     var v: Vec<I64> = vec_new()
   >     v.push(1)
   >     v.push(2)
-  >     let w = vec.map(v, add5)
+  >     let w = v.map(add5)
   >     for x in w {
-  >         print_i64(x)
+  >         println("{x}")
   >     }
   >     var h = compose(adder(1), adder(10))
-  >     print_i64(h(5))
+  >     println("{h(5)}")
   >     var h2 = h
-  >     print_i64(h2(0))
+  >     println("{h2(0)}")
   > }
   > EOF
   $ sinterc run ok.sn
@@ -92,14 +91,14 @@ Fn 变量也可以传给 fn(…) 参数。环境里不能有引用和区域。
   $ cat > moved.sn <<'EOF'
   > fn main() {
   >     let s = "hi"
-  >     var f: Fn() -> () = || print(s)
-  >     print(s)
+  >     var f: Fn() -> () = || println(s)
+  >     println(s)
   > }
   > EOF
   $ sinterc moved.sn
-  moved.sn:4:11: 错误：s 已被移动，不能再使用
-   4 |     print(s)
-     |           ^
+  moved.sn:4:13: 错误：s 已被移动，不能再使用
+   4 |     println(s)
+     |             ^
   [1]
 
 调用时闭包按 inout，let 声明的不能调用：
@@ -107,12 +106,12 @@ Fn 变量也可以传给 fn(…) 参数。环境里不能有引用和区域。
   $ cat > letcall.sn <<'EOF'
   > fn main() {
   >     let f: Fn(I64) -> I64 = |x| x + 1
-  >     print_i64(f(1))
+  >     println("{f(1)}")
   > }
   > EOF
   $ sinterc letcall.sn
   letcall.sn:3:15: 错误：f 不可修改：调用 Fn(…) 闭包时闭包按 inout（它可以改自己的环境），要用 var 声明，或者作为 inout / sink 参数
-   3 |     print_i64(f(1))
+   3 |     println("{f(1)}")
      |               ^
   [1]
 
@@ -138,12 +137,12 @@ Fn 变量也可以传给 fn(…) 参数。环境里不能有引用和区域。
   > struct W { g: Fn(W) -> I64 }
   > fn main() {
   >     var w = W { g: |v| 1 }
-  >     print_i64(w.g.call(w))
+  >     println("{w.g.call(w)}")
   > }
   > EOF
   $ sinterc overlap.sn
   overlap.sn:4:24: 错误：w 在同一次调用里出现两次，其中有移动或 inout，只能都是只读的
-   4 |     print_i64(w.g.call(w))
+   4 |     println("{w.g.call(w)}")
      |                        ^
   [1]
 

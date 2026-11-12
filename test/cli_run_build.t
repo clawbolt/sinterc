@@ -26,25 +26,25 @@
   > fn make(a: Arena, n: I64) -> &I64 in a { alloc(a, n) }
   > 
   > fn main() {
-  >     print("== Sinter 一览 ==")
+  >     println("== Sinter 一览 ==")
   >     var p = Point { x: 3, y: 4 }
-  >     print_i64(dist2(p))
+  >     println("{dist2(p)}")
   >     inc(p.x)
-  >     print_i64(p.x)
+  >     println("{p.x}")
   > 
   >     var v: Vec<Box<I64>> = vec_new()
   >     v.push(box(1))
   >     v.push(box(2))
   >     v.push(box(3))
-  >     print_i64(sum(v))
+  >     println("{sum(v)}")
   >     match v.pop() {
-  >         .Some(b) => print_i64(*b),
-  >         .None => print_i64(0)
+  >         .Some(b) => println("{*b}"),
+  >         .None => println("{0}")
   >     }
   > 
   >     arena |a| {
   >         let r = make(a, 42)
-  >         print_i64(*r)
+  >         println("{*r}")
   >     }
   > }
   > EOF
@@ -71,7 +71,7 @@ build 默认输出到去掉 .sn 的同名文件：
   $ cat > oob.sn <<'EOF'
   > fn main() {
   >     var w: Vec<I64> = vec_new()
-  >     print_i64(vec_get(w, 3))
+  >     println("{vec_get(w, 3)}")
   > }
   > EOF
   $ sinterc run oob.sn
@@ -84,13 +84,13 @@ build 默认输出到去掉 .sn 的同名文件：
   > fn take(sink b: Box<I64>) -> I64 { *b }
   > fn main() {
   >     let b = box(1)
-  >     print_i64(take(b))
-  >     print_i64(*b)
+  >     println("{take(b)}")
+  >     println("{*b}")
   > }
   > EOF
   $ sinterc run move.sn
   move.sn:5:15: 错误：b 已被移动，不能再使用
-   5 |     print_i64(*b)
+   5 |     println("{*b}")
      |               ^
   [1]
 

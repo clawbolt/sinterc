@@ -1,6 +1,6 @@
 下标 v[i]（就是 vec_get(v, i)）和按下标赋值 v[i] = x、v.get(i) = x。和 for x in inout v 里的 x = e 一样：
 先算右边，再查下标（越界时 panic）、析构旧值、放进新值（Lean `Datatypes.VecInout`（二））；v 要能修改，不能在右边被移走。
-不换行的输出 print_str(s)、原始字节 print_byte(b)。
+不换行的输出 print(s)、原始字节 print_byte(b)。
 
   $ cat > ok.sn <<'EOF'
   > struct P { x: I64, name: Str }
@@ -31,19 +31,19 @@
   >             out.push(i.to_str())
   >         }
   >     }
-  >     print(out)
+  >     println(out)
   >     var names: Vec<Str> = vec_new()
   >     names.push("a")
   >     names.push("b")
   >     names[1] = "B"
   >     names.get(0) = str_concat(names[0], "!")
-  >     print(names[0])
-  >     print(names[1])
+  >     println(names[0])
+  >     println(names[1])
   >     var ps: Vec<P> = vec_new()
   >     ps.push(P { x: 1, name: "p" })
   >     ps[0].x = ps[0].x + 41
   >     ps[0] = P { x: ps[0].x + 1, name: "q" }
-  >     print("{ps[0].x} {ps[0].name}")
+  >     println("{ps[0].x} {ps[0].name}")
   >     var m: Vec<Vec<I64>> = vec_new()
   >     for i in 0..2 {
   >         var row: Vec<I64> = vec_new()
@@ -51,9 +51,9 @@
   >         m.push(row)
   >     }
   >     m[1][0] = 7
-  >     print("{m[0][0]} {m[1][0]}")
-  >     print_str("ab")
-  >     print_str("c\n")
+  >     println("{m[0][0]} {m[1][0]}")
+  >     print("ab")
+  >     print("c\n")
   >     print_byte(72)
   >     print_byte(105)
   >     print_byte(10)
@@ -127,7 +127,7 @@ print_byte 只接受 0 到 255：
 
   $ cat > byte.sn <<'EOF'
   > fn main() {
-  >     print_str("x")
+  >     print("x")
   >     print_byte(256)
   > }
   > EOF

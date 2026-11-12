@@ -14,30 +14,30 @@
   >     var b = a.clone()
   >     b.push("d")
   >     b.push_char('e')
-  >     print(a)
-  >     print(b)
+  >     println(a)
+  >     println(b)
   >     var v: Vec<Str> = vec_new()
   >     for i in 0..3 {
   >         v.push("x")
   >     }
   >     v[1].push("y")
-  >     print("{v[0]} {v[1]} {v[2]}")
+  >     println("{v[0]} {v[1]} {v[2]}")
   >     var s = ""
   >     for i in 0..3 {
   >         s.push(tag(i))
   >     }
-  >     print(s)
+  >     println(s)
   >     var bs = "hi".to_bytes()
   >     bs.set(0, 72)
   >     bs.push(33)
   >     print_bytes(bs)
-  >     print("")
+  >     println("")
   >     var e = bytes_new()
   >     e.push(65)
   >     print_bytes(e)
-  >     print("")
+  >     println("")
   >     let c = a.clone()
-  >     print(c)
+  >     println(c)
   > }
   > EOF
   $ sinterc run lit.sn
@@ -58,13 +58,12 @@
 examples/ok/str_slice.sn 是完整一些的例子（validate.sh 把它导出给 Lean 复核）。
 
   $ cat > csv.sn <<'EOF'
-  > use std.view
   > 
   > fn sum_col(data: &str in r, col: I64) -> I64 {
   >     var total = 0
-  >     for line in view.lines(data) {
-  >         let fields = view.split(line, ",")
-  >         match view.to_i64(view.trim(fields[col])) {
+  >     for line in data.lines() {
+  >         let fields = line.split(",")
+  >         match fields[col].trim().parse_i64() {
   >             .Some(x) => { total = total + x },
   >             .None => {}
   >         }
@@ -79,13 +78,13 @@ examples/ok/str_slice.sn 是完整一些的例子（validate.sh 把它导出给 
   >             s.push("{i}, {i * 2}\n")
   >         }
   >         let data = text(a, s)
-  >         print_i64(sum_col(data, 0))
-  >         print_i64(sum_col(data, 1))
-  >         let ls = view.lines(data)
+  >         println("{sum_col(data, 0)}")
+  >         println("{sum_col(data, 1)}")
+  >         let ls = data.lines()
   >         let first = ls[1]
   >         first.print_str()
-  >         print("")
-  >         print(first.sub(3, first.len()).to_str())
+  >         println("")
+  >         println(first.sub(3, first.len()).to_str())
   >     }
   > }
   > EOF
@@ -101,7 +100,7 @@ examples/ok/str_slice.sn 是完整一些的例子（validate.sh 把它导出给 
   > fn main() {
   >     arena |a| {
   >         let v = text(a, "abc")
-  >         print(v.sub(1, 4).to_str())
+  >         println(v.sub(1, 4).to_str())
   >     }
   > }
   > EOF
@@ -119,7 +118,7 @@ examples/ok/str_slice.sn 是完整一些的例子（validate.sh 把它导出给 
   >             let v = text(b, "abc")
   >             keep.push(v)
   >         }
-  >         print_i64(keep.len())
+  >         println("{keep.len()}")
   >     }
   > }
   > EOF

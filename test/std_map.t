@@ -1,128 +1,95 @@
-标准库 std.map（规格 Lean `Library.Map`）和内建的 vec_swap（Lean `Datatypes.VecSwap`）。Map<K, V> 按键从小到大存成两个 Vec，
-键要实现 Ord；insert 已有键时换掉值并返回旧值，remove 返回去掉的值。vec_swap(inout v, i, j) 交换两个元素，越界时 panic。
+std.map，存成 AVL 树的有序映射（Lean `Library.TreeMap`：中序遍历就是 `Library.Map` 的有序表，插入、删除和 `Library.Map` 一致）。
+查找、插入、删除都是对数时间；值通过闭包拿到：m.get(k, |v| …)、m.for_each(|k, v| …)。
+按升序插入 1023 个键（不平衡的树会退化成链表），AVL 树的高度是 10；删掉偶数键之后键仍然有序：
 
   $ cat > ok.sn <<'EOF'
   > use std.map
-  > use std.option
-  > 
-  > fn show(m: map.Map<Str, I64>) {
-  >     var i = 0
-  >     while i < map.len(m) {
-  >         print(vec_get(m.keys, i))
-  >         print_i64(vec_get(m.vals, i))
-  >         i = i + 1
-  >     }
-  > }
   > 
   > fn main() {
-  >     var m: map.Map<Str, I64> = map.new()
-  >     print_bool(option.is_none(map.insert(m, "pear", 3)))
-  >     let a = map.insert(m, "apple", 1)
-  >     let b = map.insert(m, "fig", 2)
-  >     print_i64(option.unwrap_or(map.insert(m, "fig", 20), 0))
-  >     show(m)
-  >     print_bool(map.contains(m, "fig"))
-  >     print_bool(map.contains(m, "kiwi"))
-  >     match map.index_of(m, "pear") {
-  >         .Some(i) => print_i64(vec_get(m.vals, i)),
-  >         .None => print("没有")
+  >     var m: map.Map<I64, I64> = map.new()
+  >     for i in 0..1023 {
+  >         let o = m.insert(i, i * i)
   >     }
-  >     print_i64(option.unwrap_or(map.remove(m, "apple"), 0))
-  >     print_i64(option.unwrap_or(map.remove(m, "kiwi"), -1))
-  >     print_i64(map.len(m))
-  >     show(m)
-  >     var n: map.Map<I64, Str> = map.new()
-  >     var k = 5
-  >     while k > 0 {
-  >         let c = map.insert(n, k, str_concat("v", str_slice("abcde", k - 1, k)))
-  >         k = k - 1
+  >     println("{m.len()}")
+  >     println("{m.height()}")
+  >     match m.get(64, |v| v + 1) {
+  >         .Some(x) => println("{x}"),
+  >         .None => println("没有")
   >     }
-  >     print(option.unwrap_or(map.insert(n, 3, "C"), "?"))
-  >     for key in n.keys {
-  >         print_i64(key)
+  >     println("{m.contains(1022)}")
+  >     println("{m.contains(1023)}")
+  >     match m.insert(5, 0) {
+  >         .Some(x) => println("{x}"),
+  >         .None => println("新键")
   >     }
-  >     for val in n.vals {
-  >         print(val)
+  >     println("{m.len()}")
+  >     var k = 0
+  >     while k < 1023 {
+  >         let o = m.remove(k)
+  >         k = k + 2
   >     }
-  >     var v: Vec<I64> = vec_new()
-  >     v.push(1)
-  >     v.push(2)
-  >     v.swap(0, 1)
-  >     print_i64(vec_get(v, 0))
+  >     match m.remove(0) {
+  >         .Some(x) => println("{x}"),
+  >         .None => println("已经删掉")
+  >     }
+  >     println("{m.len()}")
+  >     println("{m.height() <= 10}")
+  >     var ok = true
+  >     var prev = -1
+  >     var total = 0
+  >     m.for_each(|key, v| {
+  >         if key <= prev || key % 2 == 0 { ok = false }
+  >         prev = key
+  >         total = total + 1
+  >     })
+  >     println("{ok}")
+  >     println("{total}")
+  >     println("{m.contains(50)}")
+  >     println("{m.contains(51)}")
   > }
   > EOF
   $ sinterc run ok.sn
-  true
-  2
-  apple
-  1
-  fig
-  20
-  pear
-  3
+  1023
+  10
+  4097
   true
   false
-  3
-  1
-  -1
-  2
-  fig
-  20
-  pear
-  3
-  vc
-  1
-  2
-  3
-  4
-  5
-  va
-  vb
-  C
-  vd
-  ve
-  2
+  25
+  1023
+  已经删掉
+  511
+  true
+  true
+  511
+  false
+  true
 
-vec_swap 越界时 panic：
+键和值都可以是 Str（Box 里的值和整棵树在作用域结束时析构，没有泄漏）：
 
-  $ cat > oob.sn <<'EOF'
-  > fn main() {
-  >     var v: Vec<I64> = vec_new()
-  >     v.push(1)
-  >     vec_swap(v, 0, 1)
-  > }
-  > EOF
-  $ sinterc run oob.sn
-  panic: 下标越界
-  [101]
-
-vec_swap 的 v 要能修改：
-
-  $ cat > let.sn <<'EOF'
-  > fn f(v: Vec<I64>) {
-  >     vec_swap(v, 0, 0)
-  > }
-  > fn main() {
-  > }
-  > EOF
-  $ sinterc let.sn
-  let.sn:2:14: 错误：v 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）
-   2 |     vec_swap(v, 0, 0)
-     |              ^
-  [1]
-
-键的类型要实现 Ord：
-
-  $ cat > noord.sn <<'EOF'
+  $ cat > str.sn <<'EOF'
   > use std.map
-  > struct P { x: I64 }
+  > 
   > fn main() {
-  >     var m: map.Map<P, I64> = map.new()
-  >     let o = map.insert(m, P { x: 1 }, 1)
+  >     var m: map.Map<Str, Str> = map.new()
+  >     let o1 = m.insert("pear", "梨")
+  >     let o2 = m.insert("apple", "苹果")
+  >     let o3 = m.insert("fig", "无花果")
+  >     m.for_each(|k, v| println(str_concat(str_concat(k, " "), v)))
+  >     match m.get("fig", |v| str_len(v)) {
+  >         .Some(n) => println("{n}"),
+  >         .None => println("没有")
+  >     }
+  >     match m.remove("apple") {
+  >         .Some(v) => println(v),
+  >         .None => println("没有")
+  >     }
+  >     println("{m.len()}")
   > }
   > EOF
-  $ sinterc noord.sn
-  noord.sn:5:17: 错误：P 没有实现 Ord（map.insert 要求 K: Ord）
-   5 |     let o = map.insert(m, P { x: 1 }, 1)
-     |                 ^
-  [1]
+  $ sinterc run str.sn
+  apple 苹果
+  fig 无花果
+  pear 梨
+  9
+  苹果
+  2

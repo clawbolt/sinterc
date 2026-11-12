@@ -5,6 +5,6 @@ fn eat(sink p: P) -> I64 { p.n }
 fn main() {
     let p = P { a: box(1), n: 2 }
     let a = p.a
-    print_i64(*a)
-    print_i64(eat(p))
+    println("{*a}")
+    println("{eat(p)}")
 }

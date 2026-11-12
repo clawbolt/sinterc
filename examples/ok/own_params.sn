@@ -10,22 +10,22 @@ fn sum(p: P, q: P) -> I64 { *p.a + *q.a }
 
 fn main() {
     var b = box(1)
-    print_i64(get(b))
+    println("{get(b)}")
     reset(b, 5)
-    print_i64(*b)
+    println("{*b}")
     var n = 10
     inc(n)
-    print_i64(n)
+    println("{n}")
     let p = P { a: box(2), n: 3 }
-    print_i64(sum(p, p))
+    println("{sum(p, p)}")
     let a = p.a
-    print_i64(*a + p.n)
+    println("{*a + p.n}")
     var x = P { a: box(8), n: 0 }
     let pa = x.a
-    print_i64(*pa)
+    println("{*pa}")
     x = P { a: box(9), n: 1 }
-    print_i64(*x.a)
+    println("{*x.a}")
     inc(x.n)
-    print_i64(x.n)
-    print_i64(get(box(3)))
+    println("{x.n}")
+    println("{get(box(3))}")
 }

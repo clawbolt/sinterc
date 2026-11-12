@@ -22,6 +22,6 @@ fn main() {
         p.x = p.x + vec_len(v)
     }
     for s in names {
-        print(s)
+        println(s)
     }
 }

@@ -37,11 +37,11 @@
   >     l = push(l, 1)
   >     l = push(l, 2)
   >     l = push(l, 3)
-  >     print_i64(sum(l))
+  >     println("{sum(l)}")
   >     let g = gpush(gpush(.Nil, box(10)), box(20))
-  >     print_i64(glen(g))
+  >     println("{glen(g)}")
   >     let h = gpush(gpush(gpush(.Nil, 1), 2), 3)
-  >     print_i64(glen(h))
+  >     println("{glen(h)}")
   > }
   > EOF
   $ sinterc ok.sn -o ok.c && cc -std=gnu11 -w ok.c -o ok && ./ok

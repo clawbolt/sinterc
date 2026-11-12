@@ -14,12 +14,12 @@ fn main() {
         let o: Option<&I64 in a> = .Some(alloc(a, 1))
         arena |b| {
             var cur: Option<&I64 in b> = .Some(alloc(b, 2))
-            print_i64(get(cur))
+            println("{get(cur)}")
             cur = o
-            print_i64(get(cur))
+            println("{get(cur)}")
             let p = Pair { a: alloc(a, 3), b: alloc(b, 4) }
             let q: Pair<&I64 in b, &I64 in b> = p
-            print_i64(first(q))
+            println("{first(q)}")
         }
     }
 }

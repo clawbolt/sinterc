@@ -5,7 +5,7 @@
 //     arena |a| {
 //         let line = text(a, "x, 42 ,y")
 //         let parts = line.split(",")
-//         print(parts[1].trim().to_str())   // 42
+//         println(parts[1].trim().to_str())   // 42
 //     }
 
 impl &str in r {
