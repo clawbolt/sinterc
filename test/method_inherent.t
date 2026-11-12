@@ -1,5 +1,5 @@
 类型自己的方法（Lean `Traits.Inherent`）。impl 类型 { … } 给一个类型加方法，类型可以是自己的结构体，也可以是内建的
-（I64、Str、Vec<T>、&str in a），还可以是具体的实例（Vec<I64> 和 Vec<F64> 各有一个 sum）。第一个参数是接收者，
+（I64、Str、Vec<T>、&str in a），还可以是具体的实例（Vec<I64> 和 Vec<F64> 各有一个 total）。第一个参数是接收者，
 参数约定照常写；签名里可以用 Self。方法调用按接收者的类型查找，找不到再按原来的规则（内建的方法、trait 的方法、同名函数）。
 
 结构体、I64、Vec 的两个实例、泛型的 Vec<T>（方法可以有 fn(…) 参数）、Str、字符串切片（区域跟着接收者走）：
@@ -17,7 +17,7 @@
   > }
   > 
   > impl Vec<I64> {
-  >     fn sum(v: Vec<I64>) -> I64 {
+  >     fn total(v: Vec<I64>) -> I64 {
   >         var s = 0
   >         for x in v { s = s + x }
   >         s
@@ -25,7 +25,7 @@
   > }
   > 
   > impl Vec<F64> {
-  >     fn sum(v: Vec<F64>) -> F64 {
+  >     fn total(v: Vec<F64>) -> F64 {
   >         var s = 0.0
   >         for x in v { s = s + x }
   >         s
@@ -61,11 +61,11 @@
   >     v.push(1)
   >     v.push(2)
   >     v.push(3)
-  >     print_i64(v.sum())
+  >     print_i64(v.total())
   >     var w: Vec<F64> = vec_new()
   >     w.push(1.5)
   >     w.push(2.0)
-  >     print_f64(w.sum())
+  >     print_f64(w.total())
   >     print_i64(v.size())
   >     print_i64(v.count_if(|x| x > 1))
   >     let s = "hi"

@@ -39,7 +39,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 | `bin/main.ml` | 命令行：`run`、`build`、`fmt`、`--emit=core`、`--batch` |
 | `src/` | 编译器本身，见下面的编译流程 |
 | `runtime/` | C 运行时：`sinter.h`（分配计数、字符串、切片、Vec 的宏、入口）放在生成的 C 文件开头，`sinter_lib.h`（I/O、解析、`std.os`，用到 `Option<Str>` 等内建实例类型）放在类型定义之后 |
-| `std/` | 标准库（Sinter 写的，构建时由 `gen/embed.ml` 编进编译器） |
+| `std/` | 标准库（Sinter 写的，构建时由 `gen/embed.ml` 编进编译器）；`std/core/` 是预导入的核心部分 |
 | `test/` | 端到端测试，一个文件一个主题，文件名前缀是主题：`own_` 所有权、`region_` 区域、`str_` 字符串、`io_` 输入输出、`std_` 标准库，等等 |
 | `examples/ok`、`examples/bad` | 翻译验证用的程序：`ok` 的每个函数都要被 Lean 接受，`bad` 的要被 Lean 独立拒绝 |
 | `examples/tour` | TRY.md 里的一览程序 |
@@ -216,10 +216,26 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 
 ## 标准库
 
-`use std.math` 引入编进编译器的 `std/math.sn`，之后照样写 `math.min(…)`。标准库用 Sinter 写，和用户代码一样检查；
-同一个程序里不能既有自己的 `math.sn` 又用 `std.math`。
+预导入的核心部分 `std/core/*.sn` 每个程序都自动读进来，不用 `use`：pub 的名字直接可见（本文件的定义和 `use` 引入的同名名字优先），
+内建类型的方法到处可用；只有用到的函数输出到 C 里。
 
-- `std.math`（Lean `Library.Math`）：`min`、`max`、`abs`、`sign`、`clamp`、`pow`、`gcd`、`lcm`；trait `Eq`（`eq`）、`Ord`（`cmp`，返回 -1/0/1），I64、Bool、Str 实现了 `Eq`，I64、Str 实现了 `Ord`；
+- `traits`：`Eq`（`a.eq(b)`）、`Ord`（`a.cmp(b)` 返回 `Ordering`：`.Less`、`.Equal`、`.Greater`，方法 `is_lt`、`is_le`、`is_eq`、`is_ne`、`is_gt`、`is_ge`、`reverse`、`to_i64`）、
+  `Hash`（`a.hash()`）；I64、Bool、Char、Str 实现了 `Eq`，I64、Char、Str 实现了 `Ord`，I64、Str 实现了 `Hash`；泛型的 `min(a, b)`、`max(a, b)`。
+- `num`：I64 的 `abs`、`sign`、`min`、`max`、`clamp`、`pow`、`gcd`、`lcm`、`to_f64`；F64 的 `sqrt`、`floor`、`ceil`、`round`、`abs`、`min`、`max`、`is_nan`、`powi`、`to_i64`。
+- `char`：`is_digit`、`is_upper`、`is_lower`、`is_alpha`、`is_alnum`、`is_whitespace`、`to_upper`、`to_lower`、`to_digit`。
+- `option`、`result`：`is_some`、`is_none`、`unwrap_or`、`unwrap`、`expect`、`map`；`is_ok`、`is_err`、`unwrap_or`、`ok`、`unwrap`、`expect`。
+- `str`：`is_empty`、`starts_with`、`ends_with`、`find`（`Option<I64>`）、`find_from`、`contains`、`trim`、`split`、`lines`、`repeat`、
+  `to_upper`、`to_lower`、`replace`、`parse_i64`、`parse_f64`；`Vec<Str>` 的 `join`。
+- `view`（`&str in a`，结果是同一块缓冲区里的切片）：`is_empty`、`find_from`、`contains`、`starts_with`、`ends_with`、`trim`、`trim_cr`、
+  `split`、`lines`、`line_end`、`field`、`parse_i64`。
+- `bytes`：`is_empty`、`decode`（按 UTF-8 解码，`Option<Str>`）。
+- `vec`：`is_empty`、`reverse`、`map`、`filter`、`any`、`all`、`count`、`for_each`、`fold`、`sort_by`；元素实现 `Eq` 时 `contains`、`index_of`、`dedup`，
+  实现 `Ord` 时 `sort`、`binary_search`；`Vec<I64>`、`Vec<F64>` 的 `sum`、`max`、`min`。
+
+`use std.math` 引入编进编译器的 `std/math.sn`，之后照样写 `math.min(…)`。标准库用 Sinter 写，和用户代码一样检查；
+同一个程序里不能既有自己的 `math.sn` 又用 `std.math`。下面这些模块里和核心部分重复的函数会在迁移时去掉。
+
+- `std.math`（Lean `Library.Math`）：`min`、`max`、`abs`、`sign`、`clamp`、`pow`、`gcd`、`lcm`；
   `min_of`、`max_of`（任意 `Ord`）；浮点的 `sqrt floor ceil round fabs fmin fmax is_nan pi powi`。
 - `std.option`：`is_some`、`is_none`、`unwrap_or`、`unwrap`、`expect`。`std.result`：`is_ok`、`is_err`、`unwrap_or`、`ok`、`unwrap`、`expect`（没有值或出错时 panic）。
 - `std.vec`：`sum`、`max`、`min`、`sum_f64`、`range`、`contains`、`index_of`（元素要实现 `Eq`）、`reverse`（`inout`）、`binary_search`（排好序的 Vec，返回第一个匹配的下标）、`dedup`（原地去掉相邻重复）；

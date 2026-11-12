@@ -1,0 +1,169 @@
+// 预导入：Str 的方法。按字节处理（没有 Unicode 的字符边界）；返回的新字符串都是新分配的。
+// len、eq、concat、push、clone、byte、slice、chars、push_char、to_bytes 等还是编译器的内建方法。
+
+impl Str {
+    fn is_empty(s: Str) -> Bool { str_len(s) == 0 }
+
+    fn starts_with(s: Str, p: Str) -> Bool {
+        if str_len(p) > str_len(s) { return false }
+        str_at(s, 0, p)
+    }
+
+    fn ends_with(s: Str, p: Str) -> Bool {
+        let n = str_len(s)
+        let m = str_len(p)
+        if m > n { return false }
+        str_at(s, n - m, p)
+    }
+
+    // p 第一次出现的位置；没有时是 .None。空的 p 出现在 0。
+    fn find(s: Str, p: Str) -> Option<I64> { s.find_from(p, 0) }
+
+    // 从 i 开始找 p（i < 0 时从 0 开始）。
+    fn find_from(s: Str, p: Str, i: I64) -> Option<I64> {
+        let n = str_len(s)
+        let m = str_len(p)
+        var k = if i < 0 { 0 } else { i }
+        while k + m <= n {
+            if str_at(s, k, p) { return .Some(k) }
+            k = k + 1
+        }
+        .None
+    }
+
+    fn contains(s: Str, p: Str) -> Bool { s.find(p).is_some() }
+
+    // 去掉开头和结尾的空格、制表符和换行。
+    fn trim(s: Str) -> Str {
+        var a = 0
+        var b = str_len(s)
+        while a < b && str_space(str_byte(s, a)) { a = a + 1 }
+        while b > a && str_space(str_byte(s, b - 1)) { b = b - 1 }
+        str_slice(s, a, b)
+    }
+
+    // 按 sep 切开；sep 是空串时不切。"a,,b" 按 "," 切成 "a"、""、"b"。
+    fn split(s: Str, sep: Str) -> Vec<Str> {
+        var out: Vec<Str> = vec_new()
+        let n = str_len(s)
+        let m = str_len(sep)
+        var start = 0
+        var i = 0
+        while m > 0 && i + m <= n {
+            if str_at(s, i, sep) {
+                out.push(str_slice(s, start, i))
+                i = i + m
+                start = i
+            } else {
+                i = i + 1
+            }
+        }
+        out.push(str_slice(s, start, n))
+        out
+    }
+
+    // 按换行切开，每行去掉末尾的 \r（Windows 换行）；最后的换行后面不再算一行。
+    fn lines(s: Str) -> Vec<Str> {
+        var out: Vec<Str> = vec_new()
+        let n = str_len(s)
+        var start = 0
+        var i = 0
+        while i < n {
+            if str_byte(s, i) == 10 {
+                out.push(str_line(s, start, i))
+                start = i + 1
+            }
+            i = i + 1
+        }
+        if start < n { out.push(str_line(s, start, n)) }
+        out
+    }
+
+    // s 重复 n 次（n <= 0 时是空串）。
+    fn repeat(s: Str, n: I64) -> Str {
+        var out: Str = ""
+        var i = 0
+        while i < n {
+            out.push(s)
+            i = i + 1
+        }
+        out
+    }
+
+    // 大小写转换：只转换 ASCII 字母，别的字符原样保留。
+    fn to_upper(s: Str) -> Str {
+        var r = ""
+        for c in s.chars() {
+            r.push_char(c.to_upper())
+        }
+        r
+    }
+
+    fn to_lower(s: Str) -> Str {
+        var r = ""
+        for c in s.chars() {
+            r.push_char(c.to_lower())
+        }
+        r
+    }
+
+    // 从左到右把不重叠的 from 换成 to；from 是空串时原样返回。
+    fn replace(s: Str, from: Str, to: Str) -> Str {
+        let n = str_len(s)
+        let m = str_len(from)
+        if m == 0 { return str_clone(s) }
+        var out = ""
+        var start = 0
+        var i = 0
+        while i + m <= n {
+            if str_at(s, i, from) {
+                out.push(str_slice(s, start, i))
+                out.push(to)
+                i = i + m
+                start = i
+            } else {
+                i = i + 1
+            }
+        }
+        out.push(str_slice(s, start, n))
+        out
+    }
+
+    // 十进制整数（可以有一个负号）；格式不对或超出 I64 范围时是 .None。
+    fn parse_i64(s: Str) -> Option<I64> { str_to_i64(s) }
+
+    // 浮点数；格式不对时是 .None。
+    fn parse_f64(s: Str) -> Option<F64> { str_to_f64(s) }
+}
+
+impl Vec<Str> {
+    // 用 sep 把各部分接起来。
+    fn join(parts: Vec<Str>, sep: Str) -> Str {
+        var out: Str = ""
+        var first = true
+        for p in parts {
+            if !first { out.push(sep) }
+            out.push(p)
+            first = false
+        }
+        out
+    }
+}
+
+// s 从 i 开始的几个字节和 p 相同（调用者保证 i + len(p) ≤ len(s)）；逐字节比较，不复制子串
+fn str_at(s: Str, i: I64, p: Str) -> Bool {
+    let m = str_len(p)
+    var k = 0
+    while k < m {
+        if str_byte(s, i + k) != str_byte(p, k) { return false }
+        k = k + 1
+    }
+    true
+}
+
+fn str_space(b: I64) -> Bool { b == 32 || b == 9 || b == 10 || b == 13 }
+
+// [a, b) 去掉末尾的 \r。
+fn str_line(s: Str, a: I64, b: I64) -> Str {
+    if b > a && str_byte(s, b - 1) == 13 { str_slice(s, a, b - 1) } else { str_slice(s, a, b) }
+}

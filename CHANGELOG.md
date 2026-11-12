@@ -22,7 +22,8 @@
   自己的函数可以叫 `cmp`，两个 trait 可以有同名的方法（接收者两个都满足时报错）。**不兼容**：`cmp(a, b)` 这样直接调用
   trait 的方法要改成 `a.cmp(b)`，编译器会提示（C65，Lean M29）。
 - 预导入的核心部分 `std/core/`：每个程序自动读进来，pub 的名字直接可见（本文件的同名定义优先），只输出用到的函数。
-  现有 `traits`（`Eq`、`Ord`、`Hash`、`enum Ordering`、`min`、`max`）、`num`（`I64`、`F64` 的方法）、`char`、`option`、`result`。
+  现有 `traits`（`Eq`、`Ord`、`Hash`、`enum Ordering`、`min`、`max`），以及 `I64`、`F64`、`Char`、`Option`、`Result`、`Str`、
+  `&str in a`、`Bytes`、`Vec<T>` 的方法（`s.trim()`、`v.sort()`、`line.split(",")`…，和旧模块的同名函数结果相同，见 `test/std_core.t`）。
   **不兼容**：`Eq`、`Ord` 从 `std.math`、`Hash` 从 `std.hashmap` 移到核心部分，不再写 `math.Ord`；
   `a.cmp(b)` 返回 `Ordering`（`.Less`、`.Equal`、`.Greater`，有 `is_lt()`、`to_i64()` 等），不再是 -1 / 0 / 1（C66）。
 

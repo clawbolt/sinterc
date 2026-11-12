@@ -1,0 +1,9 @@
+// 预导入：Bytes（任意字节）的方法。len、get、set、push、append、slice、clone、eq 还是编译器的内建方法。
+
+impl Bytes {
+    fn is_empty(b: Bytes) -> Bool { bytes_len(b) == 0 }
+
+    // 按 UTF-8 解码：只在是合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`）。
+    // 不叫 to_str：字符串插值 "{x}" 用 to_str，它要返回 Str。
+    fn decode(b: Bytes) -> Option<Str> { str_from_utf8(b) }
+}
