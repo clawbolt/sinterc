@@ -62,7 +62,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
   模式可以嵌套：`.Some((0, s))`、`Ok(.None)`、`(0, _)`；`match (a, b) { … }` 匹配元组。
   编译器检查每种情况都有分支（没覆盖时报一个例子），也检查有没有永远匹配不到的分支。
   `match let x { … }` 按借用绑定；对 `let` 参数 match 时也按借用。
-- **泛型和 trait**：`fn same<T: math.Eq>(a: T, b: T) -> Bool`，单态化、静态派发。方法调用 `v.push(x)` 等同于 `push(v, x)`。
+- **泛型和 trait**：`fn same<T: Eq>(a: T, b: T) -> Bool`，单态化、静态派发。方法调用 `v.push(x)` 等同于 `push(v, x)`。
   trait 里写了函数体的方法是默认方法，impl 可以不写；impl 可以是泛型的：`impl<T: ToStr> ToStr for Vec<T> { … }`。
 - **闭包**：参数类型写 `fn(T) -> U`，实参写 `|x| e`，可以读外面的变量，也可以改外面的 `var`。
   要存进变量、字段、`Vec` 或者返回，就用 `Fn(T) -> U`：外面的变量按值拿进闭包（`Str` 这类被移走），闭包可以改自己的环境（计数器），
@@ -97,7 +97,7 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 | `std.os` | `env`、`list_dir`（按名字排好）、`exists`、`is_dir`、`make_dir`、`remove`、`run`（启动子进程，不经过 shell，返回退出码）、`output`（收集标准输出）、`exit` |
 | `std.map` | 有序映射（按键排好的两个 Vec，二分查找） |
 | `std.treemap` | 有序映射（AVL 树，对数时间的插入和删除） |
-| `std.hashmap` | 哈希表（开放寻址；键实现 `Eq` 和 `hashmap.Hash`，I64 和 Str 已实现） |
+| `std.hashmap` | 哈希表（开放寻址；键实现 `Eq` 和 `Hash`，I64 和 Str 已实现） |
 | `std.bigint` | 任意大小的整数：`from_i64`、`parse`、`to_str`、`add`、`sub`、`mul`、`pow`、`divmod_small`（除以不超过 10^9 的数），实现了 `Eq`、`Ord` |
 
 排序、二分查找、三种映射（含 AVL 树的平衡）和大整数的核心算法都在 Lean 里证明过（sinter-formal 仓库的 `Core/Library/`）。

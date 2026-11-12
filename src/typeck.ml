@@ -66,6 +66,9 @@ let prepare (p : program) =
         } );
   Queue.clear pending;
   let defined n = Hashtbl.mem struct_tbl n || Hashtbl.mem enum_tbl n || Hashtbl.mem gtypes n in
+  (* 类型参数和已有的类型同名：解析时类型参数优先，这条只防止用户写出看不清的代码；
+     预导入的核心部分不检查，否则用户定义的类型 T、E 会和它的 impl<T> Option<T> 冲突 *)
+  let clash ipos t = defined t && not (Modules.in_core ipos) in
   (* what 不为空：结构体、枚举的类型参数，不能标 linear *)
   let tparams_ok what ipos tps =
     List.iteri
@@ -175,12 +178,12 @@ let prepare (p : program) =
   List.iter
     (function
       | Struct { tparams; ipos; _ } | Enum { tparams; ipos; _ } ->
-          List.iter (fun (t, _) -> if defined t then err ipos "类型参数 %s 和已有的类型同名" t) tparams
+          List.iter (fun (t, _) -> if clash ipos t then err ipos "类型参数 %s 和已有的类型同名" t) tparams
       | Fn { name; tparams; bounds; params; ret; ipos; _ } ->
           tparams_ok "" ipos tparams;
           List.iter
             (fun (t, _) ->
-              if defined t then err ipos "类型参数 %s 和已有的类型同名" t;
+              if clash ipos t then err ipos "类型参数 %s 和已有的类型同名" t;
               if t = "Self" then err ipos "Self 不能用作类型参数的名字")
             tparams;
           List.iter (fun (_, tr) -> if not (Hashtbl.mem traits tr) then err ipos "未知 trait %s" tr) bounds;
@@ -218,7 +221,7 @@ let prepare (p : program) =
           tparams_ok "" ipos tparams;
           List.iter
             (fun (t, _) ->
-              if defined t then err ipos "类型参数 %s 和已有的类型同名" t;
+              if clash ipos t then err ipos "类型参数 %s 和已有的类型同名" t;
               if t = "Self" then err ipos "Self 不能用作类型参数的名字")
             tparams;
           List.iter (fun (_, b) -> if not (Hashtbl.mem traits b) then err ipos "未知 trait %s" b) bounds;

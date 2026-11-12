@@ -1,52 +1,4 @@
-// std.math：整数的常用函数，以及比较用的两个 trait。
-// trait 的方法只能用方法调用的写法：a.eq(b)、a.cmp(b)，用户自己的 fn cmp 不会和它冲突。
-
-pub trait Eq {
-    fn eq(a: Self, b: Self) -> Bool
-}
-
-// a.cmp(b)：a < b 时是 -1，相等时是 0，a > b 时是 1。
-// 自己写 impl Ord 时要满足这几条定律（编译器不检查；min_of、max_of 的正确性只依赖它们，见 lean/Core/Library/Math.lean）：
-//   只取 -1、0、1；cmp(b, a) == -cmp(a, b)；cmp(a, b) == 0 恰好是 a、b 相等（和 Eq 一致）；
-//   cmp(a, b) == -1 且 cmp(b, c) == -1 时 cmp(a, c) == -1。I64 和 Str 的实现已经证明满足。
-pub trait Ord {
-    fn cmp(a: Self, b: Self) -> I64
-}
-
-impl Eq for I64 {
-    fn eq(a: I64, b: I64) -> Bool { a == b }
-}
-
-impl Eq for Bool {
-    fn eq(a: Bool, b: Bool) -> Bool { a == b }
-}
-
-impl Eq for Str {
-    fn eq(a: Str, b: Str) -> Bool { str_eq(a, b) }
-}
-
-impl Ord for I64 {
-    fn cmp(a: I64, b: I64) -> I64 {
-        if a < b { -1 } else if a > b { 1 } else { 0 }
-    }
-}
-
-// 按字节的字典序。
-impl Ord for Str {
-    fn cmp(a: Str, b: Str) -> I64 {
-        let n = str_len(a)
-        let m = str_len(b)
-        var i = 0
-        while i < n && i < m {
-            let x = str_byte(a, i)
-            let y = str_byte(b, i)
-            if x < y { return -1 }
-            if x > y { return 1 }
-            i = i + 1
-        }
-        if n < m { -1 } else if n > m { 1 } else { 0 }
-    }
-}
+// std.math：整数和 F64 的常用函数。比较用的 Eq、Ord 在预导入的核心部分。
 
 pub fn min(a: I64, b: I64) -> I64 { if a < b { a } else { b } }
 
@@ -73,11 +25,11 @@ pub fn pow(b: I64, e: I64) -> I64 {
 
 // 两个值里较小的（相等时取第一个），另一个被析构。
 pub fn min_of<T: Ord>(sink a: T, sink b: T) -> T {
-    if a.cmp(b) <= 0 { a } else { b }
+    if a.cmp(b).is_le() { a } else { b }
 }
 
 pub fn max_of<T: Ord>(sink a: T, sink b: T) -> T {
-    if a.cmp(b) >= 0 { a } else { b }
+    if a.cmp(b).is_ge() { a } else { b }
 }
 
 // F64。按 IEEE 754：溢出得到 inf，0.0 / 0.0 得到 NaN；NaN 和任何数比较（包括自己）都不相等。

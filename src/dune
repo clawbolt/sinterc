@@ -10,7 +10,8 @@
 (rule
  (targets stdlib_src.ml)
  (deps
-  (glob_files %{project_root}/std/*.sn))
+  (glob_files %{project_root}/std/*.sn)
+  (glob_files %{project_root}/std/core/*.sn))
  (action
   (with-stdout-to
    stdlib_src.ml

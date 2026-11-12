@@ -1,37 +1,9 @@
-// std.hashmap：开放寻址的哈希表（Lean `Library.HashMap`）。键要实现 math.Eq 和这里的 Hash。
+// std.hashmap：开放寻址的哈希表（Lean `Library.HashMap`）。键要实现 Eq 和 Hash（都在预导入的核心部分）。
 // 键、值紧凑地存在 keys、vals 里（按插入顺序，删除时最后一个元素换到被删的位置）；
 // slots 是槽位表，每个槽位是 -1（空）或 keys 里的下标，长度 2 * cap。
-// 键的起始位置是 hash(k) % cap，线性探测不绕回；元素个数超过 3/4 cap 时容量翻倍，
+// 键的起始位置是 k.hash() % cap，线性探测不绕回；元素个数超过 3/4 cap 时容量翻倍，
 // 所以探测最远到 cap - 1 + n，走不出槽位表。删除用后移回填，不需要墓碑。
 // 插入、查找、删除平均 O(1)。
-
-use std.math
-
-// hash(a) 要是非负数，并且相等的键（eq 为真）哈希值相同。
-pub trait Hash {
-    fn hash(a: Self) -> I64
-}
-
-// 2147483647 = 2^31 - 1；乘 48271 再取模（Lehmer）把相邻的数打散。中间结果小于 2^47，不会溢出。
-impl Hash for I64 {
-    fn hash(a: I64) -> I64 {
-        var y = a % 2147483647
-        if y < 0 { y = y + 2147483647 }
-        y * 48271 % 2147483647
-    }
-}
-
-impl Hash for Str {
-    fn hash(a: Str) -> I64 {
-        var h = 0
-        var i = 0
-        while i < str_len(a) {
-            h = (h * 31 + str_byte(a, i)) % 2147483647
-            i = i + 1
-        }
-        h * 48271 % 2147483647
-    }
-}
 
 pub struct HashMap<K, V> { keys: Vec<K>, vals: Vec<V>, slots: Vec<I64>, cap: I64 }
 
@@ -57,7 +29,7 @@ pub fn new<K, V>() -> HashMap<K, V> {
 pub fn len<K, V>(m: HashMap<K, V>) -> I64 { vec_len(m.keys) }
 
 // 从 hash(k) % cap 往后第一个空位或 k 所在的槽位（`Library.HashMap` 的 slot）。
-fn find_slot<K: math.Eq + Hash, V>(m: HashMap<K, V>, k: K) -> I64 {
+fn find_slot<K: Eq + Hash, V>(m: HashMap<K, V>, k: K) -> I64 {
     var p = k.hash() % m.cap
     var go = true
     while go {
@@ -74,22 +46,22 @@ fn find_slot<K: math.Eq + Hash, V>(m: HashMap<K, V>, k: K) -> I64 {
 }
 
 // k 在 keys 里的下标；没有时是 -1（`Library.HashMap` 的 lookup）。
-fn entry<K: math.Eq + Hash, V>(m: HashMap<K, V>, k: K) -> I64 {
+fn entry<K: Eq + Hash, V>(m: HashMap<K, V>, k: K) -> I64 {
     vec_get(m.slots, find_slot(m, k))
 }
 
-pub fn contains<K: math.Eq + Hash, V>(m: HashMap<K, V>, k: K) -> Bool {
+pub fn contains<K: Eq + Hash, V>(m: HashMap<K, V>, k: K) -> Bool {
     entry(m, k) != -1
 }
 
 // 有键 k 时把它的值交给 f，返回 f 的结果；没有时是 .None。
-pub fn get<K: math.Eq + Hash, V, R>(m: HashMap<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
+pub fn get<K: Eq + Hash, V, R>(m: HashMap<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
     let e = entry(m, k)
     if e == -1 { .None } else { .Some(f(vec_get(m.vals, e))) }
 }
 
 // 容量翻倍，按 keys 的顺序重新放进槽位表（键各不相同，只需找空位）。
-fn grow<K: math.Eq + Hash, V>(inout m: HashMap<K, V>) {
+fn grow<K: Eq + Hash, V>(inout m: HashMap<K, V>) {
     m.cap = m.cap * 2
     m.slots = empty_slots(2 * m.cap)
     for i in 0..vec_len(m.keys) {
@@ -102,7 +74,7 @@ fn grow<K: math.Eq + Hash, V>(inout m: HashMap<K, V>) {
 }
 
 // 放进 (k, v)。已有键 k 时换掉它的值并返回旧值（这时 k 被析构，保留原来的键）；否则返回 .None。
-pub fn insert<K: math.Eq + Hash, V>(inout m: HashMap<K, V>, sink k: K, sink v: V) -> Option<V> {
+pub fn insert<K: Eq + Hash, V>(inout m: HashMap<K, V>, sink k: K, sink v: V) -> Option<V> {
     let p = find_slot(m, k)
     let e = vec_get(m.slots, p)
     if e != -1 {
@@ -118,7 +90,7 @@ pub fn insert<K: math.Eq + Hash, V>(inout m: HashMap<K, V>, sink k: K, sink v: V
 }
 
 // 去掉键 k，返回它的值；没有这个键时返回 .None。
-pub fn remove<K: math.Eq + Hash, V>(inout m: HashMap<K, V>, k: K) -> Option<V> {
+pub fn remove<K: Eq + Hash, V>(inout m: HashMap<K, V>, k: K) -> Option<V> {
     let p = find_slot(m, k)
     let e = vec_get(m.slots, p)
     if e == -1 { return .None }

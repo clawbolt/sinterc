@@ -1,4 +1,4 @@
-// std.map：按键从小到大排好的映射 Map<K, V>。键要实现 std.math 的 Ord（满足它的四条定律）。
+// std.map：按键从小到大排好的映射 Map<K, V>。键要实现 预导入的 Ord（满足它的四条定律）。
 // 规格见 lean/Core/Library/Map.lean：插入、删除之后键仍严格递增（没有重复的键，遍历按键的顺序），
 // 插入后查得到刚放进的值，删除后查不到，别的键不受影响。
 // 存成两个一样长的 Vec：keys[i] 对应 vals[i]。可以读 m.keys、m.vals（例如 for k in m.keys、vec_get(m.vals, i)），
@@ -17,26 +17,26 @@ pub fn len<K, V>(m: Map<K, V>) -> I64 { vec_len(m.keys) }
 
 // 第一个不小于 k 的键的下标；没有时是 len(m)。二分查找：lo 之前的键都小于 k，hi 开始的都不小于 k，
 // 和原来从头往后找的结果相同（lean/Core/Library/MapSearch.lean 的 bs_eq_lin）。
-fn lower<K: math.Ord, V>(m: Map<K, V>, k: K) -> I64 {
+fn lower<K: Ord, V>(m: Map<K, V>, k: K) -> I64 {
     var lo = 0
     var hi = vec_len(m.keys)
     while lo < hi {
         let mid = lo + (hi - lo) / 2
-        if vec_get(m.keys, mid).cmp(k) == -1 { lo = mid + 1 } else { hi = mid }
+        if vec_get(m.keys, mid).cmp(k).is_lt() { lo = mid + 1 } else { hi = mid }
     }
     lo
 }
 
 // 键 k 的下标；没有时是 .None。取值写 vec_get(m.vals, i)。
-pub fn index_of<K: math.Ord, V>(m: Map<K, V>, k: K) -> Option<I64> {
+pub fn index_of<K: Ord, V>(m: Map<K, V>, k: K) -> Option<I64> {
     let i = lower(m, k)
     if i < vec_len(m.keys) {
-        if vec_get(m.keys, i).cmp(k) == 0 { return .Some(i) }
+        if vec_get(m.keys, i).cmp(k).is_eq() { return .Some(i) }
     }
     .None
 }
 
-pub fn contains<K: math.Ord, V>(m: Map<K, V>, k: K) -> Bool {
+pub fn contains<K: Ord, V>(m: Map<K, V>, k: K) -> Bool {
     match index_of(m, k) {
         .Some(i) => true,
         .None => false
@@ -44,11 +44,11 @@ pub fn contains<K: math.Ord, V>(m: Map<K, V>, k: K) -> Bool {
 }
 
 // 放进 (k, v)。已有键 k 时换掉它的值并返回旧值（这时 k 被析构，保留原来的键）；否则返回 .None。
-pub fn insert<K: math.Ord, V>(inout m: Map<K, V>, sink k: K, sink v: V) -> Option<V> {
+pub fn insert<K: Ord, V>(inout m: Map<K, V>, sink k: K, sink v: V) -> Option<V> {
     let i = lower(m, k)
     let n = vec_len(m.keys)
     if i < n {
-        if vec_get(m.keys, i).cmp(k) == 0 {
+        if vec_get(m.keys, i).cmp(k).is_eq() {
             // 新值放到末尾，和旧值交换，再把旧值 pop 出来
             m.vals.push(v)
             vec_swap(m.vals, i, n)
@@ -68,7 +68,7 @@ pub fn insert<K: math.Ord, V>(inout m: Map<K, V>, sink k: K, sink v: V) -> Optio
 }
 
 // 去掉键 k，返回它的值；没有这个键时返回 .None。
-pub fn remove<K: math.Ord, V>(inout m: Map<K, V>, k: K) -> Option<V> {
+pub fn remove<K: Ord, V>(inout m: Map<K, V>, k: K) -> Option<V> {
     match index_of(m, k) {
         .Some(i) => {
             // 逐个往后换到末尾，再 pop 出来

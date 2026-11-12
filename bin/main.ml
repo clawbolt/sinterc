@@ -69,8 +69,24 @@ let snippet path line col =
       Printf.eprintf " %s | %s\n%s | %s^\n" num text gutter (caret_pad text col)
   | _ -> ()
 
+(* 核心部分的名字在编译器里带前缀 core.（Modules.core），报错时按用户写的样子显示：core.Ord 显示成 Ord。 *)
+let unprefix_core msg =
+  let p = Modules.core ^ "." in
+  let n = String.length p and b = Buffer.create (String.length msg) in
+  let ident c = match c with 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '.' -> true | _ -> false in
+  let i = ref 0 in
+  while !i < String.length msg do
+    if !i + n <= String.length msg && String.sub msg !i n = p && (!i = 0 || not (ident msg.[!i - 1])) then i := !i + n
+    else begin
+      Buffer.add_char b msg.[!i];
+      incr i
+    end
+  done;
+  Buffer.contents b
+
 (* 位置可能在引入的模块里：换回那个文件的名字和行号。 *)
 let report file (pos : Ast.pos) msg =
+  let msg = unprefix_core msg in
   let file, line = Ast.locate file pos in
   Printf.eprintf "%s:%d:%d: %s%s\n" file line pos.col (I18n.pick "错误：" "error: ") (I18n.msg msg);
   if not (whole_program msg) then snippet file line pos.col
@@ -179,6 +195,28 @@ let fmt_main argv =
   exit 0
 
 type mode = Emit | Build | Run
+
+(* 核心部分（预导入）的函数都经过了检查，但只输出用到的：从其他函数出发沿着调用（包括闭包包装里的函数）能走到的。
+   其他函数照旧全部输出。 *)
+let used_core (fs : (Mir.func * bool) list) =
+  let by = Hashtbl.create 64 and seen = Hashtbl.create 64 in
+  List.iter (fun ((f : Mir.func), _) -> Hashtbl.replace by f.name f) fs;
+  let rec visit (f : Mir.func) =
+    if not (Hashtbl.mem seen f.name) then begin
+      Hashtbl.replace seen f.name ();
+      Array.iter
+        (fun (b : Mir.block) ->
+          List.iter (function Mir.Assign (_, Mir.Call (n, _)) | Mir.Eval (Mir.Call (n, _)) -> callee n | _ -> ()) b.stmts)
+        f.blocks
+    end
+  and callee n =
+    Option.iter visit (Hashtbl.find_opt by n);
+    match Hashtbl.find_opt Typeck.packs n with
+    | Some ((c : Typeck.closure), _) -> Option.iter visit (Hashtbl.find_opt by c.cname)
+    | None -> ()
+  in
+  List.iter (fun (f, from_core) -> if not from_core then visit f) fs;
+  List.filter_map (fun ((f : Mir.func), _) -> if Hashtbl.mem seen f.name then Some f else None) fs
 
 let () =
   let file = ref None and out = ref None and core = ref false and unchecked = ref false
@@ -309,11 +347,12 @@ let () =
       let fs =
         List.concat_map
           (fun it ->
+            let from_core = match it with Ast.Fn { ipos; _ } -> Modules.in_core ipos | _ -> false in
             try
               List.map
                 (fun f ->
                   let f = Own.elaborate ~check f in
-                  if check then Borrow.check f else f)
+                  ((if check then Borrow.check f else f), from_core))
                 (Mir.lower [ it ])
             with Typeck.Error (pos, msg) ->
               errs := (pos, msg) :: !errs;
@@ -321,7 +360,7 @@ let () =
           prog
       in
       if !errs <> [] then fail_many file !errs;
-      (prog, List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) fs)
+      (prog, List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) (used_core fs))
     with
     | Typeck.Error (pos, msg) -> fail file pos msg
     | Typeck.Errors errs -> fail_many file errs

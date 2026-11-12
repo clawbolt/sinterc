@@ -30,6 +30,17 @@ let prefixed m x = if m = "" then x else m ^ "." ^ x
 (* use 写的名字 → 模块名：std.math 就是 math。 *)
 let alias m = match String.rindex_opt m '.' with Some i -> String.sub m (i + 1) (String.length m - i - 1) | None -> m
 
+(* 预导入的核心部分：std/core/*.sn 每个程序都自动读进来，它们的条目加前缀 core.（几个文件共用这一个前缀），
+   pub 的名字在每个文件里直接可见（本文件的定义和 use 引入的同名名字优先）。 *)
+let core = "core"
+
+let is_core_file name = String.length name > 5 && String.sub name 0 5 = "core/"
+
+(* 这个位置在核心部分的文件里吗（用来去掉没有用到的核心函数）。 *)
+let in_core (p : pos) =
+  let i = file_of p in
+  i > 0 && i < Array.length !files && is_core_file (String.sub !files.(i) 4 (max 0 (String.length !files.(i) - 4)))
+
 (* 读一个文件（text 给出时读标准库里编进来的源码）：第 index 个文件的行号从 index * line_base + 1 开始。 *)
 let parse_file ?text path index =
   Lexer.depth := 0;
@@ -65,8 +76,11 @@ let parse_file ?text path index =
 (* 改名：模块 me 里出现的名字换成合并后的名字。 *)
 let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
   let imported = List.map (fun (m, _, _) -> alias m) me.src.uses in
-  (* 直接可见的名字 → 合并后的名字 *)
+  (* 直接可见的名字 → 合并后的名字：先是预导入的（核心部分的 pub 名字），本文件的定义和 use 引入的名字盖过它们 *)
   let names : (string, string) Hashtbl.t = Hashtbl.create 16 in
+  Hashtbl.iter
+    (fun _ mi -> if mi.modname = core then Hashtbl.iter (fun x () -> Hashtbl.replace names x (prefixed core x)) mi.pubs)
+    mods;
   Hashtbl.iter (fun x () -> Hashtbl.replace names x (prefixed me.modname x)) me.defs;
   let target pos m x =
     let mi = Hashtbl.find mods m in
@@ -312,7 +326,7 @@ let load (main : string) : program =
                 if pub then Hashtbl.replace pubs x ()
             | None -> if pub then err (item_pos it) "impl 不用写 pub（实现跟着 trait 和类型，到处可见）")
           src.items;
-        let mi = { modname = name; index; src; pubs; defs } in
+        let mi = { modname = (if is_core_file name then core else name); index; src; pubs; defs } in
         Hashtbl.replace mods name mi;
         let dir = Filename.dirname path in
         List.iter
@@ -326,14 +340,19 @@ let load (main : string) : program =
               match List.assoc_opt a Stdlib_src.files with
               | Some src -> visit a ("std/" ^ a ^ ".sn") (Some src) upos
               | None ->
-                  err upos "标准库里没有模块 %s（有：%s）" a (String.concat "、" (List.map fst Stdlib_src.files))
+                  err upos "标准库里没有模块 %s（有：%s）" a
+                    (String.concat "、" (List.filter_map (fun (n, _) -> if is_core_file n then None else Some n) Stdlib_src.files))
             end
             else visit m (if dir = Filename.current_dir_name then m ^ ".sn" else Filename.concat dir (m ^ ".sn")) None upos)
           src.uses;
         order := mi :: !order
   in
   visit "" main None { line = 1; col = 1 };
-  (* 被引入的模块排在前面，主文件最后；最前面是元组：内建的泛型结构体 Tuple#n<A0, …>，字段 0、1、… *)
+  (* 核心部分：每个程序都读进来 *)
+  List.iter
+    (fun (n, src) -> if is_core_file n then visit n ("std/" ^ n ^ ".sn") (Some src) { line = 1; col = 1 })
+    Stdlib_src.files;
+  (* 核心部分在最前面，然后是被引入的模块，主文件最后；再往前是元组：内建的泛型结构体 Tuple#n<A0, …>，字段 0、1、… *)
   let tuple n =
     let ps = List.init n (fun i -> "A" ^ string_of_int i) in
     Struct
@@ -345,4 +364,5 @@ let load (main : string) : program =
         ipos = { line = 1; col = 1 };
       }
   in
-  List.init (max_tuple - 1) (fun i -> tuple (i + 2)) @ List.concat_map (rename mods) (List.rev !order)
+  let cores, others = List.partition (fun mi -> mi.modname = core) (List.rev !order) in
+  List.init (max_tuple - 1) (fun i -> tuple (i + 2)) @ List.concat_map (rename mods) (cores @ others)

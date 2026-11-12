@@ -303,10 +303,16 @@ and method_name env (x : expr) f (r : expr) =
 
 (* 落到 trait 的方法（Lean `Traits.Inherent` 的 resolve_tra）：声明了方法 base、接收者类型 t 满足的 trait 恰好一个。
    一个都不满足时：有同名的函数就用它（旧的写法 r.f(…) 就是 f(r, …)），只有一个 trait 有这个方法就用它（调用处报缺 impl），
-   否则当作函数 m（报未定义）。 *)
+   否则当作函数 m（报未定义）。
+   预导入的 trait（核心部分的 Eq、Ord、Hash）和用户自己的 trait 都有这个方法时，用户的优先，同预导入的名字。 *)
 and trait_method env (x : expr) t base m =
-  let cands = List.rev (Hashtbl.find_all tmethods base) in
-  match List.filter (fun (tr, _) -> has_impl env.tbounds tr t) cands with
+  let user l =
+    let pre = Modules.core ^ "." in
+    let mine = List.filter (fun (tr, _) -> not (String.starts_with ~prefix:pre tr)) l in
+    if mine <> [] then mine else l
+  in
+  let cands = user (List.rev (Hashtbl.find_all tmethods base)) in
+  match user (List.filter (fun (tr, _) -> has_impl env.tbounds tr t) (List.rev (Hashtbl.find_all tmethods base))) with
   | [ (_, k) ] -> k
   | (a, _) :: (b, _) :: _ ->
       err x.pos "%s 的方法 %s 不确定：trait %s 和 %s 都有这个方法，%s 两个都满足" (string_of_ty t) base a b (string_of_ty t)

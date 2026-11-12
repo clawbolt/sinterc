@@ -1,0 +1,44 @@
+// 预导入：Option<T> 的方法。
+
+impl<T> Option<T> {
+    fn is_some(o: Option<T>) -> Bool {
+        match let o {
+            .Some(x) => true,
+            .None => false
+        }
+    }
+
+    fn is_none(o: Option<T>) -> Bool { !o.is_some() }
+
+    // 有值时取出值（d 被析构），没有时用 d。
+    fn unwrap_or(sink o: Option<T>, sink d: T) -> T {
+        match o {
+            .Some(x) => x,
+            .None => d
+        }
+    }
+
+    // 有值时取出值；.None 时 panic（程序结束）。
+    fn unwrap(sink o: Option<T>) -> T {
+        match o {
+            .Some(x) => x,
+            .None => panic("unwrap 了一个 .None")
+        }
+    }
+
+    // 和 unwrap 一样，.None 时 panic 的说明是 msg。
+    fn expect(sink o: Option<T>, msg: Str) -> T {
+        match o {
+            .Some(x) => x,
+            .None => panic(msg)
+        }
+    }
+
+    // 有值时是 .Some(f(值))。
+    fn map<U>(sink o: Option<T>, f: fn(T) -> U) -> Option<U> {
+        match o {
+            .Some(x) => .Some(f(x)),
+            .None => .None
+        }
+    }
+}

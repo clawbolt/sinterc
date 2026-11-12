@@ -1,0 +1,80 @@
+// 预导入：I64、F64 的方法。
+// F64 按 IEEE 754：溢出得到 inf，0.0 / 0.0 得到 NaN；NaN 和任何数比较（包括自己）都不相等。
+
+impl I64 {
+    // 最小的 I64 没有相反数，abs 会因为溢出而 panic。
+    fn abs(n: I64) -> I64 { if n < 0 { -n } else { n } }
+
+    fn sign(n: I64) -> I64 { if n < 0 { -1 } else if n > 0 { 1 } else { 0 } }
+
+    fn min(a: I64, b: I64) -> I64 { if a < b { a } else { b } }
+
+    fn max(a: I64, b: I64) -> I64 { if a > b { a } else { b } }
+
+    // 把 x 限制在 [lo, hi] 里（要求 lo <= hi）。
+    fn clamp(x: I64, lo: I64, hi: I64) -> I64 { lo.max(x.min(hi)) }
+
+    // b 的 e 次方（e < 0 时是 1）；溢出时 panic。
+    fn pow(b: I64, e: I64) -> I64 {
+        var r = 1
+        var i = 0
+        while i < e {
+            r = r * b
+            i = i + 1
+        }
+        r
+    }
+
+    // 最大公约数：总是非负，0.gcd(0) 是 0。
+    fn gcd(a: I64, b: I64) -> I64 {
+        var x = a.abs()
+        var y = b.abs()
+        while y != 0 {
+            let t = x % y
+            x = y
+            y = t
+        }
+        x
+    }
+
+    // 最小公倍数：总是非负，有一个是 0 时是 0。
+    fn lcm(a: I64, b: I64) -> I64 {
+        if a == 0 || b == 0 { 0 } else { (a / a.gcd(b) * b).abs() }
+    }
+
+    fn to_f64(n: I64) -> F64 { to_f64(n) }
+}
+
+impl F64 {
+    fn sqrt(x: F64) -> F64 { f64_sqrt(x) }
+
+    fn floor(x: F64) -> F64 { f64_floor(x) }
+
+    fn ceil(x: F64) -> F64 { f64_ceil(x) }
+
+    // 四舍五入，正好在中间时远离 0（2.5 是 3.0，-2.5 是 -3.0）。
+    fn round(x: F64) -> F64 { f64_round(x) }
+
+    fn abs(x: F64) -> F64 { if x < 0.0 { -x } else { x } }
+
+    fn min(a: F64, b: F64) -> F64 { if a < b { a } else { b } }
+
+    fn max(a: F64, b: F64) -> F64 { if a > b { a } else { b } }
+
+    fn is_nan(x: F64) -> Bool { f64_is_nan(x) }
+
+    // b 的 e 次方（e 是整数，可以是负数）。
+    fn powi(b: F64, e: I64) -> F64 {
+        var r = 1.0
+        var i = 0
+        let n = e.abs()
+        while i < n {
+            r = r * b
+            i = i + 1
+        }
+        if e < 0 { 1.0 / r } else { r }
+    }
+
+    // 向 0 取整；NaN 和超出 I64 范围的数 panic。
+    fn to_i64(x: F64) -> I64 { to_i64(x) }
+}

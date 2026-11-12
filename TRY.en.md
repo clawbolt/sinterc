@@ -75,7 +75,7 @@ The C compiler is taken from `$CC` (default: `cc`).
   `true`/`false`. Patterns nest: `.Some((0, s))`, `Ok(.None)`, `(0, _)`; `match (a, b) { … }` matches tuples.
   The compiler checks that every case is covered (or reports an example that isn't) and that no arm is
   unreachable. `match let x { … }` binds by borrowing; so does matching on a `let` parameter.
-- **Generics and traits**: `fn same<T: math.Eq>(a: T, b: T) -> Bool`, monomorphised, statically dispatched.
+- **Generics and traits**: `fn same<T: Eq>(a: T, b: T) -> Bool`, monomorphised, statically dispatched.
   Method syntax `v.push(x)` means `push(v, x)`. A trait method with a body is a default method that an impl may
   omit; impls can be generic: `impl<T: ToStr> ToStr for Vec<T> { … }`.
 - **Closures**: a parameter of type `fn(T) -> U` takes a closure `|x| e`, which can read outer variables and modify
@@ -116,7 +116,7 @@ Import a module with `use std.name` and call it as `name.function(…)`. The sou
 | `std.os` | `env`, `list_dir` (sorted by name), `exists`, `is_dir`, `make_dir`, `remove`, `run` (starts a process without a shell and returns its exit code), `output` (also collects its standard output), `exit` |
 | `std.map` | ordered map (two sorted Vecs, binary search) |
 | `std.treemap` | ordered map (AVL tree, logarithmic insert and remove) |
-| `std.hashmap` | hash map (open addressing; keys implement `Eq` and `hashmap.Hash`; I64 and Str already do) |
+| `std.hashmap` | hash map (open addressing; keys implement `Eq` and `Hash`; I64 and Str already do) |
 | `std.bigint` | arbitrary-size integers: `from_i64`, `parse`, `to_str`, `add`, `sub`, `mul`, `pow`, `divmod_small` (division by a number up to 10^9); implements `Eq` and `Ord` |
 
 The core algorithms of sorting, binary search, the three maps (including AVL balance) and big integers are proved in Lean (`Core/Library/` in the sinter-formal repository).

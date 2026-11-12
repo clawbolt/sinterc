@@ -77,7 +77,7 @@ std.bigint（Lean `Library.BigInt`）。符号加上从低位到高位的各位�
   >         if !str_eq(bigint.to_str(bigint.add(x, y)), str_from_i64(a + b)) { bad = bad + 1 }
   >         if !str_eq(bigint.to_str(bigint.sub(x, y)), str_from_i64(a - b)) { bad = bad + 1 }
   >         if !str_eq(bigint.to_str(bigint.mul(x, y)), str_from_i64(a * b)) { bad = bad + 1 }
-  >         if x.cmp(y) != a.cmp(b) { bad = bad + 1 }
+  >         if x.cmp(y).to_i64() != a.cmp(b).to_i64() { bad = bad + 1 }
   >         let (dq, dr) = bigint.divmod_small(x, 7)
   >         if !str_eq(bigint.to_str(dq), str_from_i64(a / 7)) || dr != a % 7 { bad = bad + 1 }
   >         let p = bigint.parse(str_from_i64(b))

@@ -1,4 +1,4 @@
-std.hashmap（Lean `Library.HashMap`）。开放寻址、线性探测不绕回、删除时后移回填；键实现 math.Eq 和 hashmap.Hash。
+std.hashmap（Lean `Library.HashMap`）。开放寻址、线性探测不绕回、删除时后移回填；键实现 Eq 和 Hash。
 `Library.HashMap` 证明了查找、插入、删除（后移回填）保持不变式，查找结果和表里的内容一致。
 
   $ cat > ok.sn <<'EOF'

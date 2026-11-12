@@ -2,7 +2,7 @@
 // 各位的加、减、乘、比较、除以小数和 `Library.BigInt` 的 addL、subL、mul1 / mulL、cmpL、divS 一一对应，结果都经过 make
 // （`Library.BigInt` 的 norm：去掉高位的 0，值是 0 时符号取正），所以每个数只有一种写法。
 // 一位乘一位再加进位不超过 10^18，I64 不会溢出；除以小数时余数乘 10^9 再加一位也不超过 10^18。
-// 实现了 math.Eq 和 math.Ord，可以用 eq、cmp，也可以用 vec.sort 排序。转成字符串用 bigint.to_str(x)。
+// 实现了 Eq 和 Ord，可以用 a.eq(b)、a.cmp(b)，也可以用 vec.sort 排序。转成字符串用 bigint.to_str(x)。
 
 use std.math
 
@@ -230,19 +230,19 @@ pub fn parse(s: Str) -> Option<BigInt> {
 }
 
 // 0 只有一种写法，所以相等就是符号和各位都相同
-impl math.Eq for BigInt {
+impl Eq for BigInt {
     fn eq(a: BigInt, b: BigInt) -> Bool { a.neg == b.neg && cmp_mag(a.mag, b.mag) == 0 }
 }
 
 // 先比符号；同号时比各位，负数时反过来
-impl math.Ord for BigInt {
-    fn cmp(a: BigInt, b: BigInt) -> I64 {
+impl Ord for BigInt {
+    fn cmp(a: BigInt, b: BigInt) -> Ordering {
         if a.neg != b.neg {
-            if a.neg { -1 } else { 1 }
+            if a.neg { .Less } else { .Greater }
         } else if a.neg {
-            cmp_mag(b.mag, a.mag)
+            cmp_mag(b.mag, a.mag).cmp(0)
         } else {
-            cmp_mag(a.mag, b.mag)
+            cmp_mag(a.mag, b.mag).cmp(0)
         }
     }
 }

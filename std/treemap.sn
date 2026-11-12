@@ -1,5 +1,5 @@
 // std.treemap：按键从小到大的映射 TreeMap<K, V>，存成 AVL 树，查找、插入、删除都是对数时间。
-// 键要实现 std.math 的 Ord。规格见 lean/Core/Library/TreeMap.lean：树的中序遍历就是 `Library.Map` 的有序表，
+// 键要实现 预导入的 Ord。规格见 lean/Core/Library/TreeMap.lean：树的中序遍历就是 `Library.Map` 的有序表，
 // 插入、删除和 `Library.Map` 的 ins、del 一致，所以 `Library.Map` 的定律照样成立（键严格递增，插入后查得到，删除后查不到，别的键不受影响）。
 // `Library.TreeMap`、`Library.TreeMapAvl`（Lean）：插入、删除和有序列表上的版本一致，并保持 AVL 平衡（树高是对数）。
 // 值不能直接拿出来，要传闭包：get(m, k, |v| …)、for_each(m, |k, v| …)。
@@ -102,11 +102,11 @@ fn bal<K, V>(sink l: Tree<K, V>, sink k: K, sink v: V, sink r: Tree<K, V>) -> Tr
 }
 
 // `Library.TreeMap` 的 insT；已有键 k 时换掉值，旧值放进 old
-fn ins<K: math.Ord, V>(sink t: Tree<K, V>, sink k: K, sink v: V, inout old: Option<V>) -> Tree<K, V> {
+fn ins<K: Ord, V>(sink t: Tree<K, V>, sink k: K, sink v: V, inout old: Option<V>) -> Tree<K, V> {
     match t {
         .Br(n) => {
             let Node { left, key, val, h, right } = n
-            let c = k.cmp(key)
+            let c = k.cmp(key).to_i64()
             if c == -1 {
                 bal(ins(unbox(left), k, v, old), key, val, unbox(right))
             } else if c == 0 {
@@ -149,11 +149,11 @@ fn join<K, V>(sink l: Tree<K, V>, sink r: Tree<K, V>) -> Tree<K, V> {
 }
 
 // `Library.TreeMap` 的 delT；去掉的值放进 old
-fn del<K: math.Ord, V>(sink t: Tree<K, V>, k: K, inout old: Option<V>) -> Tree<K, V> {
+fn del<K: Ord, V>(sink t: Tree<K, V>, k: K, inout old: Option<V>) -> Tree<K, V> {
     match t {
         .Br(n) => {
             let Node { left, key, val, h, right } = n
-            let c = k.cmp(key)
+            let c = k.cmp(key).to_i64()
             if c == -1 {
                 bal(del(unbox(left), k, old), key, val, unbox(right))
             } else if c == 0 {
@@ -168,7 +168,7 @@ fn del<K: math.Ord, V>(sink t: Tree<K, V>, k: K, inout old: Option<V>) -> Tree<K
 }
 
 // 放进 (k, v)。已有键 k 时换掉它的值并返回旧值（这时 k 被析构，保留原来的键）；否则返回 .None。
-pub fn insert<K: math.Ord, V>(inout m: TreeMap<K, V>, sink k: K, sink v: V) -> Option<V> {
+pub fn insert<K: Ord, V>(inout m: TreeMap<K, V>, sink k: K, sink v: V) -> Option<V> {
     var old: Option<V> = .None
     match m.slot.pop() {
         .Some(t) => m.slot.push(ins(t, k, v, old)),
@@ -182,7 +182,7 @@ pub fn insert<K: math.Ord, V>(inout m: TreeMap<K, V>, sink k: K, sink v: V) -> O
 }
 
 // 去掉键 k，返回它的值；没有这个键时返回 .None。
-pub fn remove<K: math.Ord, V>(inout m: TreeMap<K, V>, k: K) -> Option<V> {
+pub fn remove<K: Ord, V>(inout m: TreeMap<K, V>, k: K) -> Option<V> {
     var old: Option<V> = .None
     match m.slot.pop() {
         .Some(t) => m.slot.push(del(t, k, old)),
@@ -195,27 +195,27 @@ pub fn remove<K: math.Ord, V>(inout m: TreeMap<K, V>, k: K) -> Option<V> {
     old
 }
 
-fn has<K: math.Ord, V>(t: Tree<K, V>, k: K) -> Bool {
+fn has<K: Ord, V>(t: Tree<K, V>, k: K) -> Bool {
     match t {
         .Br(n) => {
-            let c = k.cmp(n.key)
+            let c = k.cmp(n.key).to_i64()
             if c == -1 { has(*n.left, k) } else if c == 0 { true } else { has(*n.right, k) }
         },
         .Leaf => false
     }
 }
 
-pub fn contains<K: math.Ord, V>(m: TreeMap<K, V>, k: K) -> Bool {
+pub fn contains<K: Ord, V>(m: TreeMap<K, V>, k: K) -> Bool {
     for t in m.slot {
         return has(t, k)
     }
     false
 }
 
-fn find<K: math.Ord, V, R>(t: Tree<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
+fn find<K: Ord, V, R>(t: Tree<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
     match t {
         .Br(n) => {
-            let c = k.cmp(n.key)
+            let c = k.cmp(n.key).to_i64()
             if c == -1 { find(*n.left, k, f) } else if c == 0 { .Some(f(n.val)) } else { find(*n.right, k, f) }
         },
         .Leaf => .None
@@ -223,7 +223,7 @@ fn find<K: math.Ord, V, R>(t: Tree<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
 }
 
 // 有键 k 时返回 .Some(f(它的值))，否则返回 .None。例如 get(m, k, |v| v * 2)。
-pub fn get<K: math.Ord, V, R>(m: TreeMap<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
+pub fn get<K: Ord, V, R>(m: TreeMap<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
     for t in m.slot {
         return find(t, k, f)
     }

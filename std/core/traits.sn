@@ -1,0 +1,144 @@
+// 预导入：比较、哈希用的 trait，比较的结果 Ordering，以及按 Ord 取较小、较大的值。
+// trait 的方法用方法调用的写法：a.eq(b)、a.cmp(b)、a.hash()。
+
+pub trait Eq {
+    fn eq(a: Self, b: Self) -> Bool
+}
+
+// a.cmp(b) 比较 a 和 b。自己写 impl Ord 时要满足这几条定律（编译器不检查；min、max、排序的正确性只依赖它们，
+// 见 lean/Core/Library/Math.lean，那里 Less、Equal、Greater 记作 -1、0、1）：
+//   b.cmp(a) 是 a.cmp(b) 反过来；a.cmp(b) 是 Equal 恰好是 a、b 相等（和 Eq 一致）；
+//   a.cmp(b)、b.cmp(c) 都是 Less 时 a.cmp(c) 是 Less。I64 和 Str 的实现已经证明满足。
+pub trait Ord {
+    fn cmp(a: Self, b: Self) -> Ordering
+}
+
+// a.hash() 要是非负数，并且相等的键（eq 为真）哈希值相同。
+pub trait Hash {
+    fn hash(a: Self) -> I64
+}
+
+pub enum Ordering { Less, Equal, Greater }
+
+impl Ordering {
+    fn is_lt(o: Ordering) -> Bool {
+        match let o {
+            .Less => true,
+            .Equal => false,
+            .Greater => false
+        }
+    }
+
+    fn is_eq(o: Ordering) -> Bool {
+        match let o {
+            .Less => false,
+            .Equal => true,
+            .Greater => false
+        }
+    }
+
+    fn is_gt(o: Ordering) -> Bool {
+        match let o {
+            .Less => false,
+            .Equal => false,
+            .Greater => true
+        }
+    }
+
+    fn is_le(o: Ordering) -> Bool { !o.is_gt() }
+
+    fn is_ge(o: Ordering) -> Bool { !o.is_lt() }
+
+    fn is_ne(o: Ordering) -> Bool { !o.is_eq() }
+
+    // Less 换成 Greater，Greater 换成 Less。
+    fn reverse(o: Ordering) -> Ordering {
+        match let o {
+            .Less => .Greater,
+            .Equal => .Equal,
+            .Greater => .Less
+        }
+    }
+
+    // -1、0、1。
+    fn to_i64(o: Ordering) -> I64 {
+        match let o {
+            .Less => -1,
+            .Equal => 0,
+            .Greater => 1
+        }
+    }
+}
+
+impl Eq for I64 {
+    fn eq(a: I64, b: I64) -> Bool { a == b }
+}
+
+impl Eq for Bool {
+    fn eq(a: Bool, b: Bool) -> Bool { a == b }
+}
+
+impl Eq for Char {
+    fn eq(a: Char, b: Char) -> Bool { char_code(a) == char_code(b) }
+}
+
+impl Eq for Str {
+    fn eq(a: Str, b: Str) -> Bool { str_eq(a, b) }
+}
+
+impl Ord for I64 {
+    fn cmp(a: I64, b: I64) -> Ordering {
+        if a < b { .Less } else if a > b { .Greater } else { .Equal }
+    }
+}
+
+impl Ord for Char {
+    fn cmp(a: Char, b: Char) -> Ordering { char_code(a).cmp(char_code(b)) }
+}
+
+// 按字节的字典序。
+impl Ord for Str {
+    fn cmp(a: Str, b: Str) -> Ordering {
+        let n = str_len(a)
+        let m = str_len(b)
+        var i = 0
+        while i < n && i < m {
+            let x = str_byte(a, i)
+            let y = str_byte(b, i)
+            if x != y { return x.cmp(y) }
+            i = i + 1
+        }
+        n.cmp(m)
+    }
+}
+
+// 2147483647 = 2^31 - 1；乘 48271 再取模（Lehmer）把相邻的数打散。中间结果小于 2^47，不会溢出。
+impl Hash for I64 {
+    fn hash(a: I64) -> I64 {
+        var y = a % 2147483647
+        if y < 0 { y = y + 2147483647 }
+        y * 48271 % 2147483647
+    }
+}
+
+impl Hash for Str {
+    fn hash(a: Str) -> I64 {
+        var h = 0
+        var i = 0
+        while i < str_len(a) {
+            h = (h * 31 + str_byte(a, i)) % 2147483647
+            i = i + 1
+        }
+        h * 48271 % 2147483647
+    }
+}
+
+// 两个值里较小的（相等时取第一个），另一个被析构。
+pub fn min<T: Ord>(sink a: T, sink b: T) -> T {
+    if a.cmp(b).is_le() { a } else { b }
+}
+
+// 两个值里较大的（相等时取第一个），另一个被析构。
+pub fn max<T: Ord>(sink a: T, sink b: T) -> T {
+    if a.cmp(b).is_ge() { a } else { b }
+}

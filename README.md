@@ -222,20 +222,20 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 - `std.math`（Lean `Library.Math`）：`min`、`max`、`abs`、`sign`、`clamp`、`pow`、`gcd`、`lcm`；trait `Eq`（`eq`）、`Ord`（`cmp`，返回 -1/0/1），I64、Bool、Str 实现了 `Eq`，I64、Str 实现了 `Ord`；
   `min_of`、`max_of`（任意 `Ord`）；浮点的 `sqrt floor ceil round fabs fmin fmax is_nan pi powi`。
 - `std.option`：`is_some`、`is_none`、`unwrap_or`、`unwrap`、`expect`。`std.result`：`is_ok`、`is_err`、`unwrap_or`、`ok`、`unwrap`、`expect`（没有值或出错时 panic）。
-- `std.vec`：`sum`、`max`、`min`、`sum_f64`、`range`、`contains`、`index_of`（元素要实现 `math.Eq`）、`reverse`（`inout`）、`binary_search`（排好序的 Vec，返回第一个匹配的下标）、`dedup`（原地去掉相邻重复）；
+- `std.vec`：`sum`、`max`、`min`、`sum_f64`、`range`、`contains`、`index_of`（元素要实现 `Eq`）、`reverse`（`inout`）、`binary_search`（排好序的 Vec，返回第一个匹配的下标）、`dedup`（原地去掉相邻重复）；
   接收闭包的 `map`、`filter`（`sink v`）、`any`、`all`、`count`、`for_each`、`fold`。
   `sort(v)`（元素实现 `Ord`）和 `sort_by(v, |a, b| a < b)`（`less` 要是严格弱序），都是 `inout` 原地排序（Lean `Library.HeapSort`）：堆排序，只用 `vec_swap` 交换元素，O(n log n)，不稳定。
 - `std.str`（按字节，Lean `Library.StrVec`）：`starts_with`、`ends_with`、`find`、`contains`、`trim`、`split`、`join`、`repeat`、`to_upper`、`to_lower`（ASCII）、`replace`、`lines`（去掉行尾的 `\r`）。逐字节比较，不为每个位置复制子串。
 - `std.char`：ASCII 的 `is_digit`、`is_alpha`、`to_upper`、`to_digit` 等。
 - `std.io`：`read_lines`、`write_lines`、`input_lines`。
 - `std.view`：见上面的切片和逐块读行。
-- `std.map`（Lean `Library.Map`、`Library.MapSearch`）：`Map<K, V>`，键要实现 `math.Ord`，按键从小到大存成两个 Vec（`m.keys`、`m.vals`，只读）。
+- `std.map`（Lean `Library.Map`、`Library.MapSearch`）：`Map<K, V>`，键要实现 `Ord`，按键从小到大存成两个 Vec（`m.keys`、`m.vals`，只读）。
   `new`、`len`、`index_of`（取值写 `vec_get(m.vals, i)`）、`contains`、`insert`（`inout`，已有键时换值并返回旧值）、`remove`（返回去掉的值）。
   查找用二分查找，是对数时间；插入、删除要挪动元素，是线性时间。
 - `std.treemap`（Lean `Library.TreeMap`、`Library.TreeMapAvl`）：`TreeMap<K, V>`，存成 AVL 树，查找、插入、删除都是对数时间。
   `new`、`len`、`height`、`contains`、`insert`、`remove`（和 `std.map` 一样）；值通过闭包拿：`get(m, k, |v| …)` 返回 `Option`，
   `for_each(m, |k, v| …)` 按键从小到大遍历。
-- `std.hashmap`（Lean `Library.HashMap`）：`HashMap<K, V>`，键实现 `math.Eq` 和 `hashmap.Hash`（I64、Str 已实现）；`new`、`len`、`contains`、`get(m, k, |v| …)`、`insert`（已有键时返回旧值）、`remove`（返回值）、
+- `std.hashmap`（Lean `Library.HashMap`）：`HashMap<K, V>`，键实现 `Eq` 和 `Hash`（I64、Str 已实现）；`new`、`len`、`contains`、`get(m, k, |v| …)`、`insert`（已有键时返回旧值）、`remove`（返回值）、
   `for_each`（按插入顺序，删除会把最后一个元素换到被删的位置）。键值紧凑地存在两个 Vec 里，另有槽位表存下标；开放寻址、线性探测不绕回（槽位表长 2 倍容量，元素超过 3/4 容量时翻倍）、删除时后移回填，不需要墓碑。平均 O(1)。
 - `std.bigint`（Lean `Library.BigInt`）：大整数，各位从低到高、基数 10^9。
 - `std.os`：见输入输出。

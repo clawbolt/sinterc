@@ -1,5 +1,5 @@
 标准库 std.map（规格 Lean `Library.Map`）和内建的 vec_swap（Lean `Datatypes.VecSwap`）。Map<K, V> 按键从小到大存成两个 Vec，
-键要实现 math.Ord；insert 已有键时换掉值并返回旧值，remove 返回去掉的值。vec_swap(inout v, i, j) 交换两个元素，越界时 panic。
+键要实现 Ord；insert 已有键时换掉值并返回旧值，remove 返回去掉的值。vec_swap(inout v, i, j) 交换两个元素，越界时 panic。
 
   $ cat > ok.sn <<'EOF'
   > use std.map
@@ -111,7 +111,7 @@ vec_swap 的 v 要能修改：
      |              ^
   [1]
 
-键的类型要实现 math.Ord：
+键的类型要实现 Ord：
 
   $ cat > noord.sn <<'EOF'
   > use std.map
@@ -122,7 +122,7 @@ vec_swap 的 v 要能修改：
   > }
   > EOF
   $ sinterc noord.sn
-  noord.sn:5:17: 错误：P 没有实现 math.Ord（map.insert 要求 K: math.Ord）
+  noord.sn:5:17: 错误：P 没有实现 Ord（map.insert 要求 K: Ord）
    5 |     let o = map.insert(m, P { x: 1 }, 1)
      |                 ^
   [1]
