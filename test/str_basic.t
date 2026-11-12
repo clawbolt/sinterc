@@ -22,18 +22,18 @@ str_clone(s)、str_from_i64(n)；println(s) 打印并换行。实参都按 let �
   >     println(greet(p))
   >     var v: Vec<Str> = vec_new()
   >     v.push("x")
-  >     v.push(str_from_i64(42))
+  >     v.push((42).to_str())
   >     println("{v.len()}")
   >     match v.pop() {
   >         .Some(s) => println(s),
   >         .None => println("空")
   >     }
   >     println(a.eq("ab").to_str())
-  >     println("{str_eq(a, b)}")
+  >     println("{a.eq(b)}")
   >     let c = a.clone()
   >     let d = c
   >     println(d)
-  >     println(str_from_i64(-7))
+  >     println((-7).to_str())
   > }
   > EOF
   $ sinterc run ok.sn
@@ -71,12 +71,12 @@ str_clone(s)、str_from_i64(n)；println(s) 打印并换行。实参都按 let �
   > }
   > EOF
   $ sinterc eq.sn
-  eq.sn:3:14: 错误：字符串用 str_eq(a, b) 或 a.eq(b) 比较
+  eq.sn:3:14: 错误：字符串用 a.eq(b) 比较
    3 |     println((a == "a").to_str())
      |              ^
   [1]
   $ sinterc --lang=en eq.sn
-  eq.sn:3:14: error: compare strings with str_eq(a, b) or a.eq(b)
+  eq.sn:3:14: error: compare strings with a.eq(b)
    3 |     println((a == "a").to_str())
      |              ^
   [1]

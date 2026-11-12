@@ -74,6 +74,62 @@ let parse_file ?text path index =
   src
 
 (* 改名：模块 me 里出现的名字换成合并后的名字。 *)
+(* 内建函数分三层。预导入的几个（构造、所有权和区域的原语）哪里都能直接调用；读写外部的只有 std.io、std.fs、std.env、
+   std.process 和核心部分的 print.sn 能调用；其余的只有标准库能调用，用户代码写成对应的方法或标准库函数（builtin_hint）。
+   语法糖展开出的调用带 #（见 parser.mly），不检查；方法调用 s.len() 由类型检查换成 str_len，也不经过这里。 *)
+let prelude_builtins = [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "bytes_new"; "panic"; "text"; "choose" ]
+
+let io_builtins =
+  [
+    "print_i64"; "print_bool"; "print"; "print_str"; "print_byte"; "eprint"; "eprint_str"; "print_f64"; "print_char";
+    "print_bytes"; "read_line"; "args"; "read_file"; "write_file"; "read_bytes"; "write_bytes"; "read_file_in";
+    "read_stdin_in"; "read_chunk"; "os_env"; "os_list_dir"; "os_exists"; "os_is_dir"; "os_make_dir"; "os_remove";
+    "os_run"; "os_output"; "os_exit";
+  ]
+
+let is_builtin f = List.mem_assoc f Typeck_builtins.builtins || List.mem f Typeck_builtins.special
+
+let builtin_hint f =
+  let starts p = String.starts_with ~prefix:p f in
+  let strip p = String.sub f (String.length p) (String.length f - String.length p) in
+  match f with
+  | "print_str" -> "print(s)"
+  | "print" -> "println(s)"
+  | "eprint_str" -> "eprint(s)"
+  | "eprint" -> "eprintln(s)"
+  | "print_i64" | "print_bool" | "print_f64" | "print_char" -> "println(\"{x}\")"
+  | "print_byte" -> "io.write_byte(b)"
+  | "print_bytes" -> "io.write_bytes(b)"
+  | "read_line" -> "io.read_line()"
+  | "read_stdin_in" -> "io.read_all_in(a)"
+  | "read_chunk" -> "io.read_chunk(a, n)"
+  | "args" -> "env.args()"
+  | "read_file" -> "fs.read(path)"
+  | "write_file" -> "fs.write(path, s)"
+  | "read_file_in" -> "fs.read_in(a, path)"
+  | "read_bytes" -> "fs.read_bytes(path)"
+  | "write_bytes" -> "fs.write_bytes(path, b)"
+  | "os_env" -> "env.get(name)"
+  | "os_exit" -> "env.exit(code)"
+  | "os_run" | "os_output" -> "process." ^ strip "os_" ^ "(prog, args)"
+  | _ when starts "os_" -> "fs." ^ strip "os_" ^ "(path)"
+  | "str_from_i64" | "str_from_bool" | "str_from_f64" | "str_from_char" -> "x.to_str() 或 \"{x}\""
+  | "str_to_i64" -> "s.parse_i64()"
+  | "str_to_f64" -> "s.parse_f64()"
+  | "str_to_bytes" -> "s.to_bytes()"
+  | "str_from_utf8" -> "b.decode()"
+  | "to_f64" -> "n.to_f64()"
+  | "to_i64" -> "x.to_i64()"
+  | "char_code" -> "c.code()"
+  | "char_from" -> "n.to_char()"
+  | "vec_get" -> "v[i]"
+  | _ when starts "f64_" -> "x." ^ strip "f64_" ^ "()"
+  | _ when starts "str_" -> "s." ^ strip "str_" ^ "(…)"
+  | _ when starts "vec_" -> "v." ^ strip "vec_" ^ "(…)"
+  | _ when starts "bytes_" -> "b." ^ strip "bytes_" ^ "(…)"
+  | _ when starts "view_" -> "v." ^ strip "view_" ^ "(…)"
+  | _ -> f ^ "(…)"
+
 let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
   let imported = List.map (fun (m, _, _) -> alias m) me.src.uses in
   (* 直接可见的名字 → 合并后的名字：先是预导入的（核心部分的 pub 名字），本文件的定义和 use 引入的名字盖过它们 *)
@@ -120,6 +176,16 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
     let p = !files.(me.index) in
     me.index > 0 && String.length p > 4 && String.sub p 0 4 = "std/"
   in
+  let io_ok = in_std && (List.mem me.modname [ "io"; "fs"; "env"; "process" ] || !files.(me.index) = "std/core/print.sn") in
+  let io_check pos f =
+    if List.mem f io_builtins && not io_ok then
+      err pos "%s 读写外部，标准库里只有 std.io、std.fs、std.env、std.process 和打印能调用它" f
+  in
+  (* 直接调用的 f 不是本文件、引入或预导入的函数，而是内建函数 *)
+  let builtin_check pos f =
+    if (not (Hashtbl.mem names f)) && is_builtin f && not (List.mem f prelude_builtins) then
+      if not in_std then err pos "%s 是内建函数，标准库以外不能直接调用：写成 %s" f (builtin_hint f) else io_check pos f
+  in
   let binder pos x =
     if List.mem x imported then err pos "变量 %s 和引入的模块同名，换一个名字" x
   in
@@ -136,6 +202,7 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
       | Call (f, { e = Var "intrinsic"; _ } :: args) when f <> "" && f.[0] = '.' ->
           (* intrinsic.f(…)：内建函数 f，即使这个模块里有同名的函数（例如 io.read_line 调用内建的 read_line）。只有标准库能用 *)
           if not in_std then err pos "intrinsic.%s：内建函数只能在标准库里这样调用" (String.sub f 1 (String.length f - 1));
+          io_check pos (String.sub f 1 (String.length f - 1));
           Call (String.sub f 1 (String.length f - 1), List.map ex args)
       | Call (f, args) when f <> "" && f.[0] = '.' -> (
           (* 方法调用 r.f(…)：f 是本文件的函数或引入的名字时换成合并后的名字，其他的（trait 方法、内建）不变 *)
@@ -143,7 +210,10 @@ let rename (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
           match Hashtbl.find_opt names g with
           | Some q -> Call ("." ^ q, List.map ex args)
           | None -> Call (f, List.map ex args))
-      | Call (f, args) -> Call (qual pos f, List.map ex args)
+      | Call (f, args) when f <> "" && f.[0] = '#' -> Call (String.sub f 1 (String.length f - 1), List.map ex args)
+      | Call (f, args) ->
+          builtin_check pos f;
+          Call (qual pos f, List.map ex args)
       | StructLit (n, fs) -> StructLit (qual pos n, List.map (fun (f, v) -> (f, ex v)) fs)
       | Field (a, f) -> Field (ex a, f)
       | Deref a -> Deref (ex a)

@@ -4,7 +4,7 @@ struct Named { name: Str, n: I64 }
 fn tag(s: Str, n: I64) -> Str {
     var r = s.clone()
     r.push(":")
-    r.push(str_from_i64(n))
+    r.push(n.to_str())
     r
 }
 

@@ -4,9 +4,9 @@ panic（Lean `FlowGraph.Panic`）。panic(msg) 打印说明后立刻结束进程
   $ cat > ok.sn <<'EOF'
   > 
   > fn parse(s: Str) -> Result<I64, Str> {
-  >     match str_to_i64(s) {
+  >     match s.parse_i64() {
   >         .Some(n) => Ok(n),
-  >         .None => Err(str_concat("不是整数：", s))
+  >         .None => Err("不是整数：".concat(s))
   >     }
   > }
   > 
@@ -16,9 +16,9 @@ panic（Lean `FlowGraph.Panic`）。panic(msg) 打印说明后立刻结束进程
   > }
   > 
   > fn main() {
-  >     println(str_to_i64("42").unwrap().to_str())
+  >     println("42".parse_i64().unwrap().to_str())
   >     println(parse("7").unwrap().to_str())
-  >     println(str_to_i64("8").expect("要一个数").to_str())
+  >     println("8".parse_i64().expect("要一个数").to_str())
   >     println("{half(10)}")
   >     let n: I64 = parse("x").expect("读配置失败")
   >     println("{n}")

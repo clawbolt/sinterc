@@ -94,7 +94,7 @@ and expr1 env (x : expr) : t =
           expect a.pos t ta; expect b.pos t tb; Ty TBool
       | Eq | Ne -> (
           match ta, tb with
-          | Ty TStr, _ | _, Ty TStr -> err pos "字符串用 str_eq(a, b) 或 a.eq(b) 比较"
+          | Ty TStr, _ | _, Ty TStr -> err pos "字符串用 a.eq(b) 比较"
           | Ty TBytes, _ | _, Ty TBytes -> err pos "字节串用 a.eq(b) 比较"
           | Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _ | TOFn _), _
           | _, Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _ | TOFn _) ->
@@ -302,8 +302,8 @@ and method_name env (x : expr) f (r : expr) =
   g
 
 (* 落到 trait 的方法（Lean `Traits.Inherent` 的 resolve_tra）：声明了方法 base、接收者类型 t 满足的 trait 恰好一个。
-   一个都不满足时：有同名的函数就用它（旧的写法 r.f(…) 就是 f(r, …)），只有一个 trait 有这个方法就用它（调用处报缺 impl），
-   否则当作函数 m（报未定义）。
+   一个都不满足时：只有一个 trait 有这个方法就用它（调用处报缺 impl），否则报 t 没有这个方法。
+   普通函数不是方法：r.f(…) 不会落到函数 f(r, …)，要写进 impl 类型 { … }。
    预导入的 trait（核心部分的 Eq、Ord、Hash）和用户自己的 trait 都有这个方法时，用户的优先，同预导入的名字。 *)
 and trait_method env (x : expr) t base m =
   let user l =
@@ -317,8 +317,13 @@ and trait_method env (x : expr) t base m =
   | (a, _) :: (b, _) :: _ ->
       err x.pos "%s 的方法 %s 不确定：trait %s 和 %s 都有这个方法，%s 两个都满足" (string_of_ty t) base a b (string_of_ty t)
   | [] -> (
-      if Hashtbl.mem env.fns m || List.mem_assoc m builtins then m
-      else match cands with [ (_, k) ] -> k | _ -> m)
+      match cands with
+      | [ (_, k) ] -> k
+      | _ ->
+          if Hashtbl.mem env.fns m || List.mem_assoc m builtins then
+            err x.pos "%s 没有方法 %s（%s 是普通函数：写成 %s(…)，或者放进 impl %s { … }）" (string_of_ty t) base base base
+              (string_of_ty t)
+          else err x.pos "%s 没有方法 %s" (string_of_ty t) base)
 
 and call env want (x : expr) f args : t =
   match List.assoc_opt f env.vars with

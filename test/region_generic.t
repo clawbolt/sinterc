@@ -16,7 +16,7 @@ inout 实参里的区域不能放宽（不变），否则被调用的函数能�
   >     var s = 0
   >     var i = 0
   >     while i < v.len() {
-  >         s = s + *vec_get(v, i)
+  >         s = s + *v[i]
   >         i = i + 1
   >     }
   >     s

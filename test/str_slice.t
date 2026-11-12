@@ -3,6 +3,8 @@
 程序结束时的泄漏检查照常：堆上的字符串都释放了，也没有去释放字面量（否则 free 会出错）。
 
   $ cat > lit.sn <<'EOF'
+  > use std.io
+  > 
   > fn tag(n: I64) -> Str {
   >     match n {
   >         0 => "zero",
@@ -30,11 +32,11 @@
   >     var bs = "hi".to_bytes()
   >     bs.set(0, 72)
   >     bs.push(33)
-  >     print_bytes(bs)
+  >     io.write_bytes(bs)
   >     println("")
   >     var e = bytes_new()
   >     e.push(65)
-  >     print_bytes(e)
+  >     io.write_bytes(e)
   >     println("")
   >     let c = a.clone()
   >     println(c)

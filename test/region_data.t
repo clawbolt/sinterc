@@ -34,7 +34,7 @@
   >             .Some(t) => println("{*t}"),
   >             .None => println("{0}")
   >         }
-  >         println("{vec_len(v)}")
+  >         println("{v.len()}")
   >     }
   > }
   > EOF

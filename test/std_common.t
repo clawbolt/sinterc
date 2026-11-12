@@ -67,7 +67,7 @@ I64 的 gcd、lcm；std.fs 的 read_lines、write_lines 和 std.io 的 input_lin
   >     }
   >     match fs.read_lines("out.txt") {
   >         Ok(v) => {
-  >             println("{vec_len(v)}")
+  >             println("{v.len()}")
   >             for l in v {
   >                 println(l)
   >             }
@@ -109,7 +109,7 @@ I64 的 gcd、lcm；std.fs 的 read_lines、write_lines 和 std.io 的 input_lin
   > 
   > fn main() {
   >     let ls = io.input_lines()
-  >     println("{vec_len(ls)} 行")
+  >     println("{ls.len()} 行")
   >     for l in ls {
   >         println("| {l}")
   >     }

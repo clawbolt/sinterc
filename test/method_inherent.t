@@ -127,7 +127,7 @@
   > }
   > EOF
   $ sinterc generic.sn
-  generic.sn:4:31: 错误：未定义的函数 total
+  generic.sn:4:31: 错误：Vec<T> 没有方法 total
    4 | fn f<T>(v: Vec<T>) -> I64 { v.total() }
      |                               ^
   [1]

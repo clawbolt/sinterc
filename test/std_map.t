@@ -74,8 +74,8 @@ std.map，存成 AVL 树的有序映射（Lean `Library.TreeMap`：中序遍历�
   >     let o1 = m.insert("pear", "梨")
   >     let o2 = m.insert("apple", "苹果")
   >     let o3 = m.insert("fig", "无花果")
-  >     m.for_each(|k, v| println(str_concat(str_concat(k, " "), v)))
-  >     match m.get("fig", |v| str_len(v)) {
+  >     m.for_each(|k, v| println(k.concat(" ").concat(v)))
+  >     match m.get("fig", |v| v.len()) {
   >         .Some(n) => println("{n}"),
   >         .None => println("没有")
   >     }

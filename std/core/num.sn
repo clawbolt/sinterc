@@ -43,6 +43,9 @@ impl I64 {
     }
 
     fn to_f64(n: I64) -> F64 { to_f64(n) }
+
+    // 码点 n 的字符；不是合法码点（负数、代理区、超过 0x10FFFF）时 .None。
+    fn to_char(n: I64) -> Option<Char> { char_from(n) }
 }
 
 impl F64 {

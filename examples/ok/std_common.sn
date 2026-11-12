@@ -62,7 +62,7 @@ fn main() {
     }
     match fs.read_lines("out.txt") {
         Ok(v) => {
-            println("{vec_len(v)}")
+            println("{v.len()}")
             for l in v {
                 println(l)
             }

@@ -41,7 +41,7 @@ let table =
     ("%s 没有载荷，不能写 %s(…)", "{1} has no payload; cannot write {2}(…)");
     ("这里需要 %s，vec_new() 是 Vec", "expected {1} here, but vec_new() is a Vec");
     ("未定义的变量 %s", "undefined variable {1}");
-    ("字符串用 str_eq(a, b) 或 a.eq(b) 比较", "compare strings with str_eq(a, b) or a.eq(b)");
+    ("字符串用 a.eq(b) 比较", "compare strings with a.eq(b)");
     ("for 只能遍历变量或字段里的 Vec，或者写成 a..b", "for can only iterate over a Vec in a variable or field, or a range a..b");
     ("%s 只能用在循环里", "{1} can only be used inside a loop");
     ("只能比较 I64、F64 和 Bool", "only I64, F64 and Bool values can be compared");
@@ -184,8 +184,8 @@ let table =
     ("%s 不拥有值（是 let / inout 参数或投影），不能移走它的字段",
      "{1} does not own its value (it is a let / inout parameter or a projection), so its fields cannot be moved out");
     ("linear 结构体 %s 不能部分移动（要用 consume）", "linear struct {1} cannot be partially moved (use consume)");
-    ("不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 vec_pop）",
-     "cannot move a value out of a Box or Vec (use unbox for a Box, vec_pop for Vec elements)");
+    ("不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 v.pop()）",
+     "cannot move a value out of a Box or Vec (use unbox for a Box, v.pop() for Vec elements)");
     ("%s 在这里出错返回之前已经被消费，errdefer 会重复消费它",
      "{1} was already consumed before this error return, so the errdefer would consume it again");
     ("errdefer 登记时 %s 必须是还没有被消费的 linear 值",
@@ -272,6 +272,12 @@ let table =
      "the first parameter of method {1} is the receiver; its type must be {2} (or Self)");
     ("%s 已经有方法 %s", "{1} already has a method {2}");
     ("intrinsic.%s：内建函数只能在标准库里这样调用", "intrinsic.{1}: built-in functions can only be called this way inside the standard library");
+    ("%s 是内建函数，标准库以外不能直接调用：写成 %s", "{1} is a built-in function and cannot be called directly outside the standard library: write {2}");
+    ("%s 读写外部，标准库里只有 std.io、std.fs、std.env、std.process 和打印能调用它",
+     "{1} does I/O; inside the standard library only std.io, std.fs, std.env, std.process and printing may call it");
+    ("%s 没有方法 %s（%s 是普通函数：写成 %s(…)，或者放进 impl %s { … }）",
+     "{1} has no method {2} ({3} is a plain function: write {4}(…), or put it in impl {5} { … })");
+    ("%s 没有方法 %s", "{1} has no method {2}");
     ("不能给 Arena 写方法", "methods cannot be defined on Arena");
     ("不能给函数类型写方法", "methods cannot be defined on a function type");
     ("不能给类型参数 %s 本身写方法（impl<%s> %s 会和所有的头部重叠）",

@@ -23,7 +23,7 @@ I64、F64、Char、Bool 和 Str 是内建的，别的类型调用户写的 to_st
   >     s.push("!")
   >     println(s)
   >     println(name)
-  >     println("{str_len(name)} 字节")
+  >     println("{name.len()} 字节")
   >     println(n.to_str())
   > }
   > EOF

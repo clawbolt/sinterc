@@ -1,8 +1,10 @@
 // C32：读入的每一行是新的 Str；match 移出载荷，break 之前析构循环里的值。
+use std.io
+
 fn main() {
     var lines: Vec<Str> = vec_new()
     while true {
-        match read_line() {
+        match io.read_line() {
             .Some(l) => {
                 if l.len() == 0 { break }
                 lines.push(l.slice(0, l.len()))

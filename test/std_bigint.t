@@ -71,13 +71,13 @@ std.bigint（Lean `Library.BigInt`）。符号加上从低位到高位的各位�
   >         let b = next(seed) * 30000 - next(seed)
   >         let x = bigint.from_i64(a)
   >         let y = bigint.from_i64(b)
-  >         if !str_eq(x.add(y).to_str(), str_from_i64(a + b)) { bad = bad + 1 }
-  >         if !str_eq(x.sub(y).to_str(), str_from_i64(a - b)) { bad = bad + 1 }
-  >         if !str_eq(x.mul(y).to_str(), str_from_i64(a * b)) { bad = bad + 1 }
+  >         if !x.add(y).to_str().eq((a + b).to_str()) { bad = bad + 1 }
+  >         if !x.sub(y).to_str().eq((a - b).to_str()) { bad = bad + 1 }
+  >         if !x.mul(y).to_str().eq((a * b).to_str()) { bad = bad + 1 }
   >         if x.cmp(y).to_i64() != a.cmp(b).to_i64() { bad = bad + 1 }
   >         let (dq, dr) = x.divmod_small(7)
-  >         if !str_eq(dq.to_str(), str_from_i64(a / 7)) || dr != a % 7 { bad = bad + 1 }
-  >         let p = bigint.parse(str_from_i64(b))
+  >         if !dq.to_str().eq((a / 7).to_str()) || dr != a % 7 { bad = bad + 1 }
+  >         let p = bigint.parse(b.to_str())
   >         if !p.unwrap().eq(y) { bad = bad + 1 }
   >     }
   >     println("{bad}")

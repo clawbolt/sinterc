@@ -28,9 +28,9 @@ std.fs、std.env、std.process——目录、环境变量、子进程（原来�
   >         Err(e) => println(e)
   >     }
   >     println("{fs.exists("d")} {fs.is_dir("d")} {fs.exists("nope")}")
-  >     match write_file("d/b.txt", "b") { Ok(_) => {}, Err(e) => println(e) }
-  >     match write_file("d/a.txt", "a") { Ok(_) => {}, Err(e) => println(e) }
-  >     match write_file("d/c.txt", "c") { Ok(_) => {}, Err(e) => println(e) }
+  >     match fs.write("d/b.txt", "b") { Ok(_) => {}, Err(e) => println(e) }
+  >     match fs.write("d/a.txt", "a") { Ok(_) => {}, Err(e) => println(e) }
+  >     match fs.write("d/c.txt", "c") { Ok(_) => {}, Err(e) => println(e) }
   >     match fs.list_dir("d") {
   >         Ok(ns) => {
   >             var s = ""

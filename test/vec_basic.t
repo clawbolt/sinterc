@@ -8,8 +8,8 @@ push、pop、用 get 求和；作用域结束时剩下的元素一起析构：
   > fn sum(v: Vec<Box<I64>>) -> I64 {
   >     var s = 0
   >     var i = 0
-  >     while i < vec_len(v) {
-  >         s = s + *vec_get(v, i)
+  >     while i < v.len() {
+  >         s = s + *v[i]
   >         i = i + 1
   >     }
   >     s
@@ -19,24 +19,24 @@ push、pop、用 get 求和；作用域结束时剩下的元素一起析构：
   >     var v: Vec<Box<I64>> = vec_new()
   >     var i = 1
   >     while i <= 10 {
-  >         vec_push(v, box(i))
+  >         v.push(box(i))
   >         i = i + 1
   >     }
-  >     println("{vec_len(v)}")
+  >     println("{v.len()}")
   >     println("{sum(v)}")
-  >     match vec_pop(v) {
+  >     match v.pop() {
   >         .Some(b) => println("{*b}"),
   >         .None => println("{0}")
   >     }
   >     println("{sum(v)}")
   >     var w: Vec<I64> = vec_new()
-  >     match vec_pop(w) {
+  >     match w.pop() {
   >         .Some(x) => println("{x}"),
   >         .None => println("{-1}")
   >     }
-  >     vec_push(w, 7)
-  >     vec_push(w, 8)
-  >     let a = vec_get(w, 1)
+  >     w.push(7)
+  >     w.push(8)
+  >     let a = w[1]
   >     println("{a}")
   > }
   > EOF
@@ -53,8 +53,8 @@ push、pop、用 get 求和；作用域结束时剩下的元素一起析构：
   $ cat > oob.sn <<'EOF'
   > fn main() {
   >     var w: Vec<I64> = vec_new()
-  >     vec_push(w, 1)
-  >     println("{vec_get(w, 5)}")
+  >     w.push(1)
+  >     println("{w[5]}")
   > }
   > EOF
   $ sinterc oob.sn -o oob.c && cc -std=gnu11 -w oob.c -o oob && ./oob
@@ -66,29 +66,29 @@ get 的投影还活着时 push：
   $ cat > lock.sn <<'EOF'
   > fn main() {
   >     var v: Vec<Box<I64>> = vec_new()
-  >     vec_push(v, box(1))
-  >     let e = vec_get(v, 0)
-  >     vec_push(v, box(2))
+  >     v.push(box(1))
+  >     let e = v[0]
+  >     v.push(box(2))
   >     println("{*e}")
   > }
   > EOF
   $ sinterc lock.sn
-  lock.sn:5:14: 错误：v 正被投影 e 借用（之后还会用到 e），不能以 inout 传入
-   5 |     vec_push(v, box(2))
-     |              ^
+  lock.sn:5:5: 错误：v 正被投影 e 借用（之后还会用到 e），不能以 inout 传入
+   5 |     v.push(box(2))
+     |     ^
   [1]
 
-元素不能直接移出（要用 vec_pop）：
+元素不能直接移出（要用 v.pop()）：
 
   $ cat > mv.sn <<'EOF'
   > fn main() {
   >     var v: Vec<Box<I64>> = vec_new()
-  >     vec_push(v, box(1))
-  >     let b = unbox(vec_get(v, 0))
+  >     v.push(box(1))
+  >     let b = unbox(v[0])
   > }
   > EOF
   $ sinterc mv.sn
-  mv.sn:4:19: 错误：不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 vec_pop）
-   4 |     let b = unbox(vec_get(v, 0))
-     |                   ^
+  mv.sn:4:20: 错误：不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 v.pop()）
+   4 |     let b = unbox(v[0])
+     |                    ^
   [1]

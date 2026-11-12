@@ -38,13 +38,13 @@
   >     var names: Vec<Str> = vec_new()
   >     names.push("ann")
   >     names.push("bob")
-  >     let shout = names.map(|s| str_concat(s, "!"))
+  >     let shout = names.map(|s| s.concat("!"))
   >     for s in shout {
   >         println(s)
   >     }
-  >     println(names.count(|s| str_eq(s, "bob")).to_str())
+  >     println(names.count(|s| s.eq("bob")).to_str())
   >     let long = names.filter(|s| s.len() > 2)
-  >     println("{vec_len(long)}")
+  >     println("{long.len()}")
   > }
   > EOF
   $ sinterc run ok.sn

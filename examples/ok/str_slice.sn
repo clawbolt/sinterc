@@ -4,8 +4,10 @@ struct Row<S> { name: S, qty: I64 }
 
 // 返回的切片和参数在同一个区域里
 fn first_field(line: &str in r) -> &str in r {
-    let i = line.find(",", 0)
-    if i < 0 { line } else { line.sub(0, i) }
+    match line.find(",") {
+        .Some(i) => line.sub(0, i),
+        .None => line
+    }
 }
 
 fn parse(line: &str in r) -> Option<Row<&str in r>> {

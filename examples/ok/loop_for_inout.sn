@@ -14,12 +14,12 @@ fn main() {
     var names: Vec<Str> = vec_new()
     names.push("a")
     for s in inout names {
-        s = str_concat(s, "!")
+        s = s.concat("!")
     }
     var ps: Vec<P> = vec_new()
     ps.push(P { x: 1, name: "p" })
     for p in inout ps {
-        p.x = p.x + vec_len(v)
+        p.x = p.x + v.len()
     }
     for s in names {
         println(s)

@@ -16,7 +16,7 @@
   >     var s = 0
   >     var i = 0
   >     while i < v.len() {
-  >         s = s + *vec_get(v, i)
+  >         s = s + *v[i]
   >         i = i + 1
   >     }
   >     s
@@ -71,7 +71,7 @@ build 默认输出到去掉 .sn 的同名文件：
   $ cat > oob.sn <<'EOF'
   > fn main() {
   >     var w: Vec<I64> = vec_new()
-  >     println("{vec_get(w, 3)}")
+  >     println("{w[3]}")
   > }
   > EOF
   $ sinterc run oob.sn

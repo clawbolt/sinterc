@@ -23,10 +23,10 @@ std.char 提供 ASCII 的分类和大小写转换。for 也能直接遍历函数
   > fn reverse(s: Str) -> Str {
   >     let cs = s.chars()
   >     var r = ""
-  >     var i = vec_len(cs)
+  >     var i = cs.len()
   >     while i > 0 {
   >         i = i - 1
-  >         r.push_char(vec_get(cs, i))
+  >         r.push_char(cs[i])
   >     }
   >     r
   > }
@@ -41,7 +41,7 @@ std.char 提供 ASCII 的分类和大小写转换。for 也能直接遍历函数
   > 
   > fn main() {
   >     let s = "héllo, 世界 😀"
-  >     println("{str_len(s)}")
+  >     println("{s.len()}")
   >     println("{s.char_count()}")
   >     for c in "a中😀".chars() {
   >         println("{c.code()}")
@@ -52,13 +52,13 @@ std.char 提供 ASCII 的分类和大小写转换。for 也能直接遍历函数
   >     println(count_digits("a1b22c333").to_str())
   >     println("{'a' < 'b'}")
   >     println("{'中' == '中'}")
-  >     println("{char_code('\t')}")
+  >     println("{'\t'.code()}")
   >     println("{'Q'.to_lower()}")
-  >     match char_from(65) {
+  >     match (65).to_char() {
   >         .Some(c) => println("{c}"),
   >         .None => println("不是字符")
   >     }
-  >     match char_from(55296) {
+  >     match (55296).to_char() {
   >         .Some(c) => println("{c}"),
   >         .None => println("不是字符")
   >     }
@@ -66,7 +66,7 @@ std.char 提供 ASCII 的分类和大小写转换。for 也能直接遍历函数
   >         .Some(d) => println("{d}"),
   >         .None => println("不是数字")
   >     }
-  >     var t = str_from_char('😀')
+  >     var t = '😀'.to_str()
   >     t.push_char('!')
   >     println(t)
   >     for x in squares(4) {

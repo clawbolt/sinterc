@@ -19,7 +19,7 @@ inout 参数的字段、旧值析构、移走后放回、只在一个分支里�
   > fn main() {
   >     var c = Counter { n: 0 }
   >     bump(c)
-  >     c.bump()
+  >     bump(c)
   >     c.n = c.n * 10
   >     println("{c.n}")
   >     var p = P { a: box(1), b: box(2), n: 0 }

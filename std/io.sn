@@ -14,6 +14,11 @@ pub fn read_all_in(a: Arena) -> &str in a { intrinsic.read_stdin_in(a) }
 // 最多读 n 个字节（n ≤ 0 时 panic），放进区域 a；读完时是空的切片。
 pub fn read_chunk(a: Arena, n: I64) -> &str in a { intrinsic.read_chunk(a, n) }
 
+// 往标准输出写一个原始字节（0 到 255，否则 panic）、写一串字节，都不加换行。
+pub fn write_byte(b: I64) { print_byte(b) }
+
+pub fn write_bytes(b: Bytes) { print_bytes(b) }
+
 // 读标准输入直到结束，每行一个元素（去掉换行）。
 pub fn input_lines() -> Vec<Str> {
     var out: Vec<Str> = vec_new()

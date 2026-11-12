@@ -1,8 +1,9 @@
-方法调用语法（UFCS）。e.f(a, …) 就是 f(e, a, …)：接收者是第一个实参，按 f 的第一个参数的约定传入（let、inout、sink）。
-接收者是 Vec 时 push、pop、len、get 是内建的 vec_push 等，其他情况就是同名的函数（包括 trait 的方法）。
-只是写法不同，之后的所有权、借用检查和直接调用一样。
+方法调用 e.f(a, …)。f 按 e 的类型找：类型自己的方法（impl 类型 { … }，Lean `Traits.Inherent`），
+内建类型的方法（Vec 的 push、pop、len、get、swap，Str 的 len、eq、push…），trait 的方法。
+接收者是第一个实参，按方法的第一个参数的约定传入（let、inout、sink），之后的所有权、借用检查和直接调用一样。
+普通函数不是方法：fn f(x: T) 只能写成 f(x)。
 
-普通函数、inout 参数、trait 方法（含泛型代码里）、Vec，以及和 Vec 的 push 同名的用户函数：
+类型自己的方法、inout 接收者、trait 方法（含泛型代码里）、Vec，以及和 Vec 的 push 同名的方法：
 
   $ cat > ok.sn <<'EOF'
   > trait Show {
@@ -15,11 +16,13 @@
   > 
   > struct Counter { n: I64 }
   > 
-  > fn bump(inout c: Counter, k: I64) {
-  >     c = Counter { n: c.n + k }
-  > }
+  > impl Counter {
+  >     fn bump(inout c: Counter, k: I64) {
+  >         c = Counter { n: c.n + k }
+  >     }
   > 
-  > fn get_n(c: Counter) -> I64 { c.n }
+  >     fn get_n(c: Counter) -> I64 { c.n }
+  > }
   > 
   > impl Show for Counter {
   >     fn show(x: Counter) -> I64 { x.get_n() * 10 }
@@ -30,14 +33,16 @@
   > struct Node { v: I64, next: Box<List> }
   > enum List { Cons(Node), Nil }
   > 
-  > fn push(sink l: List, v: I64) -> List {
-  >     .Cons(Node { v: v, next: box(l) })
-  > }
+  > impl List {
+  >     fn push(sink l: List, v: I64) -> List {
+  >         .Cons(Node { v: v, next: box(l) })
+  >     }
   > 
-  > fn sum(l: List) -> I64 {
-  >     match l {
-  >         .Cons(n) => n.v + (*n.next).sum(),
-  >         .Nil => 0
+  >     fn sum(l: List) -> I64 {
+  >         match l {
+  >             .Cons(n) => n.v + (*n.next).sum(),
+  >             .Nil => 0
+  >         }
   >     }
   > }
   > 
@@ -77,8 +82,10 @@ inout 的接收者也必须可修改：
 
   $ cat > inout.sn <<'EOF'
   > struct Counter { n: I64 }
-  > fn bump(inout c: Counter) {
-  >     c = Counter { n: c.n + 1 }
+  > impl Counter {
+  >     fn bump(inout c: Counter) {
+  >         c = Counter { n: c.n + 1 }
+  >     }
   > }
   > fn main() {
   >     let c = Counter { n: 0 }
@@ -86,28 +93,31 @@ inout 的接收者也必须可修改：
   > }
   > EOF
   $ sinterc inout.sn
-  inout.sn:7:5: 错误：c 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）
-   7 |     c.bump()
+  inout.sn:9:5: 错误：c 不可修改，不能作为 inout 实参（需要 var 变量或 inout / sink 参数）
+   9 |     c.bump()
      |     ^
   [1]
 
 sink 的接收者被移走：
 
   $ cat > sink.sn <<'EOF'
-  > fn take(sink b: Box<I64>) -> I64 { *b }
+  > struct Tok { b: Box<I64> }
+  > impl Tok {
+  >     fn take(sink t: Tok) -> I64 { *t.b }
+  > }
   > fn main() {
-  >     let b = box(1)
-  >     println("{b.take()}")
-  >     println("{*b}")
+  >     let t = Tok { b: box(1) }
+  >     println("{t.take()}")
+  >     println("{*t.b}")
   > }
   > EOF
   $ sinterc sink.sn
-  sink.sn:5:15: 错误：b 已被移动，不能再使用
-   5 |     println("{*b}")
+  sink.sn:8:15: 错误：t 已被移动，不能再使用
+   8 |     println("{*t.b}")
      |               ^
   [1]
 
-get 的投影还活着时 push（和 vec_get / vec_push 一样）：
+get 的投影还活着时 push（和 v[i] / push 一样）：
 
   $ cat > lock.sn <<'EOF'
   > fn main() {
@@ -124,7 +134,7 @@ get 的投影还活着时 push（和 vec_get / vec_push 一样）：
      |     ^
   [1]
 
-没有这个函数：
+没有这个方法：
 
   $ cat > undef.sn <<'EOF'
   > fn main() {
@@ -133,7 +143,23 @@ get 的投影还活着时 push（和 vec_get / vec_push 一样）：
   > }
   > EOF
   $ sinterc undef.sn
-  undef.sn:3:17: 错误：未定义的函数 foo
+  undef.sn:3:17: 错误：I64 没有方法 foo
    3 |     println("{n.foo()}")
+     |                 ^
+  [1]
+
+普通函数不能当方法调用：
+
+  $ cat > plain.sn <<'EOF'
+  > struct P { x: I64 }
+  > fn norm(p: P) -> I64 { p.x }
+  > fn main() {
+  >     let p = P { x: 1 }
+  >     println("{p.norm()}")
+  > }
+  > EOF
+  $ sinterc plain.sn
+  plain.sn:5:17: 错误：P 没有方法 norm（norm 是普通函数：写成 norm(…)，或者放进 impl P { … }）
+   5 |     println("{p.norm()}")
      |                 ^
   [1]

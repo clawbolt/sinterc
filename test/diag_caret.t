@@ -4,13 +4,13 @@
 
   $ cat > wide.sn <<'EOF'
   > fn main() {
-  >     println(str_concat("你好", y))
+  >     println("你好".concat(y))
   > }
   > EOF
   $ sinterc wide.sn
-  wide.sn:2:34: 错误：未定义的变量 y
-   2 |     println(str_concat("你好", y))
-     |                                ^
+  wide.sn:2:29: 错误：未定义的变量 y
+   2 |     println("你好".concat(y))
+     |                           ^
   [1]
 
 错误在引入的标准库模块之外时照常显示主文件的行；和整个程序有关的错误（例如缺少 main）不显示源码：
@@ -25,7 +25,7 @@
 英文提示同样显示源码：
 
   $ sinterc --lang=en wide.sn
-  wide.sn:2:34: error: undefined variable y
-   2 |     println(str_concat("你好", y))
-     |                                ^
+  wide.sn:2:29: error: undefined variable y
+   2 |     println("你好".concat(y))
+     |                           ^
   [1]

@@ -4,9 +4,10 @@
 
   $ cat > stream.sn <<'EOF'
   > use std.io
+  > use std.env
   > 
   > fn main() {
-  >     let a = args()
+  >     let a = env.args()
   >     var n = 4
   >     match a[0].to_i64() {
   >         .Some(x) => { n = x },
@@ -32,10 +33,12 @@
   > EOF
   $ cat > whole.sn <<'EOF'
   > 
+  > use std.io
+  > 
   > fn main() {
   >     arena |b| {
   >         var k = 0
-  >         for line in read_stdin_in(b).lines() {
+  >         for line in io.read_all_in(b).lines() {
   >             println("{k}:[{line.to_str()}]")
   >             k = k + 1
   >         }

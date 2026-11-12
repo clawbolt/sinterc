@@ -23,10 +23,10 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
   > 
   > fn insertion(inout v: Vec<I64>) {
   >     var i = 1
-  >     while i < vec_len(v) {
+  >     while i < v.len() {
   >         var j = i
-  >         while j > 0 && vec_get(v, j - 1) > vec_get(v, j) {
-  >             vec_swap(v, j - 1, j)
+  >         while j > 0 && v[j - 1] > v[j] {
+  >             v.swap(j - 1, j)
   >             j = j - 1
   >         }
   >         i = i + 1
@@ -49,7 +49,7 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
   >     show(a)
   >     var e: Vec<I64> = vec_new()
   >     e.sort()
-  >     println("{vec_len(e)}")
+  >     println("{e.len()}")
   >     e.push(4)
   >     e.sort()
   >     show(e)
@@ -93,7 +93,7 @@ std.vec 的 sort 和 sort_by（Lean `Library.HeapSort`）。堆排序，只用 v
   >     insertion(c)
   >     var same = true
   >     for i in 0..2000 {
-  >         if vec_get(b, i) != vec_get(c, i) { same = false }
+  >         if b[i] != c[i] { same = false }
   >     }
   >     println("{same}")
   > }

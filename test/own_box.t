@@ -126,7 +126,7 @@ let 声明的变量不能重新赋值：
   > }
   > EOF
   $ sinterc partial.sn
-  partial.sn:5:13: 错误：不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 vec_pop）
+  partial.sn:5:13: 错误：不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 v.pop()）
    5 |     var q = *p.a
      |             ^
   [1]

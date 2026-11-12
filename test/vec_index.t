@@ -3,6 +3,8 @@
 不换行的输出 print(s)、原始字节 print_byte(b)。
 
   $ cat > ok.sn <<'EOF'
+  > use std.io
+  > 
   > struct P { x: I64, name: Str }
   > fn sieve(n: I64) -> Vec<Bool> {
   >     var s: Vec<Bool> = vec_new()
@@ -36,7 +38,7 @@
   >     names.push("a")
   >     names.push("b")
   >     names[1] = "B"
-  >     names.get(0) = str_concat(names[0], "!")
+  >     names.get(0) = names[0].concat("!")
   >     println(names[0])
   >     println(names[1])
   >     var ps: Vec<P> = vec_new()
@@ -54,9 +56,9 @@
   >     println("{m[0][0]} {m[1][0]}")
   >     print("ab")
   >     print("c\n")
-  >     print_byte(72)
-  >     print_byte(105)
-  >     print_byte(10)
+  >     io.write_byte(72)
+  >     io.write_byte(105)
+  >     io.write_byte(10)
   > }
   > EOF
   $ sinterc run ok.sn
@@ -126,9 +128,11 @@ let 声明的 Vec 不能改：
 print_byte 只接受 0 到 255：
 
   $ cat > byte.sn <<'EOF'
+  > use std.io
+  > 
   > fn main() {
   >     print("x")
-  >     print_byte(256)
+  >     io.write_byte(256)
   > }
   > EOF
   $ sinterc run byte.sn

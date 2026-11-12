@@ -50,6 +50,14 @@
     `m.insert(k, v)`、`m.get(k, |v| v)`、`a.add(b)`，构造函数留在模块里（`map.new()`、`bigint.from_i64(x)`）。
   - 打印同 Rust：`println` 换行，`print` 不换行，`eprintln`、`eprint` 同样；`print_i64(x)` 等写成 `println("{x}")`。
   - `tools/migrate.ml` 把旧的写法改成新的：`dune exec tools/migrate.exe -- -w 文件…`（`.sn`、cram 测试 `.t`、Markdown 里的代码块）。
+- **不兼容**：标准库分层（C69）。
+  - 方法调用 `x.f(…)` 只找类型自己的方法、内建类型的方法和 trait 的方法，不再落到普通函数 `f(x, …)`；报错 `P 没有方法 f`，并提示改法。
+  - 内建函数只有标准库能直接调用：用户代码写成方法（`vec_len(v)` → `v.len()`、`str_from_i64(n)` → `n.to_str()`、`vec_get(v, i)` → `v[i]`、
+    `char_from(n)` → `n.to_char()`）或者系统模块的函数（`read_line()` → `io.read_line()`、`args()` → `env.args()`、`read_file(p)` → `fs.read(p)`、
+    `print_byte(b)` → `io.write_byte(b)`）。预导入的 `vec_new`、`bytes_new`、`box`、`unbox`、`consume`、`alloc`、`text`、`panic`、`choose` 照旧。
+    读写外部的内建函数在标准库里也只有 `std.io`、`std.fs`、`std.env`、`std.process` 和打印能调用。
+  - 切片的 `find(p)`、`find_from(p, i)` 和 `Str` 的一样返回 `Option<I64>`（原来的 `find(p, from)` 没找到时是 -1）。
+  - `migrate` 默认做这一步的改写；上一步的改写要加 `--c68`（每一步只能跑一次）。
 - 字符串的字面量标记和长度共用 8 字节，`Str` 保持 16 字节（C61 最初让它变成了 24 字节）。
 
 **验证**

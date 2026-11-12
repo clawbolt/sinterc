@@ -3,39 +3,42 @@ write_file 把文件换成新内容（先写临时文件再 rename，失败时�
 
   $ cat > io.sn <<'EOF'
   > 
+  > use std.fs
+  > use std.env
+  > 
   > fn save(path: Str, lines: Vec<Str>) -> Result<(), Str> {
   >     let text = lines.join(",")
-  >     write_file(path, text)?
+  >     fs.write(path, text)?
   >     Ok(())
   > }
   > 
   > fn main() {
-  >     let a = args()
-  >     println("{vec_len(a)}")
+  >     let a = env.args()
+  >     println("{a.len()}")
   >     for x in a {
   >         println(x)
   >     }
-  >     match save("out.txt", args()) {
+  >     match save("out.txt", env.args()) {
   >         Ok(_) => println("写好了"),
   >         Err(e) => println(e)
   >     }
-  >     match read_file("out.txt") {
+  >     match fs.read("out.txt") {
   >         Ok(s) => println(s),
   >         Err(e) => println(e)
   >     }
-  >     match write_file("out.txt", "覆盖") {
+  >     match fs.write("out.txt", "覆盖") {
   >         Ok(_) => println("又写了一次"),
   >         Err(e) => println(e)
   >     }
-  >     match read_file("out.txt") {
+  >     match fs.read("out.txt") {
   >         Ok(s) => println(s),
   >         Err(e) => println(e)
   >     }
-  >     match read_file("nope.txt") {
+  >     match fs.read("nope.txt") {
   >         Ok(s) => println(s),
   >         Err(e) => println(e)
   >     }
-  >     match write_file("no/such/dir/x.txt", "x") {
+  >     match fs.write("no/such/dir/x.txt", "x") {
   >         Ok(_) => println("不该成功"),
   >         Err(e) => println(e)
   >     }
@@ -56,8 +59,10 @@ write_file 把文件换成新内容（先写临时文件再 rename，失败时�
 没有参数时 args() 是空的；写失败不留下临时文件：
 
   $ cat > empty.sn <<'EOF'
+  > use std.env
+  > 
   > fn main() {
-  >     println("{vec_len(args())}")
+  >     println("{env.args().len()}")
   > }
   > EOF
   $ sinterc run empty.sn
@@ -70,8 +75,10 @@ write_file 把文件换成新内容（先写临时文件再 rename，失败时�
 参数类型不对：
 
   $ cat > bad.sn <<'EOF'
+  > use std.fs
+  > 
   > fn main() {
-  >     let r = read_file(3)
+  >     let r = fs.read(3)
   > }
   > EOF
   $ sinterc bad.sn 2>&1 | grep -c 错误

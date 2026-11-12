@@ -5,11 +5,13 @@ str_to_i64(s) 解析整数，格式不对或超出 I64 范围时 .None；s.byte(
 把输入的每一行当作整数加起来，不是整数的行计数：
 
   $ cat > in.sn <<'EOF'
+  > use std.io
+  > 
   > fn main() {
   >     var total = 0
   >     var bad = 0
   >     while true {
-  >         match read_line() {
+  >         match io.read_line() {
   >             .Some(l) => match l.to_i64() {
   >                 .Some(n) => { total = total + n },
   >                 .None => { bad = bad + 1 }
@@ -40,11 +42,11 @@ str_to_i64(s) 解析整数，格式不对或超出 I64 范围时 .None；s.byte(
   >     println("{s.byte(0)}")
   >     println(s.slice(1, 4))
   >     println("{s.slice(5, 5).len()}")
-  >     show(str_to_i64("+12"))
-  >     show(str_to_i64("9223372036854775807"))
-  >     show(str_to_i64("9223372036854775808"))
-  >     show(str_to_i64("-9223372036854775808"))
-  >     show(str_to_i64("1x"))
+  >     show("+12".parse_i64())
+  >     show("9223372036854775807".parse_i64())
+  >     show("9223372036854775808".parse_i64())
+  >     show("-9223372036854775808".parse_i64())
+  >     show("1x".parse_i64())
   >     println("{s.byte(5)}")
   > }
   > EOF

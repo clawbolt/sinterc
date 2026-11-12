@@ -23,14 +23,14 @@ for x in inout v（Lean `Datatypes.VecInout`）。x 是第 i 个元素本身（�
   >     ps.push(P { x: 2, name: "b" })
   >     for p in inout ps {
   >         p.x = p.x + 1
-  >         str_push(p.name, "!")
+  >         p.name.push("!")
   >     }
   >     var names: Vec<Str> = vec_new()
   >     names.push("old")
   >     names.push("old")
   >     var i = 0
   >     for s in inout names {
-  >         s = str_from_i64(i)
+  >         s = i.to_str()
   >         i = i + 1
   >     }
   >     for p in ps {

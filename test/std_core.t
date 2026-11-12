@@ -31,7 +31,7 @@
   >     println("{q.sqrt()}")
   >     let c = 'q'
   >     println("{c.is_alpha()}")
-  >     println(str_from_char(c.to_upper()))
+  >     println(c.to_upper().to_str())
   >     let d = '7'
   >     println("{d.to_digit().unwrap_or(-1)}")
   >     println("{c.to_digit().unwrap_or(-1)}")

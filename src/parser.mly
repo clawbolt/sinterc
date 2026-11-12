@@ -6,13 +6,16 @@ let p (pos : Lexing.position) = { line = pos.pos_lnum; col = pos.pos_cnum - pos.
 let mk e pos = { e; pos = p pos; id = fresh_id () }
 let mks s pos = { s; spos = p pos }
 
+(* 语法糖展开出的内建函数调用（v[i]、for、插值、按字符串匹配）名字前面加 #，例如 #vec_get：
+   modules.ml 去掉 #，并且不按“标准库以外不能直接调用内建函数”检查（用户写的 vec_get(v, i) 要检查） *)
+
 (* 赋值 a = e：a 是变量、字段，或者 Vec 的元素（v[i]、vec_get(v, i)、v.get(i)；
    和 for x in inout v 里的 x = e 一样是 SetPlace，先算右边，再查下标、析构旧值、放进新值，Lean `Datatypes.VecInout`（二）） *)
 let assign pos (a : expr) e =
   match a.e with
   | Var x -> mks (Assign (x, e)) pos
   | Field (b, f) -> mks (SetField (b, f, e)) pos
-  | Call (("vec_get" | ".get"), [ _; _ ]) -> mks (SetPlace (a, e)) pos
+  | Call (("#vec_get" | "vec_get" | ".get"), [ _; _ ]) -> mks (SetPlace (a, e)) pos
   | _ -> raise (Syntax (a.pos, "只能给变量、字段或 Vec 的元素（v[i]）赋值"))
 
 (* 没有分号：块的最后一条若是表达式语句，就是块的值。 *)
@@ -85,7 +88,7 @@ let lit_show (l : expr) =
 let interp pos args =
   let e d = mk d pos and s d = mks d pos in
   let init, rest = match args with ({ e = Str _; _ } as a) :: r -> (a, r) | _ -> (e (Str ""), args) in
-  let push a = s (Expr (e (Call ("str_push", [ e (Var "#s"); a ])))) in
+  let push a = s (Expr (e (Call ("#str_push", [ e (Var "#s"); a ])))) in
   e (Block { stmts = s (Let (true, "#s", Some TStr, init)) :: List.map push rest; tail = Some (e (Var "#s")) })
 
 let build_match pos borrow (s : expr) arms =
@@ -115,7 +118,7 @@ let build_match pos borrow (s : expr) arms =
     in
     let test (l : expr) =
       match l.e with
-      | Str _ -> mk (Call ("str_eq", [ subj (); l ])) pos
+      | Str _ -> mk (Call ("#str_eq", [ subj (); l ])) pos
       | _ -> mk (Binop (Eq, subj (), l)) pos
     in
     let rec chain = function
@@ -162,8 +165,8 @@ let rec for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
   | `Vec ({ e = Var _ | Field _ | Deref _; _ } as v) ->
       loop "#k"
         [ s (Let (true, "#k", Some TI64, e (Int 0L))) ]
-        (e (Binop (Lt, e (Var "#k"), e (Call ("vec_len", [ copy v ])))))
-        (e (Call ("vec_get", [ copy v; e (Var "#k") ])))
+        (e (Binop (Lt, e (Var "#k"), e (Call ("#vec_len", [ copy v ])))))
+        (e (Call ("#vec_get", [ copy v; e (Var "#k") ])))
   | `Vec v ->
       (* 不是变量或字段时（for c in s.chars()、for x in make()）：先放进隐藏变量 #v，再遍历它。
          #v 在这个块结束时析构；嵌套的 for 各有自己的块，内层的 #v 遮住外层的 *)
@@ -192,7 +195,7 @@ let for_inout pos x (v : expr) body =
   let r = root (copy v) in
   incr inout_count;
   let j = "#j" ^ string_of_int !inout_count in
-  let place (at : pos) = { e = Call ("vec_get", [ copy v; { e = Var j; pos = at; id = fresh_id () } ]); pos = at; id = fresh_id () } in
+  let place (at : pos) = { e = Call ("#vec_get", [ copy v; { e = Var j; pos = at; id = fresh_id () } ]); pos = at; id = fresh_id () } in
   let mention (at : pos) =
     raise (Syntax (at, Printf.sprintf "for %s in inout %s 的循环体里不能用 %s（%s 整个借给了循环，不能 push、pop、读或再借）" x r r r))
   in
@@ -291,7 +294,7 @@ let for_inout pos x (v : expr) body =
   let body = blk body in
   let step = s (Assign ("#k", e (Binop (Add, e (Var "#k"), e (Int 1L))))) in
   let inner = { stmts = [ s (Let (false, j, Some TI64, e (Var "#k"))); step; s (Expr (e (Block body))) ]; tail = None } in
-  let cond = e (Binop (Lt, e (Var "#k"), e (Call ("vec_len", [ copy v ])))) in
+  let cond = e (Binop (Lt, e (Var "#k"), e (Call ("#vec_len", [ copy v ])))) in
   s (Expr (e (Block { stmts = [ s (Let (true, "#k", Some TI64, e (Int 0L))); s (While (cond, inner)) ]; tail = None })))
 
 (* 类型参数 <T, U: Show + linear>：拆成 (名字, 是否 linear) 和 trait 约束 (名字, trait)。 *)
@@ -527,7 +530,7 @@ expr:
   | e = expr DOT f = IDENT { mk (Field (e, f)) $startpos }
   | e = expr DOT n = INT { mk (Field (e, Int64.to_string n)) $startpos }
   (* 下标：v[i] 就是 vec_get(v, i)，是一个位置：可以读、借用，也可以整体赋值 v[i] = x *)
-  | e = expr LBRACKET i = expr RBRACKET { mk (Call ("vec_get", [ e; i ])) $startpos($2) }
+  | e = expr LBRACKET i = expr RBRACKET { mk (Call ("#vec_get", [ e; i ])) $startpos($2) }
   (* 方法调用 e.f(…)：就是 f(e, …)，函数名由类型检查按 e 的类型确定（"." 开头表示还没确定） *)
   | e = expr DOT f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN
     { mk (Call ("." ^ f, e :: args)) $startpos(f) }

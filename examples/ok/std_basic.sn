@@ -1,9 +1,9 @@
 // C35：用标准库的程序。标准库的函数（含泛型和 trait）一起导出，由 Lean 检查。
 
 fn parse(s: Str) -> Result<I64, Str> {
-    match str_to_i64(s) {
+    match s.parse_i64() {
         .Some(n) => Ok(n),
-        .None => Err(str_concat("不是整数：", s))
+        .None => Err("不是整数：".concat(s))
     }
 }
 

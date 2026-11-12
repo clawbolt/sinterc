@@ -18,6 +18,6 @@ fn main() {
     s.push("!")
     println(s)
     println(name)
-    println("{str_len(name)} 字节")
+    println("{name.len()} 字节")
     println(n.to_str())
 }

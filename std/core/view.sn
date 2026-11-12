@@ -1,6 +1,6 @@
 // 预导入：字符串切片 &str in a 的方法。切片不拥有内存，这里的方法都不分配新的字符串，
 // 结果是同一块缓冲区里的切片（Lean `Strings.Slice`：子切片仍在缓冲区里）。缓冲区用 text(a, s) 放进区域 a。
-// len、byte、sub、to_str、eq、eq_view、find(p, from)、print_str 还是编译器的内建方法。
+// len、byte、sub、to_str、eq、eq_view、print_str 还是编译器的内建方法；find、find_from 和 Str 的一样返回 Option。
 //
 //     arena |a| {
 //         let line = text(a, "x, 42 ,y")
@@ -11,14 +11,17 @@
 impl &str in r {
     fn is_empty(v: &str in r) -> Bool { v.len() == 0 }
 
+    // p 第一次出现的位置；没有时是 .None。
+    fn find(v: &str in r, p: Str) -> Option<I64> { v.find_from(p, 0) }
+
     // p 从 i 开始第一次出现的位置；没有时是 .None。
     fn find_from(v: &str in r, p: Str, i: I64) -> Option<I64> {
         let from = if i < 0 { 0 } else { i }
-        let k = v.find(p, from)
+        let k = view_find(v, p, from)
         if k < 0 { .None } else { .Some(k) }
     }
 
-    fn contains(v: &str in r, p: Str) -> Bool { v.find(p, 0) >= 0 }
+    fn contains(v: &str in r, p: Str) -> Bool { view_find(v, p, 0) >= 0 }
 
     fn starts_with(v: &str in r, p: Str) -> Bool {
         if str_len(p) > v.len() { return false }
@@ -52,11 +55,11 @@ impl &str in r {
         if str_len(sep) == 0 { panic("split 的分隔符不能为空") }
         var out: Vec<&str in r> = vec_new()
         var start = 0
-        var i = v.find(sep, 0)
+        var i = view_find(v, sep, 0)
         while i >= 0 {
             out.push(v.sub(start, i))
             start = i + str_len(sep)
-            i = v.find(sep, start)
+            i = view_find(v, sep, start)
         }
         out.push(v.sub(start, v.len()))
         out
@@ -68,7 +71,7 @@ impl &str in r {
         let n = v.len()
         var start = 0
         while start < n {
-            var e = v.find("\n", start)
+            var e = view_find(v, "\n", start)
             if e < 0 { e = n }
             var stop = e
             if stop > start && v.byte(stop - 1) == 13 { stop = stop - 1 }
@@ -87,7 +90,7 @@ impl &str in r {
     //         pos = e + 1
     //     }
     fn line_end(v: &str in r, pos: I64) -> I64 {
-        let e = v.find("\n", pos)
+        let e = view_find(v, "\n", pos)
         if e < 0 { v.len() } else { e }
     }
 
@@ -98,12 +101,12 @@ impl &str in r {
         var start = 0
         var k = 0
         while k < i {
-            let j = v.find(sep, start)
+            let j = view_find(v, sep, start)
             if j < 0 { return .None }
             start = j + str_len(sep)
             k = k + 1
         }
-        let e = v.find(sep, start)
+        let e = view_find(v, sep, start)
         if e < 0 { .Some(v.sub(start, v.len())) } else { .Some(v.sub(start, e)) }
     }
 

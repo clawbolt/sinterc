@@ -5,12 +5,13 @@
 use std.io
 use std.fs
 use std.hashmap
+use std.env
 
 fn words_of(line: Str) -> Vec<Str> {
     var out: Vec<Str> = vec_new()
     var w = ""
     for c in line.chars() {
-        if c.is_alnum() || char_code(c) > 127 {
+        if c.is_alnum() || c.code() > 127 {
             w.push_char(c.to_lower())
         } else if w.len() > 0 {
             out.push(w)
@@ -22,10 +23,10 @@ fn words_of(line: Str) -> Vec<Str> {
 }
 
 fn main() {
-    let a = args()
+    let a = env.args()
     var lines: Vec<Str> = vec_new()
-    if vec_len(a) > 0 {
-        match fs.read_lines(vec_get(a, 0)) {
+    if a.len() > 0 {
+        match fs.read_lines(a[0]) {
             Ok(ls) => { lines = ls },
             Err(e) => panic(e)
         }
@@ -42,11 +43,11 @@ fn main() {
                 _ => 0
             }
             // for 按借用给出 w，插入要拿走所有权，所以复制一份
-            counts.insert(str_clone(w), n + 1)
+            counts.insert(w.clone(), n + 1)
         }
     }
     var pairs: Vec<(Str, I64)> = vec_new()
-    counts.for_each(|k, v| pairs.push((str_clone(k), v)))
+    counts.for_each(|k, v| pairs.push((k.clone(), v)))
     // 次数多的在前；次数相同按词的字典序
     pairs.sort_by(|p, q| p.1 > q.1 || (p.1 == q.1 && (p.0).cmp(q.0).is_lt()))
     println("共 {total} 个词，{counts.len()} 个不同的词")

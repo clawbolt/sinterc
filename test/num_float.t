@@ -14,7 +14,7 @@
   >     for x in v {
   >         s = s + x
   >     }
-  >     s / to_f64(vec_len(v))
+  >     s / v.len().to_f64()
   > }
   > 
   > fn main() {
@@ -29,19 +29,19 @@
   >     v.push(4.0)
   >     println("{mean(v)}")
   >     println("{(2.0).sqrt()}")
-  >     println("{to_i64(3.99)}")
-  >     println("{to_i64(-3.99)}")
+  >     println("{(3.99).to_i64()}")
+  >     println("{(-3.99).to_i64()}")
   >     println("{(2.5).round()}")
   >     println("{(-1.5).floor()}")
   >     println("{(2.0).powi(-3)}")
   >     println("{0.1 + 0.2 == 0.3}")
   >     println("{1.0 < 2.0}")
-  >     println(str_concat("x = ", str_from_f64(1.0 / 3.0)))
+  >     println("x = ".concat((1.0 / 3.0).to_str()))
   >     match "2.75".to_f64() {
   >         .Some(x) => println("{x * 2.0}"),
   >         .None => println("不是数")
   >     }
-  >     match str_to_f64("abc") {
+  >     match "abc".parse_f64() {
   >         .Some(x) => println("{x}"),
   >         .None => println("不是数")
   >     }
@@ -107,7 +107,7 @@ F64 转换成 I64 时超出范围会 panic：
 
   $ cat > big.sn <<'EOF'
   > fn main() {
-  >     println("{to_i64(1e30)}")
+  >     println("{(1e30).to_i64()}")
   > }
   > EOF
   $ sinterc run big.sn

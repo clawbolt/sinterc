@@ -5,9 +5,9 @@ std.vec、std.math、std.map、std.hashmap、std.bigint。标准库的代码和�
   $ cat > ok.sn <<'EOF'
   > 
   > fn parse(s: Str) -> Result<I64, Str> {
-  >     match str_to_i64(s) {
+  >     match s.parse_i64() {
   >         .Some(n) => Ok(n),
-  >         .None => Err(str_concat("不是整数：", s))
+  >         .None => Err("不是整数：".concat(s))
   >     }
   > }
   > 
@@ -18,9 +18,9 @@ std.vec、std.math、std.map、std.hashmap、std.bigint。标准库的代码和�
   >     println("{(15).clamp(0, 10)}")
   >     println("{(2).pow(10)}")
   >     println(max("apple", "banana"))
-  >     println(str_to_i64("42").unwrap_or(0).to_str())
-  >     println(str_to_i64("x").unwrap_or(-1).to_str())
-  >     println(str_to_i64("x").is_none().to_str())
+  >     println("42".parse_i64().unwrap_or(0).to_str())
+  >     println("x".parse_i64().unwrap_or(-1).to_str())
+  >     println("x".parse_i64().is_none().to_str())
   >     println(parse("7").is_ok().to_str())
   >     println(parse("oops").unwrap_or(0).to_str())
   >     var v: Vec<I64> = vec_new()
@@ -32,7 +32,7 @@ std.vec、std.math、std.map、std.hashmap、std.bigint。标准库的代码和�
   >     println("{v.contains(4)}")
   >     println("{v.index_of(1).unwrap_or(-1)}")
   >     v.reverse()
-  >     println("{vec_get(v, 0)}")
+  >     println("{v[0]}")
   >     let parts = "a, b ,c".split(",")
   >     var trimmed: Vec<Str> = vec_new()
   >     for p in parts {

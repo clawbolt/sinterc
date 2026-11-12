@@ -8,7 +8,7 @@ fn sum(v: Vec<&I64 in a>) -> I64 {
     var s = 0
     var i = 0
     while i < v.len() {
-        s = s + *vec_get(v, i)
+        s = s + *v[i]
         i = i + 1
     }
     s

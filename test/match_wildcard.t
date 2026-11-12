@@ -49,14 +49,14 @@ _ 覆盖前面没写到的变体：按移动匹配时载荷在分支结束时析
   >         println(name(i))
   >     }
   >     println(op("sub").to_str())
-  >     println(op(str_concat("a", "dd")).to_str())
+  >     println(op("a".concat("dd")).to_str())
   >     println(op("mul").to_str())
   >     let flag = 3 > 2
   >     match flag {
   >         true => println("是"),
   >         _ => println("否")
   >     }
-  >     match str_concat("s", "ub") {
+  >     match "s".concat("ub") {
   >         "sub" => println("减"),
   >         _ => println("别的")
   >     }

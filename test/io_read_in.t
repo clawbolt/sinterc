@@ -1,13 +1,15 @@
-流式读入。read_file_in(a, path)、read_stdin_in(a) 把文件、标准输入（任意字节）直接读进区域 a 里的一块新缓冲区，
-得到它的切片，不经过 Str；read_chunk(a, n) 从标准输入最多读 n 个字节，到头时得到空的切片。
+流式读入。fs.read_in(a, path)、io.read_all_in(a) 把文件、标准输入（任意字节）直接读进区域 a 里的一块新缓冲区，
+得到它的切片，不经过 Str；io.read_chunk(a, n) 从标准输入最多读 n 个字节，到头时得到空的切片。
 新的缓冲区只追加在区域后面（Lean `Strings.Slice` 的 fresh_valid、grow_read），区域结束时一起释放。
 
   $ printf 'apple,3\nbanana,12\ncherry,7\n' > data.csv
   $ cat > file.sn <<'EOF'
   > 
+  > use std.fs
+  > 
   > fn total(path: Str) -> Result<I64, Str> {
   >     arena |a| {
-  >         let data = read_file_in(a, path)?
+  >         let data = fs.read_in(a, path)?
   >         var sum = 0
   >         for line in data.lines() {
   >             let f = line.split(",")
@@ -38,9 +40,11 @@
 标准输入一次读完，任意字节（包括 0）：
 
   $ cat > stdin.sn <<'EOF'
+  > use std.io
+  > 
   > fn main() {
   >     arena |a| {
-  >         let v = read_stdin_in(a)
+  >         let v = io.read_all_in(a)
   >         println("{v.len()}")
   >         println("{v.byte(1)}")
   >         v.print_str()
@@ -61,17 +65,19 @@
 按块读：每次最多 n 个字节，到头时是空的切片：
 
   $ cat > chunk.sn <<'EOF'
+  > use std.io
+  > 
   > fn main() {
   >     arena |a| {
   >         var n = 0
   >         var lines = 0
-  >         var c = read_chunk(a, 4)
+  >         var c = io.read_chunk(a, 4)
   >         while c.len() > 0 {
   >             n = n + c.len()
   >             for i in 0..c.len() {
   >                 if c.byte(i) == 10 { lines = lines + 1 }
   >             }
-  >             c = read_chunk(a, 4)
+  >             c = io.read_chunk(a, 4)
   >         }
   >         println("{n} 字节，{lines} 行")
   >     }
@@ -85,9 +91,11 @@
 大小必须大于 0：
 
   $ cat > zero.sn <<'EOF'
+  > use std.io
+  > 
   > fn main() {
   >     arena |a| {
-  >         let c = read_chunk(a, 0)
+  >         let c = io.read_chunk(a, 0)
   >     }
   > }
   > EOF
@@ -98,14 +106,16 @@
 第一个参数必须是区域：
 
   $ cat > notarena.sn <<'EOF'
+  > use std.io
+  > 
   > fn main() {
-  >     let c = read_stdin_in(1)
+  >     let c = io.read_all_in(1)
   > }
   > EOF
   $ sinterc notarena.sn
-  notarena.sn:2:27: 错误：read_stdin_in 的第一个参数必须是区域，I64 不是
-   2 |     let c = read_stdin_in(1)
-     |                           ^
+  notarena.sn:4:28: 错误：类型不匹配：需要 Arena，实际是 I64
+   4 |     let c = io.read_all_in(1)
+     |                            ^
   [1]
 
 不收集成 Vec 的逐行、逐字段访问：line_end、trim_cr 逐行走，结果和 view.lines 相同；field(v, sep, i) 和 split(v, sep)[i] 相同，

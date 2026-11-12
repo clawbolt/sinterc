@@ -95,7 +95,7 @@ let str_methods =
 let bytes_methods = [ "len"; "get"; "set"; "push"; "append"; "slice"; "clone"; "eq" ]
 
 (* 字符串切片的方法调用：v.sub(a, b) 就是 view_sub(v, a, b)。 *)
-let view_methods = [ "len"; "byte"; "sub"; "to_str"; "eq"; "eq_view"; "find"; "print_str" ]
+let view_methods = [ "len"; "byte"; "sub"; "to_str"; "eq"; "eq_view"; "print_str" ]
 
 (* 字符串切片的内建函数（Lean `Strings.Slice`）：text(a, s) 把 s 放进区域 a，得到整段的切片；view_… 是切片的方法。
    结果里的区域跟着参数走，所以和 alloc 一样单独检查类型（expr）；这里只给降级用的参数约定，区域写 _ *)

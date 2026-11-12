@@ -28,7 +28,7 @@ fn main() {
     names.push(("ann", 31))
     names.push(("bob", 27))
     for x in names {
-        println(str_concat(x.0, str_from_i64(x.1)))
+        println(x.0.concat(x.1.to_str()))
     }
     let (n, age) = swap((40, "cy"))
     println(n)

@@ -246,7 +246,7 @@ let rec expr st env (x : expr) : operand option =
             | _ ->
                 raise
                   (Typeck.Error
-                     (x.pos, "不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 vec_pop）")))
+                     (x.pos, "不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 v.pop()）")))
   | Binop (((And | Or) as op), a, b) ->
       let t = temp st TBool x.pos in
       let oa = Option.get (expr st env a) in

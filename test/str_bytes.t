@@ -3,6 +3,9 @@ push、set 超出时 panic，下标越界时 panic。read_bytes、write_bytes �
 str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`：每一轮解出的字符编码回去要正好是吃掉的字节）。
 
   $ cat > ok.sn <<'EOF'
+  > use std.io
+  > use std.fs
+  > 
   > fn hex(b: Bytes) -> Str {
   >     let ds = "0123456789abcdef"
   >     var s = ""
@@ -16,7 +19,7 @@ str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`�
   > }
   > 
   > fn check(b: Bytes) {
-  >     match str_from_utf8(b) {
+  >     match b.decode() {
   >         .Some(s) => println("utf8: {s}"),
   >         .None => println("not utf8: {hex(b)}")
   >     }
@@ -29,11 +32,11 @@ str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`�
   >     b.push(10)
   >     b.set(2, 128)
   >     println("{b.len()} {b.get(0)} {b.get(1)} {b.get(2)}")
-  >     match write_bytes("out.bin", b) {
+  >     match fs.write_bytes("out.bin", b) {
   >         Ok(_) => println("written"),
   >         Err(e) => println(e)
   >     }
-  >     match read_bytes("out.bin") {
+  >     match fs.read_bytes("out.bin") {
   >         Ok(c) => {
   >             println(hex(c))
   >             println("same: {c.eq(b)}")
@@ -62,7 +65,7 @@ str_from_utf8 只在合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`�
   >     o.push(104)
   >     o.push(105)
   >     o.push(10)
-  >     print_bytes(o)
+  >     io.write_bytes(o)
   > }
   > EOF
   $ sinterc run ok.sn

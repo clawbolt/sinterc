@@ -25,12 +25,12 @@
   >             })
   >             var s = 0
   >             var i = 0
-  >             while i < vec_len(refs) {
-  >                 s = s + *vec_get(refs, i)
+  >             while i < refs.len() {
+  >                 s = s + *refs[i]
   >                 i = i + 1
   >             }
   >             println("{s}")
-  >             println("{v.count(|x| x * 50 > *vec_get(refs, 3))}")
+  >             println("{v.count(|x| x * 50 > *refs[3])}")
   >         }
   >     }
   > }
