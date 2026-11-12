@@ -47,11 +47,11 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 ## 语言一览
 
 - **类型**：`I64`、`F64`、`Bool`、`Char`、`Str`、`Bytes`、`()`、结构体、枚举、元组 `(A, B)`、`Box<T>`、`Vec<T>`、
-  `Result<T, E>`、`Option<T>`、`Fn(T) -> U`、引用 `&T in a`。数字之间不做隐式转换（`to_f64`、`to_i64`）；整数溢出、除以零会 panic。
+  `Result<T, E>`、`Option<T>`、`Fn(T) -> U`、引用 `&T in a`。数字之间不做隐式转换（`n.to_f64()`、`x.to_i64()`）；整数溢出、除以零会 panic。
 - **变量**：`let` 不可重新赋值，`var` 可以。
 - **循环**：`while c { … }`；`for i in 0..n { … }`；`for x in v { … }` 按借用遍历 `Vec`（循环中 `v` 被锁住），
   `for x in inout v` 可以改元素；`v` 也可以是函数的返回值（`for c in s.chars()`）；`break`、`continue`。
-- **下标**：`v[i]` 是第 i 个元素（就是 `vec_get(v, i)`），可以读、借用、改字段（`v[i].x = 1`），也可以整体赋值
+- **下标**：`v[i]` 是第 i 个元素（也写 `v.get(i)`），可以读、借用、改字段（`v[i].x = 1`），也可以整体赋值
   `v[i] = x`（旧值先析构）；越界时 panic。元素不能直接移走，要拿走用 `v.pop()`。
 - **参数约定**：默认 `let`（只读借用，调用后实参还能用）；`inout`（修改调用方的变量或字段）；`sink`（拿走所有权）。
 - **所有权**：`Box`、`Vec`、`Str` 和含有它们的值会被移动，作用域结束时自动析构；移走之后再用是编译错误。
@@ -62,45 +62,56 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
   模式可以嵌套：`.Some((0, s))`、`Ok(.None)`、`(0, _)`；`match (a, b) { … }` 匹配元组。
   编译器检查每种情况都有分支（没覆盖时报一个例子），也检查有没有永远匹配不到的分支。
   `match let x { … }` 按借用绑定；对 `let` 参数 match 时也按借用。
-- **泛型和 trait**：`fn same<T: Eq>(a: T, b: T) -> Bool`，单态化、静态派发。方法调用 `v.push(x)` 等同于 `push(v, x)`。
+- **泛型和 trait**：`fn same<T: Eq>(a: T, b: T) -> Bool`，单态化、静态派发。方法写在 `impl 类型 { … }` 里，用 `x.m()` 调用；普通函数只能写成 `f(x)`。
   trait 里写了函数体的方法是默认方法，impl 可以不写；impl 可以是泛型的：`impl<T: ToStr> ToStr for Vec<T> { … }`。
 - **闭包**：参数类型写 `fn(T) -> U`，实参写 `|x| e`，可以读外面的变量，也可以改外面的 `var`。
   要存进变量、字段、`Vec` 或者返回，就用 `Fn(T) -> U`：外面的变量按值拿进闭包（`Str` 这类被移走），闭包可以改自己的环境（计数器），
   所以调用时闭包要在 `var` 里（`var f: Fn(I64) -> I64 = |x| x + k`，`f(1)`；字段、`Vec` 元素写 `fs[i].call(1)`）。
 - **引用只能来自 arena**：`arena |a| { let r = alloc(a, 1) … }`，引用不能活过它的 arena。
-- **字符串切片 `&str in a`**：`text(a, s)` 把字符串交给 arena，得到整段的切片；`v.sub(i, j)`、`v.byte(i)`、`v.find(p, from)`、`v.eq(s)`、`v.len()` 都不分配（越界时 panic），`v.to_str()` 复制成 `Str`。切片和引用一样不能活过它的 arena。字符串字面量不分配，修改时才复制。`read_file_in(a, path)`、`read_stdin_in(a)`、`read_chunk(a, n)` 把文件、标准输入（任意字节）直接读进 arena，得到切片。`std.view` 的 `next_block(r, a, n)` 逐块读标准输入，每次得到以换行结束的一段完整的行，每块放进内层 arena，内存就和输入大小无关。
+- **字符串切片 `&str in a`**：`text(a, s)` 把字符串交给 arena，得到整段的切片；`v.sub(i, j)`、`v.byte(i)`、`v.find(p)`（`Option`）、`v.eq(s)`、`v.len()` 都不分配（越界时 panic），`v.to_str()` 复制成 `Str`。切片和引用一样不能活过它的 arena。字符串字面量不分配，修改时才复制。`fs.read_in(a, path)`、`io.read_all_in(a)`、`io.read_chunk(a, n)` 把文件、标准输入（任意字节）直接读进 arena，得到切片。`io.next_block_in(r, a, n)` 逐块读标准输入，每次得到以换行结束的一段完整的行，每块放进内层 arena，内存就和输入大小无关。
 - **模块**：一个文件一个模块，`use geom` 引入同目录的 `geom.sn`，用 `geom.area(…)` 访问标了 `pub` 的条目。
 - **字符串**：`Str` 存 UTF-8 字节。`s.len()` 是字节数，`s.chars()` 逐个解出 `Char`，`s.char_count()` 是字符数，
-  `s.push(t)`、`s.push_char(c)`、`s.slice(a, b)`、`s.to_i64()`、`s.to_f64()`。
+  `s.push(t)`、`s.push_char(c)`、`s.slice(a, b)`、`s.parse_i64()`、`s.parse_f64()`（`Option`）。
   插值：`"x = {x}, 和 = {a + b}"`，`{{`、`}}` 是花括号本身。插值用内建的 trait `ToStr`：I64、F64、Char、Bool、Str 已经实现，
   别的类型写 `fn to_str(x: T) -> Str`（可以给多种类型各写一个），泛型代码里要写约束 `T: ToStr`。
   转义有 `\n`、`\r`、`\t`、`\\`、`\"`；字符字面量 `'a'`、`'中'`、`'\n'`。
-- **输入输出**：`print(s)`、`print_i64`、`print_f64`、`print_char`（都会换行）；`print_str(s)` 不换行，
-  `print_byte(b)` 写一个原始字节（0–255）；`eprint(s)`、`eprint_str(s)` 写到标准错误；`read_line()`、`args()`、`read_file`、`write_file`。
+- **输入输出**：`println(s)` 换行，`print(s)` 不换行，别的类型用插值 `println("{x}")`；`io.write_byte(b)` 写一个原始字节（0–255）；
+  `eprintln(s)`、`eprint(s)` 写到标准错误；`io.read_line()`、`env.args()`、`fs.read`、`fs.write`（见下面的标准库）。
 - **字节串 `Bytes`**：任意字节（0–255 的 I64），所有权和 `Str` 一样。`bytes_new()`、`b.len()`、`b.get(i)`、`b.set(i, x)`、
-  `b.push(x)`、`b.append(c)`、`b.slice(a, b)`、`b.clone()`、`b.eq(c)`；`read_bytes`、`write_bytes` 读写二进制文件，
-  `print_bytes(b)` 原样输出；`s.to_bytes()` 复制字符串的字节，`str_from_utf8(b)` 只在合法的 UTF-8 时得到 `.Some(s)`。
+  `b.push(x)`、`b.append(c)`、`b.slice(a, b)`、`b.clone()`、`b.eq(c)`；`fs.read_bytes`、`fs.write_bytes` 读写二进制文件，
+  `io.write_bytes(b)` 原样输出；`s.to_bytes()` 复制字符串的字节，`b.decode()` 只在合法的 UTF-8 时得到 `.Some(s)`。
 
 ## 标准库
 
-用 `use std.名字` 引入，之后用 `名字.函数(…)` 调用。源码在 `std/` 下。
+源码在 `std/` 下，用 Sinter 写。编译器实现的内建函数（`str_len`、`vec_push`、`read_line`…）只有标准库能直接调用，程序里写成方法或者标准库的函数。
+
+预导入的核心部分（`std/core/`）不用 `use`：
+
+| 内容 | |
+|---|---|
+| trait | `Eq`（`a.eq(b)`）、`Ord`（`a.cmp(b)` 返回 `.Less`、`.Equal`、`.Greater`）、`Hash`；泛型的 `min(a, b)`、`max(a, b)` |
+| 打印 | `println(s)` 换行，`print(s)` 不换行；`eprintln`、`eprint` 写到标准错误。其他类型用插值：`println("{x}")` |
+| I64、F64 | `abs`、`min`、`max`、`clamp`、`pow`、`gcd`、`lcm`、`to_f64`、`to_char`；`sqrt`、`floor`、`round`、`powi`、`to_i64` 等 |
+| Char | `is_digit`、`is_alpha`、`is_whitespace`、`to_upper`、`to_digit` 等（只认 ASCII） |
+| Option、Result | `is_some`、`unwrap_or`、`unwrap`、`expect`、`map`、`ok` 等 |
+| Str | `split`、`trim`、`find`（`Option`）、`contains`、`starts_with`、`replace`、`lines`、`to_upper`、`to_lower`、`repeat`、`parse_i64`；`Vec<Str>` 的 `join` |
+| 切片 `&str in a` | `split`、`lines`、`trim`、`find`、`starts_with`、`parse_i64`，以及不建 Vec 的 `line_end`、`trim_cr`、`field`，都不分配 |
+| Vec | `map`、`filter`、`fold`、`any`、`all`、`count`、`for_each`、`sum`、`max`、`min`、`reverse`、`contains`、`index_of`、`sort`、`sort_by`、`binary_search`、`dedup` |
+
+其余的用 `use std.名字` 引入，之后写 `名字.函数(…)`；构造函数在模块里，其余是方法：
 
 | 模块 | 内容 |
 |---|---|
-| `std.math` | trait `Eq`、`Ord`；`min`、`max`、`abs`、`pow`、`gcd`、`lcm`；F64 的 `sqrt`、`floor`、`round`、`pi` 等 |
-| `std.option`、`std.result` | `is_some`、`unwrap_or`、`unwrap`、`expect` 等 |
-| `std.vec` | `map`、`filter`、`fold`、`any`、`all`、`count`、`sum`、`max`、`min`、`reverse`、`contains`、`range`、`sort`、`sort_by`、`binary_search`、`dedup` |
-| `std.str` | `split`、`join`、`trim`、`find`、`contains`、`starts_with`、`replace`、`lines`、`to_upper`、`to_lower`、`repeat` |
-| `std.view` | 字符串切片 `&str in a` 的 `split`、`lines`、`trim`、`starts_with`、`ends_with`、`to_i64`，以及不建 Vec 的 `line_end`、`trim_cr`、`field`，都不分配 |
-| `std.char` | `is_digit`、`is_alpha`、`is_whitespace`、`to_upper`、`to_digit` 等（只认 ASCII） |
-| `std.io` | `read_lines`、`write_lines`、`input_lines` |
-| `std.os` | `env`、`list_dir`（按名字排好）、`exists`、`is_dir`、`make_dir`、`remove`、`run`（启动子进程，不经过 shell，返回退出码）、`output`（收集标准输出）、`exit` |
-| `std.map` | 有序映射（按键排好的两个 Vec，二分查找） |
-| `std.treemap` | 有序映射（AVL 树，对数时间的插入和删除） |
-| `std.hashmap` | 哈希表（开放寻址；键实现 `Eq` 和 `Hash`，I64 和 Str 已实现） |
-| `std.bigint` | 任意大小的整数：`from_i64`、`parse`、`to_str`、`add`、`sub`、`mul`、`pow`、`divmod_small`（除以不超过 10^9 的数），实现了 `Eq`、`Ord` |
+| `std.io` | `read_line`、`read_all`、`input_lines`；`read_all_in(a)`、`read_chunk(a, n)` 读进 arena；`lines()`、`next_block_in(r, a, n)` 逐块读行 |
+| `std.fs` | `read`、`write`、`read_lines`、`write_lines`、`read_bytes`、`write_bytes`、`read_in(a, path)`、`exists`、`is_dir`、`list_dir`（按名字排好）、`make_dir`、`remove` |
+| `std.env` | `args`、`get`（环境变量）、`exit` |
+| `std.process` | `run`（启动子进程，不经过 shell，返回退出码）、`output`（收集标准输出） |
+| `std.vec`、`std.math` | `range(n)`；`pi()`、`e()` |
+| `std.map` | 有序映射（AVL 树）：`map.new()`，`m.insert(k, v)`、`m.get(k, \|v\| …)`、`m.remove(k)`、`m.for_each(\|k, v\| …)` |
+| `std.hashmap` | 哈希表（开放寻址；键实现 `Eq` 和 `Hash`，I64 和 Str 已实现），方法和 `Map` 相同 |
+| `std.bigint` | 任意大小的整数：`bigint.from_i64(x)`、`parse(s)`；`a.add(b)`、`sub`、`mul`、`pow`、`divmod_small`（除以不超过 10^9 的数），实现了 `Eq`、`Ord`、`ToStr` |
 
-排序、二分查找、三种映射（含 AVL 树的平衡）和大整数的核心算法都在 Lean 里证明过（sinter-formal 仓库的 `Core/Library/`）。
+排序、二分查找、两种映射（含 AVL 树的平衡）和大整数的核心算法都在 Lean 里证明过（sinter-formal 仓库的 `Core/Library/`）。
 
 ## 工具
 
@@ -115,11 +126,11 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 
 - 不能嵌套定义闭包；`Fn(…)` 闭包的环境里不能有引用。
 - 还没有结构体模式（`P { x, y }` 只能用在 `let` 里）；模式不能看进 `Box` 里面。
-- `std.char` 和大小写转换只认 ASCII；`sort` 不稳定（相等的元素先后可能变）。
+- Char 的分类和大小写转换只认 ASCII；`sort` 不稳定（相等的元素先后可能变）。
 - `Box`、`Vec` 里的类型参数在实例之间算不变，比 Rust 严：有些 Rust 能写的程序这里会被拒绝。
 - 生成的 C 需要 GCC 或 Clang（用到了 GNU C 扩展）。还没有语言服务器（编辑器只有语法高亮）。
 - 还没有：trait 对象（动态派发）、大整数除以大整数、正则、线程和网络、包管理。
-  `read_file` 不检查 UTF-8（不合法的字节按字符遍历时是 U+FFFD）；要检查就用 `read_bytes` 加 `str_from_utf8`。
+  `fs.read` 不检查 UTF-8（不合法的字节按字符遍历时是 U+FFFD）；要检查就用 `fs.read_bytes` 加 `b.decode()`。
   `Bytes` 还不能写 `b[i]`，也不能 `for x in b`（用 `b.get(i)` 和 `0..b.len()`）。
 
 ## 反馈

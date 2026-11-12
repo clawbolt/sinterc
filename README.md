@@ -38,11 +38,12 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 |---|---|
 | `bin/main.ml` | 命令行：`run`、`build`、`fmt`、`--emit=core`、`--batch` |
 | `src/` | 编译器本身，见下面的编译流程 |
-| `runtime/` | C 运行时：`sinter.h`（分配计数、字符串、切片、Vec 的宏、入口）放在生成的 C 文件开头，`sinter_lib.h`（I/O、解析、`std.os`，用到 `Option<Str>` 等内建实例类型）放在类型定义之后 |
+| `runtime/` | C 运行时：`sinter.h`（分配计数、字符串、切片、Vec 的宏、入口）放在生成的 C 文件开头，`sinter_lib.h`（I/O、解析、文件和进程，用到 `Option<Str>` 等内建实例类型）放在类型定义之后 |
 | `std/` | 标准库（Sinter 写的，构建时由 `gen/embed.ml` 编进编译器）；`std/core/` 是预导入的核心部分 |
 | `test/` | 端到端测试，一个文件一个主题，文件名前缀是主题：`own_` 所有权、`region_` 区域、`str_` 字符串、`io_` 输入输出、`std_` 标准库，等等 |
 | `examples/ok`、`examples/bad` | 翻译验证用的程序：`ok` 的每个函数都要被 Lean 接受，`bad` 的要被 Lean 独立拒绝 |
 | `examples/tour` | TRY.md 里的一览程序 |
+| `tools/migrate.ml` | 把旧写法改成新标准库写法的改写工具（`dune exec tools/migrate.exe -- -w 文件…`） |
 | `fuzz/` | 随机测试 |
 | `editor/` | VS Code、Vim 的语法高亮 |
 
@@ -73,8 +74,8 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   `consume(x)` 只能在定义这个 `linear` 类型的文件里用。变量不能和引入的模块同名。模块里的错误报在模块的文件里。
 - 元组：`(a, b)` 构造，`t.0` 取元素，`t.0.1 = e` 赋值，`let (x, y) = e` 拆开；类型写成 `(A, B)`，可以嵌套、作返回值和泛型实参（`Vec<(Str, I64)>`）。
   它是内建的泛型结构体 `Tuple#n`（字段 `0`、`1`、…，名字用户写不出来），规则和证明沿用泛型结构体（`Datatypes.Enum`、`Ownership.Partial`）。元素都可复制时元组可复制，否则只能移动；2 到 6 个元素。
-- 浮点数 `F64`：字面量 `1.5`、`2e-3`；`+ - * /` 和比较要求两边类型相同（不做隐式转换，用 `to_f64`、`to_i64`，后者向零取整，超出范围或 NaN 时 panic）；`%` 只用于 I64。
-  按 IEEE 754，不检查溢出和除以零。`print_f64` / `str_from_f64` 打印能还原的最短写法（整数值带 `.0`），`str_to_f64` / `s.to_f64()` 解析。
+- 浮点数 `F64`：字面量 `1.5`、`2e-3`；`+ - * /` 和比较要求两边类型相同（不做隐式转换，用 `n.to_f64()`、`x.to_i64()`，后者向零取整，超出范围或 NaN 时 panic）；`%` 只用于 I64。
+  按 IEEE 754，不检查溢出和除以零。`"{x}"` / `x.to_str()` 是能还原的最短写法（整数值带 `.0`），`s.parse_f64()` 解析。
 - `()`（Lean `Generics.UnitArg`）：只有一个值的 copy 类型，可以作泛型函数、`Vec`、`Option` 等的类型实参，也可以是变量、参数、字段、`Box` 里的值；
   `Result<(), E>` 的 `Ok` 有一个 `()` 载荷，可以省略不写（`Ok` 就是 `Ok(())`，分支可以写 `Ok =>`）。还不能引用 `()`，区域里也不能放 `()`。
 - `panic(msg)`（Lean `FlowGraph.Panic`）：打印说明后立刻结束进程（退出码 101），类型是 Never。不析构任何值、不执行 `errdefer`、
@@ -83,14 +84,14 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 ## 所有权、参数和投影
 
 - `Box<T>`、`Vec<T>`、`Str` 和含它们的结构体需要析构，只能移动、不能复制；`I64`、`Bool` 和只含它们的结构体按值复制。
-  变量结构体可以直接移走单个字段；不能直接通过 `Box`、`Vec` 或多层字段移出，改用 `unbox`、`vec_pop` 或先拆开结构体。
+  变量结构体可以直接移走单个字段；不能直接通过 `Box`、`Vec` 或多层字段移出，改用 `unbox`、`v.pop()` 或先拆开结构体。
 - `a.f = e` 要求 `a` 以可修改的 `var` / `inout` / `sink` 位置为根；旧字段需要析构时先析构，`linear` 字段不能直接赋值。
 - 参数约定：`let`（不写时的默认）只读借用，`inout` 可变借用（实参必须是可修改的位置），`sink` 转移所有权（可复制的类型按值复制）。
   `let` / `inout` 参数在 C 里是指针，不拥有值，不能移走；给 `inout` 参数整体赋值会先析构旧值。
 - 排他性：同一次调用里同一个变量出现两次，两次都必须是只读的（`let` 或复制）。
 - 投影：`let a = p.a` 这类绑定（值需要析构、又不能整个移走）不拷贝，`a` 指向 `p` 内部。
   `a` 之后还会用到时，`p` 不能被移动、修改、以 `inout` 传入或析构；锁在 `a` 最后一次使用之后结束。锁住的是整个 `p`。
-- `for x in inout v`（Lean `Datatypes.VecInout`）：`x` 是第 i 个元素本身，循环体里不能用 `v`。`vec_swap(inout v, i, j)`（也写 `v.swap(i, j)`，Lean `Datatypes.VecSwap`）：交换两个元素，越界时 panic。
+- `for x in inout v`（Lean `Datatypes.VecInout`）：`x` 是第 i 个元素本身，循环体里不能用 `v`。`v.swap(i, j)`（Lean `Datatypes.VecSwap`）：交换两个元素，越界时 panic。
 
 ## 线性值和出错路径
 
@@ -122,7 +123,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   （`let` / `inout` 参数、字段、解引用）自动借用，和 `let` 绑定投影的规则相同。枚举本身不动，`match` 之后照常可用。
   需要析构的载荷绑定成投影（不拥有，不能移走）；投影之后还会用到时，被匹配的值不能被移动、修改、以 `inout` 传入或析构。
 - `_ => e` 覆盖没写到的变体（Lean `Matching.Wildcard`：最多一个、放在最后、还有没写到的变体才能写；按移动匹配时载荷在分支结束时析构）。
-  字面量分支 `0 =>`、`-1 =>`、`true =>`、`"add" =>` 展开成 if 链（字符串用 str_eq），最后必须有 `_`。
+  字面量分支 `0 =>`、`-1 =>`、`true =>`、`"add" =>` 展开成 if 链（字符串用 `eq`），最后必须有 `_`。
 - 嵌套模式 `.Some((0, s))`、`Ok(.None)`（Lean `Matching.Nested`、`Matching.Coverage`）：展开成只读的测试和拆开取值，覆盖检查按代表值枚举。
 
 ## 泛型和 trait
@@ -143,7 +144,8 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   （类型实参本身是类型参数时，要在当前函数里写了同样的约束）。单态化时方法调用直接换成那个 `impl` 里的函数，没有虚表。
 - 类型自己的方法（Lean `Traits.Inherent`）：`impl Point { fn norm(p: Point) -> I64 { … } }`，也可以给内建类型和具体实例写
   （`impl Vec<I64> { fn sum… }`、`impl<T> Vec<T> { … }`、`impl &str in a { … }`）。第一个参数是接收者，签名里可以写 `Self`；
-  `x.m()` 先找类型自己的方法，再找 trait 的方法，在定义处查一次；同名方法的头部不能重叠。
+  `x.m()` 先找类型自己的方法，再找内建类型的方法和 trait 的方法，在定义处查一次；同名方法的头部不能重叠。
+  普通函数不是方法：`fn norm(p: Point)` 只能写成 `norm(p)`，`p.norm()` 报“Point 没有方法 norm”。
 - 默认方法和泛型 impl（Lean `Traits.ImplSearch`）：trait 里写了函数体的方法是默认方法，impl 可以不写；泛型 impl `impl<T: ToStr> ToStr for Vec<T> { … }`，
   查找时递归地查约束。头部不能是单独的类型参数，impl 的类型参数要出现在头部里，同一个 trait 的两个 impl 不能重叠。
 - 内建的 trait `ToStr`（`fn to_str(x: Self) -> Str`）：I64、F64、Char、Bool、Str 已经实现，字符串插值用它；
@@ -153,10 +155,10 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 ## 闭包
 
 - 当实参传的闭包（Lean `Closures.Param`）：参数类型写 `fn(T, inout U) -> R`（返回 `()` 时写 `fn(T)`），实参写闭包 `|x, y| 表达式`，没有参数写 `|| 表达式`：
-  `vec.map(v, |x| x * k)`、`vec.for_each(v, |x| { total = total + x })`。
+  `v.map(|x| x * k)`、`v.for_each(|x| { total = total + x })`。
   `fn(…)` 只能作函数参数的类型，函数参数只能调用或原样传给另一个 `fn(…)` 参数；不能存进变量、字段、Vec，也不能返回（要存起来用下面的 `Fn(…)`）。
 - 闭包用到的外层变量是捕获：只读的按 `let`，赋值、作 `inout` 实参的按 `inout`（要求是 `var` 变量）。调用处把捕获当作额外的实参，
-  和别的实参一起检查排他性，所以 `vec.for_each(v, |x| { v.push(x) })` 被拒绝。
+  和别的实参一起检查排他性，所以 `v.for_each(|x| { v.push(x) })` 被拒绝。
 - 实现是按闭包特化：每个闭包提升成普通函数（捕获在前），`h(a, |x| …)` 换成调用 `h` 的特化 `h[闭包]`。之后的所有权检查、排他性检查和
   Lean 翻译验证看到的都是普通函数。带 `fn(…)` 参数的函数本身只做类型检查，不生成代码。
 - 闭包可以用含引用的变量和区域本身（Lean `Closures.CapRef`）：提升出的函数里这些区域换成区域参数 `'c00`、`'c01`…，按闭包所在位置的嵌套顺序编号，
@@ -167,7 +169,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   - 调用写 `f(x)`（`f` 是变量或参数）或 `f.call(x)`（字段、`Vec` 元素），闭包按 `inout`：闭包可以改自己环境里的变量（计数器），
     所以 `f` 要是 `var` 变量或 `inout` / `sink` 参数。闭包体访问的环境和实参不重叠（`env_disjoint`），
     所以闭包和当实参传的一样提升成普通函数检查就够了；`w.g.call(w)` 这种闭包所在的位置又当实参的调用照常被排他性检查拒绝。
-  - `Fn` 变量可以传给 `fn(…)` 参数（例如 `vec.map(v, f)`）：当作闭包 `|x| f(x)`。
+  - `Fn` 变量可以传给 `fn(…)` 参数（例如 `v.map(f)`）：当作闭包 `|x| f(x)`。
   - 环境里不能有引用、区域和 `linear` 值（存起来的值不指向任何栈帧，返回之后也不会悬空）。
   - C 里是 `sn_fn`（环境指针、转发函数、析构函数）；每个闭包一个环境结构体，每种 `Fn` 类型一个 `call#…`。
     导出给 Lean 时 `Fn` 是需要析构的值，和 `Str` 一样，`validate.sh` 照常检查。
@@ -179,92 +181,86 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   修改（`push`、`push_char`、`Bytes` 的 `set`、`push`）前 `sn_str_own` 先复制到堆上。命令行参数、环境变量、目录项不归程序所有，复制成堆上的 `Str`。
   C 里 `lit` 和 `len` 共用 8 字节（位域，`len` 63 位），`sn_str` 是 16 字节。
 - 字符 `Char`（Lean `Library.Utf8`）：一个 Unicode 标量值，可以复制；字面量 `'a'`、`'中'`、`'😀'`，转义 `'\n'`、`'\t'`、`'\\'`、`'\''`、`'\0'`；按码点比较。
-  `s.chars()` 逐个解码（不合法的字节解成 U+FFFD，只吃一个字节），`s.char_count()` 是字符数，`s.push_char(c)`、`str_from_char(c)` 按 UTF-8 写入；
-  `c.code()`、`char_from(n)`（代理区、超出范围时是 `.None`）在码点和字符间转换。`for x in e` 的 `e` 不是变量或字段时（`for c in s.chars()`），先放进隐藏变量再遍历，循环结束后析构。
+  `s.chars()` 逐个解码（不合法的字节解成 U+FFFD，只吃一个字节），`s.char_count()` 是字符数，`s.push_char(c)`、`c.to_str()` 按 UTF-8 写入；
+  `c.code()`、`n.to_char()`（代理区、超出范围时是 `.None`）在码点和字符间转换。`for x in e` 的 `e` 不是变量或字段时（`for c in s.chars()`），先放进隐藏变量再遍历，循环结束后析构。
 - 字符串插值：`"x = {x}, 和 = {a + b}"`，花括号里是任意表达式（可以嵌套字符串），`{{`、`}}` 是花括号本身。值按类型用 `ToStr` 转成字符串，
-  泛型代码里插值要写约束 `T: ToStr`。展开成 `{ var #s = …; str_push(#s, …); #s }`，不需要新的推理。
+  泛型代码里插值要写约束 `T: ToStr`。展开成 `{ var #s = …; #s.push(…); #s }`，不需要新的推理。
 - 字节串 `Bytes`：任意字节，C 里和 `Str` 的表示相同，所有权也一样。
-  `bytes_new`、`len`、`get`、`set`、`push`（字节是 0 到 255 的 I64，超出时 panic）、`append`、`slice`、`clone`、`eq`（`==` 不能比较字节串）；
-  `str_to_bytes`（`s.to_bytes()`）、`str_from_utf8`（Lean `Library.Utf8Check`：合法时才 `.Some`）、`read_bytes`、`write_bytes`、`print_bytes`。
+  `bytes_new()`，方法 `len`、`get`、`set`、`push`（字节是 0 到 255 的 I64，超出时 panic）、`append`、`slice`、`clone`、`eq`（`==` 不能比较字节串）、`is_empty`；
+  `s.to_bytes()`、`b.decode()`（Lean `Library.Utf8Check`：合法时才 `.Some`）、`fs.read_bytes`、`fs.write_bytes`、`io.write_bytes`。
 - 切片 `&str in a`（Lean `Strings.Slice`）：在编译器里就是区域 `a` 里的一种引用（`TRef (TView, a)`），所以“切片活不过缓冲区”
   直接由已有的区域检查保证，导出给 Lean 时也按引用复核（`validate.sh` 检查 `examples/ok/str_slice.sn`）。
   缓冲区由 `text(a, s)` 交给区域 `a`（字面量直接指向静态存储，不复制），之后不再改动，区域结束时整块释放。
-  - 方法：`len`、`byte(i)`、`sub(i, j)`（越界时 panic）、`find(p, from)`、`eq(s)`、`eq_view(w)`、`print_str()`，都不分配；`to_str()` 复制成 `Str`。
-  - `std.view`：`split`、`lines`、`trim`、`starts_with`、`ends_with`、`to_i64`；逐行、逐字段访问不建 `Vec` 的 `line_end(v, pos)`、`trim_cr(v)`、`field(v, sep, i)`。
+  - 方法：`len`、`byte(i)`、`sub(i, j)`（越界时 panic）、`find(p)`、`find_from(p, i)`（`Option<I64>`）、`eq(s)`、`eq_view(w)`、`print_str()`，都不分配；`to_str()` 复制成 `Str`。
+  - 核心部分的方法：`split`、`lines`、`trim`、`starts_with`、`ends_with`、`parse_i64`；逐行、逐字段访问不建 `Vec` 的 `v.line_end(pos)`、`v.trim_cr()`、`v.field(sep, i)`。
   - C 里是 `sn_view { p, len }`，按值传。
   - 暂不支持：对切片做字符串插值、`match` 切片。
 
 ## 输入输出
 
-- 输出：`print`（换行）、`print_str`、`print_byte`、`print_i64` 等；`eprint(s)`、`eprint_str(s)` 写到标准错误，写之前先刷新标准输出，所以两者合到一处（`2>&1`）时顺序和程序里一样。
-- 文件与参数（Lean `Library.FileIO`）：`args()` 是命令行参数（不含程序名，`sinterc run 源文件.sn 参数…` 把后面的参数交给程序）；
-  `read_file(path)` 返回 `Result<Str, Str>`；`write_file(path, s)` 返回 `Result<(), Str>`，先写 `path.sinter-tmp` 再 `rename`，
-  失败时原文件不变、不留临时文件。出错说明是“路径：系统的说明”。`read_line()` 读一行，读到末尾时是 `.None`。
+都在标准库里（见下一节的系统层），只读外部状态、返回新的值（Lean `Library.FileIO`）。
+
+- 打印（预导入）：`println(s)` 换行，`print(s)` 不换行；`eprintln(s)`、`eprint(s)` 写到标准错误，写之前先刷新标准输出，所以两者合到一处（`2>&1`）时顺序和程序里一样。
+  其他类型用插值：`println("{x}")`。原始字节用 `io.write_byte(b)`、`io.write_bytes(b)`。
+- `std.io`：`read_line()` 读一行，读到末尾时是 `.None`；`read_all()` 读完标准输入；`input_lines()` 每行一个元素。
+- `std.env`：`args()` 是命令行参数（不含程序名，`sinterc run 源文件.sn 参数…` 把后面的参数交给程序）；`get(name)` 是环境变量（`Option<Str>`）；
+  `exit(code)` 和 `panic` 一样以 Halt 结尾、不析构。
+- `std.fs`：`read(path)` 返回 `Result<Str, Str>`；`write(path, s)` 返回 `Result<(), Str>`，先写 `path.sinter-tmp` 再 `rename`，
+  失败时原文件不变、不留临时文件。出错说明是“路径：系统的说明”。另有 `read_bytes`、`write_bytes`、`read_lines`、`write_lines`、
+  `exists`、`is_dir`、`list_dir`（不含 `.` 和 `..`，按字节排好）、`make_dir`、`remove`。
+- `std.process`：`run(prog, args)`（`posix_spawnp`，不经过 shell，返回退出码，被信号结束时是 128 + 信号）、`output(prog, args)`（另外用管道收集标准输出，退出码不是 0 时是 Err）。
 - 直接读进区域，不经过 `Str`：
-  - `read_file_in(a, path) -> Result<&str in a, Str>`：普通文件按 `fstat` 的大小在区域里分配一块缓冲区，大小没变时只读一次、不复制。
-  - `read_stdin_in(a) -> &str in a`：读完标准输入，任意字节（包括 0）。
-  - `read_chunk(a, n) -> &str in a`：从标准输入最多读 `n` 个字节（`n ≤ 0` 时 panic），到头时是空的切片。
+  - `fs.read_in(a, path) -> Result<&str in a, Str>`：普通文件按 `fstat` 的大小在区域里分配一块缓冲区，大小没变时只读一次、不复制。
+  - `io.read_all_in(a) -> &str in a`：读完标准输入，任意字节（包括 0）。
+  - `io.read_chunk(a, n) -> &str in a`：从标准输入最多读 `n` 个字节（`n ≤ 0` 时 panic），到头时是空的切片。
   - 都只是在区域后面追加新的缓冲区（Lean `Strings.Slice` 的 `fresh_valid`、`grow_read`），区域结束时一起释放。
-- 逐块读行（Lean `Strings.ChunkLines`）：`std.view` 的 `line_reader()` 和 `next_block(r, a, n)` 每次从标准输入最多读 `n` 个字节，
-  得到放在区域 `a` 里、以换行结束的一段完整的行；上一块最后一个换行之后不完整的部分留在 `LineReader` 里，接在下一块前面。
+- 逐块读行（Lean `Strings.ChunkLines`）：`io.lines()` 和 `io.next_block_in(r, a, n)` 每次从标准输入最多读 `n` 个字节，
+  得到放在区域 `a` 里、以换行结束的一段完整的行；上一块最后一个换行之后不完整的部分留在 `io.LineReader` 里，接在下一块前面。
   一块里没有换行（行比块长）时接着读；输入最后没有换行时，最后一段是剩下的部分；读完时是 `.None`。
-  每次循环开一个内层的 `arena |b| { … }`，在里面 `next_block(r, b, n)` 并处理这一段，峰值内存大约是两块加上最长的一行，和输入大小无关。
+  每次循环开一个内层的 `arena |b| { … }`，在里面 `io.next_block_in(r, b, n)` 并处理这一段，峰值内存大约是两块加上最长的一行，和输入大小无关。
   不管输入怎么切成块，得到的行和整个读进来再 `lines` 的相同（`stream_eq`）；`io_line_reader.t` 用块大小 1 到 4096 检查。
-- `std.os`：内建函数 `os_env`、`os_list_dir`（不含 `.` 和 `..`，按字节排好）、`os_exists`、`os_is_dir`、`os_make_dir`、`os_remove`、
-  `os_run`（`posix_spawnp`，不经过 shell，返回退出码，被信号结束时是 128 + 信号）、`os_output`（另外用管道收集标准输出，退出码不是 0 时是 Err）、`os_exit`；
-  `std/os.sn` 给它们短的名字。和文件读写一样只读外部状态、返回新的值；`os_exit` 和 `panic` 一样以 Halt 结尾、不析构。
 
 ## 标准库
 
-预导入的核心部分 `std/core/*.sn` 每个程序都自动读进来，不用 `use`：pub 的名字直接可见（本文件的定义和 `use` 引入的同名名字优先），
-内建类型的方法到处可用；只有用到的函数输出到 C 里。
+标准库用 Sinter 写，构建时编进编译器，和用户代码一样检查。分三层（`std_layers.t`）：
+
+- 内建函数：编译器实现的 `str_len`、`vec_push`、`read_line`… 只有标准库能直接调用，用户代码写成方法或标准库的函数，报错里会给出写法。
+  名字是保留的，主文件里不能定义同名的函数。哪里都能直接调用的只有预导入的 `vec_new`、`bytes_new`、`box`、`unbox`、`consume`、`alloc`、`text`、`panic`、`choose`。
+  读写外部的内建函数在标准库里也只有系统层和打印能调用；标准库里用 `intrinsic.f(…)` 调用和模块函数同名的内建函数。
+- 核心部分 `std/core/*.sn`：每个程序都自动读进来，不用 `use`。pub 的名字直接可见（本文件的定义和 `use` 引入的同名名字优先），
+  内建类型的方法到处可用；只有用到的函数输出到 C 里。不读写外部（打印除外）。
+- 其余模块要 `use std.m`，之后写 `m.f(…)`、`m.T`。同一个程序里不能既有自己的 `m.sn` 又用 `std.m`。
+  构造函数留在模块里（`map.new()`、`bigint.from_i64(x)`），其余操作是方法（`m.insert(k, v)`、`a.add(b)`）。
+
+核心部分：
 
 - `traits`：`Eq`（`a.eq(b)`）、`Ord`（`a.cmp(b)` 返回 `Ordering`：`.Less`、`.Equal`、`.Greater`，方法 `is_lt`、`is_le`、`is_eq`、`is_ne`、`is_gt`、`is_ge`、`reverse`、`to_i64`）、
-  `Hash`（`a.hash()`）；I64、Bool、Char、Str 实现了 `Eq`，I64、Char、Str 实现了 `Ord`，I64、Str 实现了 `Hash`；泛型的 `min(a, b)`、`max(a, b)`。
-- `num`：I64 的 `abs`、`sign`、`min`、`max`、`clamp`、`pow`、`gcd`、`lcm`、`to_f64`；F64 的 `sqrt`、`floor`、`ceil`、`round`、`abs`、`min`、`max`、`is_nan`、`powi`、`to_i64`。
-- `char`：`is_digit`、`is_upper`、`is_lower`、`is_alpha`、`is_alnum`、`is_whitespace`、`to_upper`、`to_lower`、`to_digit`。
-- `option`、`result`：`is_some`、`is_none`、`unwrap_or`、`unwrap`、`expect`、`map`；`is_ok`、`is_err`、`unwrap_or`、`ok`、`unwrap`、`expect`。
-- `str`：`is_empty`、`starts_with`、`ends_with`、`find`（`Option<I64>`）、`find_from`、`contains`、`trim`、`split`、`lines`、`repeat`、
-  `to_upper`、`to_lower`、`replace`、`parse_i64`、`parse_f64`；`Vec<Str>` 的 `join`。
-- `view`（`&str in a`，结果是同一块缓冲区里的切片）：`is_empty`、`find_from`、`contains`、`starts_with`、`ends_with`、`trim`、`trim_cr`、
+  `Hash`（`a.hash()`）；I64、Bool、Char、Str 实现了 `Eq`，I64、Char、Str 实现了 `Ord`，I64、Str 实现了 `Hash`；泛型的 `min(a, b)`、`max(a, b)`（Lean `Library.Math`）。
+- `num`：I64 的 `abs`、`sign`、`min`、`max`、`clamp`、`pow`、`gcd`、`lcm`、`to_f64`、`to_char`；F64 的 `sqrt`、`floor`、`ceil`、`round`、`abs`、`min`、`max`、`is_nan`、`powi`、`to_i64`。
+- `char`：ASCII 的 `is_digit`、`is_upper`、`is_lower`、`is_alpha`、`is_alnum`、`is_whitespace`、`to_upper`、`to_lower`、`to_digit`。
+- `option`、`result`：`is_some`、`is_none`、`unwrap_or`、`unwrap`、`expect`、`map`；`is_ok`、`is_err`、`unwrap_or`、`ok`、`unwrap`、`expect`（没有值或出错时 panic）。
+- `str`（按字节，Lean `Library.StrVec`，逐字节比较，不为每个位置复制子串）：`is_empty`、`starts_with`、`ends_with`、`find`（`Option<I64>`）、`find_from`、`contains`、`trim`、
+  `split`、`lines`（去掉行尾的 `\r`）、`repeat`、`to_upper`、`to_lower`（ASCII）、`replace`、`parse_i64`、`parse_f64`；`Vec<Str>` 的 `join`。
+- `view`（`&str in a`，结果是同一块缓冲区里的切片）：`is_empty`、`find`、`find_from`、`contains`、`starts_with`、`ends_with`、`trim`、`trim_cr`、
   `split`、`lines`、`line_end`、`field`、`parse_i64`。
 - `bytes`：`is_empty`、`decode`（按 UTF-8 解码，`Option<Str>`）。
-- `vec`：`is_empty`、`reverse`、`map`、`filter`、`any`、`all`、`count`、`for_each`、`fold`、`sort_by`；元素实现 `Eq` 时 `contains`、`index_of`、`dedup`，
-  实现 `Ord` 时 `sort`、`binary_search`；`Vec<I64>`、`Vec<F64>` 的 `sum`、`max`、`min`。
-- `print`：`println(s)`、`eprintln(s)` 写一行到标准输出、标准错误。
+- `vec`：`is_empty`、`reverse`、`map`、`filter`（`sink v`）、`any`、`all`、`count`、`for_each`、`fold`；元素实现 `Eq` 时 `contains`、`index_of`、`dedup`（原地去掉相邻重复），
+  实现 `Ord` 时 `sort`、`binary_search`（排好序的 Vec，返回第一个匹配的下标）；`Vec<I64>`、`Vec<F64>` 的 `sum`、`max`、`min`。
+  `v.sort()` 和 `v.sort_by(|a, b| a < b)`（`less` 要是严格弱序）都原地排序（Lean `Library.HeapSort`）：堆排序，只交换元素，O(n log n)，不稳定。
+- `print`：`print`、`println`、`eprint`、`eprintln`。
 
-系统层的模块要 `use`，都包着内建函数，只读外部状态、返回新的值；标准库里用 `intrinsic.f(…)` 调用和模块函数同名的内建函数（别的代码不能这样写）。
+系统层：`std.io`、`std.fs`、`std.env`、`std.process`，见上一节。
 
-- `std.io`：`read_line`（`Option<Str>`）、`read_all`、`read_all_in(a)`、`read_chunk(a, n)`；逐块读行 `lines()`、`next_block_in(r, a, n)`（同 `std.view` 的 `line_reader`、`next_block`）；
-  以及 `read_lines`、`write_lines`、`input_lines`。
-- `std.fs`：`read`、`read_in(a, path)`、`read_bytes`、`write`（先写临时文件再改名）、`write_bytes`、`read_lines`、`write_lines`、`exists`、`is_dir`、
-  `list_dir`（按字节排好）、`make_dir`、`remove`；出错时是 `Err("路径：说明")`。
-- `std.env`：`args()`、`get(name)`（`Option<Str>`）、`exit(code)`。
-- `std.process`：`run(prog, args)` 返回退出码，`output(prog, args)` 收集标准输出；不经过 shell。
+其余模块：
 
-`use std.math` 引入编进编译器的 `std/math.sn`，之后照样写 `math.min(…)`。标准库用 Sinter 写，和用户代码一样检查；
-同一个程序里不能既有自己的 `math.sn` 又用 `std.math`。下面这些模块里和核心部分重复的函数会在迁移时去掉。
-
-- `std.math`（Lean `Library.Math`）：`min`、`max`、`abs`、`sign`、`clamp`、`pow`、`gcd`、`lcm`；
-  `min_of`、`max_of`（任意 `Ord`）；浮点的 `sqrt floor ceil round fabs fmin fmax is_nan pi powi`。
-- `std.option`：`is_some`、`is_none`、`unwrap_or`、`unwrap`、`expect`。`std.result`：`is_ok`、`is_err`、`unwrap_or`、`ok`、`unwrap`、`expect`（没有值或出错时 panic）。
-- `std.vec`：`sum`、`max`、`min`、`sum_f64`、`range`、`contains`、`index_of`（元素要实现 `Eq`）、`reverse`（`inout`）、`binary_search`（排好序的 Vec，返回第一个匹配的下标）、`dedup`（原地去掉相邻重复）；
-  接收闭包的 `map`、`filter`（`sink v`）、`any`、`all`、`count`、`for_each`、`fold`。
-  `sort(v)`（元素实现 `Ord`）和 `sort_by(v, |a, b| a < b)`（`less` 要是严格弱序），都是 `inout` 原地排序（Lean `Library.HeapSort`）：堆排序，只用 `vec_swap` 交换元素，O(n log n)，不稳定。
-- `std.str`（按字节，Lean `Library.StrVec`）：`starts_with`、`ends_with`、`find`、`contains`、`trim`、`split`、`join`、`repeat`、`to_upper`、`to_lower`（ASCII）、`replace`、`lines`（去掉行尾的 `\r`）。逐字节比较，不为每个位置复制子串。
-- `std.char`：ASCII 的 `is_digit`、`is_alpha`、`to_upper`、`to_digit` 等。
-- `std.io`、`std.fs`、`std.env`、`std.process`：见上面的系统层。
-- `std.view`：见上面的切片和逐块读行。
-- `std.map`（Lean `Library.Map`、`Library.MapSearch`）：`Map<K, V>`，键要实现 `Ord`，按键从小到大存成两个 Vec（`m.keys`、`m.vals`，只读）。
-  `new`、`len`、`index_of`（取值写 `vec_get(m.vals, i)`）、`contains`、`insert`（`inout`，已有键时换值并返回旧值）、`remove`（返回去掉的值）。
-  查找用二分查找，是对数时间；插入、删除要挪动元素，是线性时间。
-- `std.treemap`（Lean `Library.TreeMap`、`Library.TreeMapAvl`）：`TreeMap<K, V>`，存成 AVL 树，查找、插入、删除都是对数时间。
-  `new`、`len`、`height`、`contains`、`insert`、`remove`（和 `std.map` 一样）；值通过闭包拿：`get(m, k, |v| …)` 返回 `Option`，
-  `for_each(m, |k, v| …)` 按键从小到大遍历。
-- `std.hashmap`（Lean `Library.HashMap`）：`HashMap<K, V>`，键实现 `Eq` 和 `Hash`（I64、Str 已实现）；`new`、`len`、`contains`、`get(m, k, |v| …)`、`insert`（已有键时返回旧值）、`remove`（返回值）、
-  `for_each`（按插入顺序，删除会把最后一个元素换到被删的位置）。键值紧凑地存在两个 Vec 里，另有槽位表存下标；开放寻址、线性探测不绕回（槽位表长 2 倍容量，元素超过 3/4 容量时翻倍）、删除时后移回填，不需要墓碑。平均 O(1)。
-- `std.bigint`（Lean `Library.BigInt`）：大整数，各位从低到高、基数 10^9。
-- `std.os`：见输入输出（迁移时由 `std.fs`、`std.env`、`std.process` 代替）。
+- `std.vec`：`range(n)`。`std.math`：`pi()`、`e()`。
+- `std.map`（Lean `Library.TreeMap`、`Library.TreeMapAvl`，满足 `Library.Map` 的定律）：`Map<K, V>`，键要实现 `Ord`，存成 AVL 树，查找、插入、删除都是对数时间。
+  `map.new()`；方法 `len`、`is_empty`、`height`、`contains`、`insert`（`inout`，已有键时换值并返回旧值）、`remove`（返回去掉的值）；
+  值通过闭包拿：`m.get(k, |v| …)` 返回 `Option`，`m.for_each(|k, v| …)` 按键从小到大遍历。
+- `std.hashmap`（Lean `Library.HashMap`）：`HashMap<K, V>`，键实现 `Eq` 和 `Hash`；`hashmap.new()`，方法和 `Map` 相同，`for_each` 按插入顺序（删除会把最后一个元素换到被删的位置）。
+  键值紧凑地存在两个 Vec 里，另有槽位表存下标；开放寻址、线性探测不绕回（槽位表长 2 倍容量，元素超过 3/4 容量时翻倍）、删除时后移回填，不需要墓碑。平均 O(1)。
+- `std.bigint`（Lean `Library.BigInt`）：大整数，各位从低到高、基数 10^9。`bigint.zero()`、`from_i64(x)`、`parse(s)`；
+  方法 `add`、`sub`、`mul`、`pow`、`divmod_small`、`neg`、`abs`、`sign`、`is_zero`、`clone`，实现了 `Eq`、`Ord`、`ToStr`。
 
 ## 工具
 

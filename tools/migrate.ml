@@ -1,4 +1,4 @@
-(* 把程序改写成新的标准库的写法。--c68 是标准库重新划分的那一次：
+(* 把程序改写成新的标准库的写法，分两步。第一步（--modules）是标准库重新划分：
    - 旧模块的函数换成方法：str.trim(s) → s.trim()，vec.sort(v) → v.sort()，hashmap.insert(m, k, v) → m.insert(k, v)；
      换了地方的换成新模块的函数：os.exists(p) → fs.exists(p)，view.line_reader() → io.lines()；
    - 打印：print → println，print_str → print，eprint → eprintln，eprint_str → eprint，
@@ -7,10 +7,10 @@
    按字符扫描，注释原样保留，字符串插值里的代码照样改写；调用的参数按括号配对切开，先改写参数里面的。
    接收者不是一个名字、字面量或调用链时加括号：math.abs(a - b) → (a - b).abs()。
    .sn 整个文件是一个程序；.t 里改每个 heredoc（cat > x.sn <<'EOF'）和错误信息里引用的源码行；.md 里改 ``` 代码块（sh 的除外）。
-   默认是 C69：标准库以外不能直接调用内建函数，vec_len(v) → v.len()、str_from_i64(n) → n.to_str()、vec_get(v, i) → v[i]，
+   默认是第二步：标准库以外不能直接调用内建函数，vec_len(v) → v.len()、str_from_i64(n) → n.to_str()、vec_get(v, i) → v[i]，
    读写外部的换成 std.io、std.fs、std.env、std.process 的函数（read_line() → io.read_line()），缺的 use 行补上。
-   程序自己定义了同名函数时不改。每一步只能跑一次：--c68 改过的 print 再改一次就变成了 println。
-   用法：migrate [-w] [--c68] 文件…。不带 -w 时打印结果，带 -w 时写回并列出改了的文件。 *)
+   程序自己定义了同名函数时不改。每一步只能跑一次：--modules 改过的 print 再改一次就变成了 println。
+   用法：migrate [-w] [--modules] 文件…。不带 -w 时打印结果，带 -w 时写回并列出改了的文件。 *)
 
 let is_id_start c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c = '_'
 let is_id c = is_id_start c || (c >= '0' && c <= '9')
@@ -164,7 +164,7 @@ let type_rule m t =
 
 let printers = [ "print"; "print_str"; "eprint"; "eprint_str"; "print_i64"; "print_bool"; "print_f64"; "print_char" ]
 
-(* C69：标准库以外不能直接调用内建函数。改成方法，或者 std.io、std.fs、std.env、std.process 的函数 *)
+(* 第二步：标准库以外不能直接调用内建函数。改成方法，或者 std.io、std.fs、std.env、std.process 的函数 *)
 type brule =
   | BMeth of string            (* f(a, …) → a.g(…) *)
   | BIndex                     (* vec_get(v, i) → v[i] *)
@@ -218,8 +218,8 @@ let builtin_call f r args =
   | BMeth g, v :: rest when String.trim v <> "" -> recv v ^ "." ^ g ^ "(" ^ lstrip (String.concat "," rest) ^ ")"
   | _ -> f ^ "(" ^ a ^ ")"
 
-(* 改写到哪一步：--c68 是标准库重新划分那一次（模块的函数换成方法、打印改名），默认是 C69（内建函数） *)
-let c68 = ref false
+(* 改写到哪一步：--modules 是第一步，标准库重新划分（模块的函数换成方法、打印改名）；默认是第二步（内建函数） *)
+let modules = ref false
 
 type ctx = { uses : string list; (* use std.X 引入的 X *) defs : string list (* 程序自己定义的打印函数 *) }
 
@@ -321,7 +321,7 @@ and ident ctx b s i =
     l
   in
   if i > 0 && s.[i - 1] = '.' then copy_to j
-  else if !c68 && j + 1 < n && s.[j] = '.' && is_id_start s.[j + 1] && List.mem w ctx.uses then begin
+  else if !modules && j + 1 < n && s.[j] = '.' && is_id_start s.[j + 1] && List.mem w ctx.uses then begin
     let k = j + 1 in
     let l = id_end s k in
     let f = String.sub s k (l - k) in
@@ -338,13 +338,13 @@ and ident ctx b s i =
           e)
     else copy_to l
   end
-  else if !c68 && j < n && s.[j] = '(' && List.mem w printers && not (List.mem w ctx.defs) then (
+  else if !modules && j < n && s.[j] = '(' && List.mem w printers && not (List.mem w ctx.defs) then (
     match split_args s j with
     | None -> copy_to j
     | Some (args, e) ->
         Buffer.add_string b (printer_call w (List.map (rw ctx) args));
         e)
-  else if (not !c68) && j < n && s.[j] = '(' && builtin_rule w <> None && not (List.mem w ctx.defs) then (
+  else if (not !modules) && j < n && s.[j] = '(' && builtin_rule w <> None && not (List.mem w ctx.defs) then (
     match split_args s j with
     | None -> copy_to j
     | Some (args, e) ->
@@ -443,7 +443,7 @@ let unit text =
   let ctx = { uses = uses_of text; defs } in
   let out = rw ctx text in
   let lines = String.split_on_char '\n' out in
-  if not !c68 then String.concat "\n" (add_uses lines)
+  if not !modules then String.concat "\n" (add_uses lines)
   else
   let body = String.concat "\n" (List.filter (fun l -> use_line l = None) lines) in
   let emitted = ref [] in
@@ -539,10 +539,10 @@ let markdown text =
 let () =
   let argv = List.tl (Array.to_list Sys.argv) in
   let write = List.mem "-w" argv in
-  c68 := List.mem "--c68" argv;
-  let files = List.filter (fun a -> a <> "-w" && a <> "--c68") argv in
+  modules := List.mem "--modules" argv;
+  let files = List.filter (fun a -> a <> "-w" && a <> "--modules") argv in
   if files = [] then begin
-    prerr_endline "用法：migrate [-w] [--c68] 文件…";
+    prerr_endline "用法：migrate [-w] [--modules] 文件…";
     exit 2
   end;
   List.iter
