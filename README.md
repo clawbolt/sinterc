@@ -227,6 +227,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 - 内建函数：编译器实现的 `str_len`、`vec_push`、`read_line`… 只有标准库能直接调用，用户代码写成方法或标准库的函数，报错里会给出写法。
   内建方法在核心部分里声明，例如 `impl Str { intrinsic fn len(s: Str) -> I64 = str_len }`：没有函数体，方法调用直接换成内建函数，签名由编译器核对。
   `impl 类型 { … }` 里第一个参数不是这个类型的是类型函数，写成 `类型.函数(…)`，例如 `Vec.new()`、`map.Map.new()`、`bigint.BigInt.from_i64(7)`。
+  返回借用：`fn first(line: Str) -> &str in line`，结果借自实参，活着时实参被锁住；`s.view()` 是借自 `s` 的整段切片，不复制。
   名字是保留的，主文件里不能定义同名的函数。哪里都能直接调用的只有预导入的 `box`、`unbox`、`consume`、`alloc`、`text`、`panic`、`choose`。
   读写外部的内建函数在标准库里也只有系统层和打印能调用；标准库里用 `intrinsic.f(…)` 调用和模块函数同名的内建函数。
 - 核心部分 `std/core/*.sn`：每个程序都自动读进来，不用 `use`。pub 的名字直接可见（本文件的定义和 `use` 引入的同名名字优先），

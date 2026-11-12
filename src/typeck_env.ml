@@ -64,6 +64,11 @@ let errdefer_targets : (int, string) Hashtbl.t = Hashtbl.create 16
 (* 函数签名，给降级用：每个参数的约定和类型、返回类型。 *)
 let sigs : (string, (mode * ty) list * ty) Hashtbl.t = Hashtbl.create 16
 
+(* 返回借用的函数（Lean `Projection.Return`）：返回类型 &T in m 里的 m 是 let 参数的名字。
+   函数名 → (参数名, 第几个参数)。调用处的结果借自对应的实参，锁住它（borrow.ml）。
+   内建的 str_view(s) 是 [("s", 0)]。 *)
+let let_regions : (string, (string * int) list) Hashtbl.t = Hashtbl.create 16
+
 (* 结构体定义和标了 linear 的结构体，给降级和代码生成用。 *)
 let struct_tbl : (string, field list) Hashtbl.t = Hashtbl.create 16
 let linear_tbl : (string, unit) Hashtbl.t = Hashtbl.create 16

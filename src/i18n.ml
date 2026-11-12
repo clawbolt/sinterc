@@ -213,6 +213,13 @@ let table =
      "{1} appears twice in the same call and one use moves it or passes it as inout; both uses must be read-only");
     ("%s 正被投影 %s 借用（之后还会用到 %s），不能%s",
      "{1} is borrowed by projection {2} (which is used later), so it cannot be {4}");
+    ("%s 正被引用 %s 借用（之后还会用到 %s），不能%s",
+     "{1} is borrowed by reference {2} (which is used later), so it cannot be {4}");
+    ("%s 在作用域结束时析构，但借自它的引用之后还会用到（引用不能带出 %s 的作用域）",
+     "{1} is dropped at the end of its scope, but a reference borrowed from it is used later (a reference cannot outlive {2})");
+    ("返回的引用借自 %s，函数结束时它就不在了（只能借自返回类型里写的 let 参数）",
+     "the returned reference borrows from {1}, which does not outlive the function (it can only borrow from a let parameter named in the return type)");
+    ("返回的引用只能借自 let 参数，%s 是 %s 参数", "a returned reference can only borrow from a let parameter; {1} is a {2} parameter");
     ("整数超出 I64 范围：%s", "integer literal out of I64 range: {1}");
     ("浮点数超出 F64 范围：%s", "float literal out of F64 range: {1}");
     ("字符字面量的引号里要正好是一个字符", "a character literal must contain exactly one character between the quotes");

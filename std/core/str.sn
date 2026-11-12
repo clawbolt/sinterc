@@ -34,6 +34,10 @@ impl Str {
     // 复制成字节串。
     intrinsic fn to_bytes(s: Str) -> Bytes = str_to_bytes
 
+    // 整个字符串的切片 &str in s，不复制（Lean `Projection.Return`）：切片活着时 s 被锁住，不能修改、移动、析构。
+    // 切片的方法（split、trim、find、parse_i64…）都能用。
+    intrinsic fn view(s: Str) -> &str in s = str_view
+
     fn is_empty(s: Str) -> Bool { str_len(s) == 0 }
 
     fn starts_with(s: Str, p: Str) -> Bool {

@@ -90,6 +90,8 @@ let view_sigs =
   let v = TRef (TView, "_") in
   [
     "text", ([ (MLet, TArena "_"); (MSink, TStr) ], v);
+    (* s.view()：借自 s 的整段切片（返回借用），区域是 s 的名字 *)
+    "str_view", ([ (MLet, TStr) ], v);
     "view_len", ([ (MLet, v) ], TI64);
     "view_byte", ([ (MLet, v); (MSink, TI64) ], TI64);
     "view_sub", ([ (MLet, v); (MSink, TI64); (MSink, TI64) ], v);

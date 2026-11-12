@@ -6,6 +6,18 @@ open Typeck_regions
 open Typeck_generics
 open Typeck_pattern
 
+(* 借自实参 e 的引用的区域名（返回借用，Lean `Projection.Return`）：e 是变量或它的字段、元素时是这个变量的名字；
+   经过 *r（r 是 &T in w）时是 w；不是位置时是临时值（先存进临时变量，降级时锁住它）。
+   锁住哪个局部由 borrow.ml 按降级后的局部确定，这里的名字只用来比较类型（返回的引用要借自签名里写的参数）。 *)
+let rec borrow_region env (e : expr) =
+  match e.e with
+  | Var v -> v
+  | Field (a, _) | Call ("vec_get", [ a; _ ]) -> borrow_region env a
+  | Deref ({ e = Var v; _ } as a) -> (
+      match List.assoc_opt v env.vars with Some (TRef (_, w), _) -> w | _ -> borrow_region env a)
+  | Deref a -> borrow_region env a
+  | _ -> "临时值"
+
 let rec expr env (x : expr) : t =
   let t = expr1 env x in
   Hashtbl.replace types x.id t;
@@ -175,6 +187,10 @@ and expr1 env (x : expr) : t =
           | _ -> err pos "%s 的参数个数不对" f)
       | Never -> Never
       | Ty t -> err a.pos "%s 的第一个参数必须是区域，%s 不是" f (string_of_ty t))
+  | Call ("str_view", [ s ]) ->
+      (* s.view()：整个字符串的切片，借自 s（Lean `Projection.Return`）：切片活着时 s 被锁住，不能修改、移动、析构 *)
+      expect s.pos TStr (expr env s);
+      Ty (TRef (TView, borrow_region env s))
   | Call (f, v :: rest) when List.mem_assoc f view_sigs -> (
       (* 切片的方法：子切片和原切片在同一个区域里（Lean `Strings.Slice`） *)
       let int (e : expr) = expect e.pos TI64 (expr env e) in
@@ -623,6 +639,13 @@ and call_named env want (x : expr) f args : t =
       if region_names p <> [] then match expr env a with Ty t -> bind p t | Never -> ())
     ps args;
   let s = !s in
+  (* 返回借用：返回类型里的 let 参数名换成借自的实参的区域名 *)
+  let s =
+    s
+    @ List.filter_map
+        (fun (m, i) -> if List.mem_assoc m s then None else Some (m, borrow_region env (List.nth args i)))
+        (Option.value (Hashtbl.find_opt let_regions f) ~default:[])
+  in
   let cls = ref [] in
   List.iter2
     (fun (m, p) (a : expr) ->

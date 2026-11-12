@@ -153,6 +153,8 @@ let prepare (p : program) =
     p;
   (* 类型自己的方法的头部（Lean `Traits.Inherent`）：impl 的类型参数都出现在头部里（实例的类型实参由接收者匹配得到），
      同名方法的头部不能重叠（CoherentM），所以查找的结果和书写顺序无关。按写出的顺序检查，重叠时报后写的那个 *)
+  Hashtbl.reset let_regions;
+  Hashtbl.replace let_regions "str_view" [ ("s", 0) ];
   Hashtbl.reset inherent_heads;
   List.iter
     (fun (m, (self, tps, g, ipos)) ->
@@ -206,6 +208,20 @@ let prepare (p : program) =
           let sc = List.map (fun (t, lin) -> (t, TParam (t, lin))) tparams in
           let ps = List.map (fun (m, _, t) -> (m, resolve sc ipos t)) params in
           let ret = resolve sc ipos ret in
+          (* 返回借用（Lean `Projection.Return`）：返回类型里的区域名是参数的名字时，这个参数要按 let 传入 *)
+          let lr =
+            List.concat
+              (List.mapi
+                 (fun i (m, x, t) ->
+                   if not (List.mem x (region_names ret)) then []
+                   else
+                     match m, t with
+                     | MLet, TArena _ -> []
+                     | MLet, _ -> [ (x, i) ]
+                     | _ -> err ipos "返回的引用只能借自 let 参数，%s 是 %s 参数" x (if m = MInout then "inout" else "sink"))
+                 params)
+          in
+          if lr <> [] then Hashtbl.replace let_regions name lr;
           if tparams <> [] then begin
             if List.exists (fun (_, t) -> region_names t <> []) ps || region_names ret <> [] then
               err ipos "泛型函数的签名里暂不能直接写区域或引用（类型实参可以是引用）";
@@ -437,9 +453,19 @@ let check_fn ?(clos = []) ?(fvars = []) ?(rord = []) env0 = function
   | Fn { name; tparams; params; ret; body; ipos; bounds; _ } ->
       cur_fn := name;
       concrete := tparams = [] && not (List.exists (fun (_, _, t) -> is_fn t) params);
-      (* 区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3） *)
+      (* 区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3）；
+         返回类型 &T in m 里的 let 参数 m 也是区域参数（返回借用，Lean `Projection.Return`） *)
+      let borrowed =
+        List.filter_map
+          (fun (m, x, t) ->
+            match m, t with
+            | MLet, TArena _ -> None
+            | MLet, _ when List.mem x (region_names ret) -> Some x
+            | _ -> None)
+          params
+      in
       regions :=
-        List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) params)
+        List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) params @ borrowed)
         |> List.map (fun r -> (r, Option.value (List.assoc_opt r rord) ~default:[]));
       List.iter
         (fun (m, x, t) ->

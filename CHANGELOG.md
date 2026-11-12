@@ -71,6 +71,10 @@
   `vec_new()`、`bytes_new()` 不再预导入，标准库以外直接调用时提示写成 `Vec.new()`；`map.new()`、`hashmap.new()`、`bigint.zero()`、
   `bigint.from_i64`、`bigint.parse` 换成对应的类型函数。类型函数不能当方法调用（`p.at()` 提示写成 `P.at(…)`）。
   迁移：`migrate -w --types 文件…`。
+- 返回借用（C73，Lean M30 `Projection.Return`）：`fn first(line: Str) -> &str in line { … }`，返回类型里的区域可以是 let 参数的名字。
+  调用处结果借自对应的实参（`first(s)` 是 `&str in s`），结果还活着时实参被锁住，和投影一样不能修改、移动、析构、以 inout 传入；
+  引用复制、放进 Vec、Option，经过 `trim`、`split` 等返回同一区域的函数时，借自的变量跟着走。函数返回的引用只能借自返回类型里写的 let 参数。
+  新方法 `s.view()`：借自 `s` 的整段切片，不复制。泛型函数的签名里还不能写引用（`Vec.get`、`Map.get` 返回借用在下一步）。
 - 字符串的字面量标记和长度共用 8 字节，`Str` 保持 16 字节（C61 最初让它变成了 24 字节）。
 
 **验证**

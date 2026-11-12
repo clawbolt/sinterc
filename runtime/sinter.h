@@ -238,6 +238,8 @@ static sn_view u_text(sn_arena *a, sn_str s) {
   sn_free(s.p);
   return (sn_view){ q, s.len };
 }
+/* s.view()：s 的整段，借自 s（Lean `Projection.Return`）：切片活着时 s 被锁住，缓冲区不会变 */
+static sn_view u_str_view(const sn_str *s) { return (sn_view){ s->p, s->len }; }
 static int64_t u_view_len(const sn_view *v) { return v->len; }
 static int64_t u_view_byte(const sn_view *v, int64_t i) { return (unsigned char)v->p[sn_idx(v->len, i)]; }
 static sn_view u_view_sub(const sn_view *v, int64_t a, int64_t b) {

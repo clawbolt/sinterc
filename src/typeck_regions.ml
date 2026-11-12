@@ -122,7 +122,8 @@ let rec check_ty ?(param = false) env pos = function
       List.iter (fun (_, t) -> check_ty env pos t) ps;
       check_ty env pos r
   | TRef (t, r) ->
-      if not (List.mem_assoc r !regions) then err pos "未知区域 %s" r;
+      (* 区域可以是变量的名字：借自这个变量的引用（返回借用的调用的结果，Lean `Projection.Return`） *)
+      if not (List.mem_assoc r !regions || List.mem_assoc r env.vars) then err pos "未知区域 %s" r;
       if region_names t <> [] then err pos "还不支持指向引用或区域的引用";
       if t = TUnit then err pos "不能引用 ()";
       check_ty env pos t
