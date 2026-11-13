@@ -79,6 +79,11 @@
   泛型函数的签名可以写借自 let 参数的引用。`v.get(i)` 不再是 `v[i]` 这个位置，改成返回 `Option<&T in v>`（越界时 `.None`），新加 `first`、`last`；
   `Map`、`HashMap` 的 `get(k, |v| …)` 换成 `get(k)`，返回 `Option<&V in m>`。返回借用的泛型函数的类型实参还不能含引用。
   导出给 Lean 复核（validate）时，借自变量的引用和投影一样不导出成区域引用，由编译器的借用检查负责（对应已证明的 `Projection.Return`）。
+- 迭代器（C75，Lean M31 `Regions.DataGeneric`）：`for x in e` 的 `e` 不是 `Vec`、区间时按迭代器走，展开成 `var #it = e`，
+  反复调用 `#it.next()` 直到 `.None`；`e` 的类型没有 `next` 方法时报错。结构体可以存借用（`Chars<&str in s>`），
+  它的方法的签名里可以带区域参数，泛型函数的类型实参也可以含引用（C74 的限制去掉）。
+  **不兼容**：`s.chars()`、`v.chars()` 返回逐个解码的迭代器，不再分配 `Vec<Char>`，要 Vec 时写 `s.chars().collect()`。
+  新加 `m.iter()`（`Map` 按键的顺序，`HashMap` 按存放的顺序），给出 `(&K in m, &V in m)`；迭代器活着时 `m` 被锁住，循环里不能插入、删除。
 - 字符串的字面量标记和长度共用 8 字节，`Str` 保持 16 字节（C61 最初让它变成了 24 字节）。
 
 **验证**

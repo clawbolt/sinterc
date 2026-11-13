@@ -37,6 +37,16 @@ let lent (f : func) =
   let b = Array.make n [] in
   let has_ref l = Typeck.region_names f.locals.(l).lty <> [] in
   let owner l = f.roots.(l) in
+  (* 借用 p 时借自的局部：p 经过引用的解引用（*r，r 是 &T in w）时借的是 w 里的值，不是哪个局部，
+     由区域检查负责（Lean `Regions.DataGeneric`），这里不锁 *)
+  let borrowed (p : place) =
+    let rec go ty = function
+      | [] -> [ owner p.base ]
+      | PDeref :: _ when (match ty with Ast.TRef _ -> true | _ -> false) -> []
+      | x :: rest -> go (proj_ty ty [ x ]) rest
+    in
+    go f.locals.(p.base).lty p.proj
+  in
   let of_place (p : place) = union b.(p.base) b.(owner p.base) in
   let changed = ref true in
   let add l xs =
@@ -53,12 +63,12 @@ let lent (f : func) =
         match Hashtbl.find_opt Typeck.let_regions g with
         | Some l ->
             union xs
-              (List.filter_map
-                 (fun (_, i) -> Option.bind (List.nth_opt os i) (fun o -> Option.map (fun (p : place) -> owner p.base) (op_place o)))
+              (List.concat_map
+                 (fun (_, i) -> match Option.bind (List.nth_opt os i) op_place with Some p -> borrowed p | None -> [])
                  l)
         | None -> xs)
     (* &p：借自 p 所在的局部 *)
-    | Use (Ref p) -> union xs [ owner p.base ]
+    | Use (Ref p) -> union xs (borrowed p)
     | _ -> xs
   in
   let flow dst rv =
@@ -146,7 +156,11 @@ let liveness (f : func) bs =
   done;
   out
 
-let name (f : func) l = if f.locals.(l).lname = "" then "临时值" else f.locals.(l).lname
+let name (f : func) l =
+  match f.locals.(l).lname with
+  | "" -> "临时值"
+  | "#it" -> "for 循环的迭代器"   (* for x in e 展开出的局部（parser.mly 的 for_in） *)
+  | n -> n
 
 (* 语句会修改的局部，以及怎么修改的、在哪里。 *)
 let writes s =

@@ -94,6 +94,8 @@ let view_sigs =
     "str_view", ([ (MLet, TStr) ], v);
     "view_len", ([ (MLet, v) ], TI64);
     "view_byte", ([ (MLet, v); (MSink, TI64) ], TI64);
+    "view_char_at", ([ (MLet, v); (MSink, TI64) ], TChar);
+    "view_char_len", ([ (MLet, v); (MSink, TI64) ], TI64);
     "view_sub", ([ (MLet, v); (MSink, TI64); (MSink, TI64) ], v);
     "view_to_str", ([ (MLet, v) ], TStr);
     "view_eq", ([ (MLet, v); (MLet, TStr) ], TBool);

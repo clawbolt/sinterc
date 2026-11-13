@@ -181,8 +181,12 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   修改（`push`、`push_char`、`Bytes` 的 `set`、`push`）前 `sn_str_own` 先复制到堆上。命令行参数、环境变量、目录项不归程序所有，复制成堆上的 `Str`。
   C 里 `lit` 和 `len` 共用 8 字节（位域，`len` 63 位），`sn_str` 是 16 字节。
 - 字符 `Char`（Lean `Library.Utf8`）：一个 Unicode 标量值，可以复制；字面量 `'a'`、`'中'`、`'😀'`，转义 `'\n'`、`'\t'`、`'\\'`、`'\''`、`'\0'`；按码点比较。
-  `s.chars()` 逐个解码（不合法的字节解成 U+FFFD，只吃一个字节），`s.char_count()` 是字符数，`s.push_char(c)`、`c.to_str()` 按 UTF-8 写入；
+  `s.chars()` 是逐个解码的迭代器（不合法的字节解成 U+FFFD，只吃一个字节，不分配；要 `Vec<Char>` 写 `s.chars().collect()`），`s.char_count()` 是字符数，`s.push_char(c)`、`c.to_str()` 按 UTF-8 写入；
   `c.code()`、`n.to_char()`（代理区、超出范围时是 `.None`）在码点和字符间转换。`for x in e` 的 `e` 不是变量或字段时（`for c in s.chars()`），先放进隐藏变量再遍历，循环结束后析构。
+- 迭代器（Lean `Regions.DataGeneric`）：`for x in e` 的 `e` 是 `Vec` 时按下标走；否则 `e` 要有 `next(inout it) -> Option<T>` 方法，
+  展开成 `var #it = e; while true { match #it.next() { .Some(x) => {…}, .None => { break } } }`。迭代器是存着借用的结构体
+  （`Chars<&str in s>`、`MapIter<&Map<K, V> in m, &K in m>`），活着时被借的变量锁住。`m.iter()` 给出 `(&K in m, &V in m)`，
+  `Map` 按键的顺序，`HashMap` 按存放的顺序。见 `test/iter.t`。
 - 字符串插值：`"x = {x}, 和 = {a + b}"`，花括号里是任意表达式（可以嵌套字符串），`{{`、`}}` 是花括号本身。值按类型用 `ToStr` 转成字符串，
   泛型代码里插值要写约束 `T: ToStr`。展开成 `{ var #s = …; #s.push(…); #s }`，不需要新的推理。
 - 字节串 `Bytes`：任意字节，C 里和 `Str` 的表示相同，所有权也一样。

@@ -173,6 +173,29 @@ let rec for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
       let inner = for_loop pos x (`Vec (e (Var "#v"))) body in
       s (Expr (e (Block { stmts = [ s (Let (false, "#v", None, v)); inner ]; tail = None })))
 
+(* for x in e { … }：e 的类型解析时还不知道，两种展开都做好，类型检查按 e 的类型选（For）：
+   e 是 Vec 时按上面的下标展开；否则 e 是迭代器（有 next 方法，例如 s.chars()、m.iter()）：
+     { var #it = e; while true { match #it.next() { .Some(x) => { … }, .None => break } } }
+   continue 回到条件，再取下一个；break 跳出 while。#it 在这个块结束时析构，嵌套的 for 各有自己的 #it。
+   x 是 next 返回的值：Map 的迭代器给出借用 (&K in m, &V in m)，借用活着时 m 被锁住（Lean `Projection.Return`）。 *)
+let for_in pos x (v : expr) body =
+  let e d = mk d pos and s d = mks d pos in
+  let next = e (Call (".next", [ e (Var "#it") ])) in
+  let brk = e (Block { stmts = [ s Break ]; tail = None }) in
+  let arms = e (Match (false, next, [ ("Some", x, e (Block body)); ("None", "", brk) ])) in
+  (* 迭代器借自接收者：接收者是临时值时（for c in "ab".chars()）先放进隐藏变量 #s，让它活到循环结束 *)
+  let init =
+    match v.e with
+    | Call (f, ({ e = Var _ | Field _ | Deref _; _ } :: _)) when f <> "" && f.[0] = '.' -> [ s (Let (true, "#it", None, v)) ]
+    | Call (f, r :: args) when f <> "" && f.[0] = '.' ->
+        [ s (Let (false, "#s", None, r)); s (Let (true, "#it", None, { v with e = Call (f, e (Var "#s") :: args); id = fresh_id () })) ]
+    | _ -> [ s (Let (true, "#it", None, v)) ]
+  in
+  let iter =
+    s (Expr (e (Block { stmts = init @ [ s (While (e (Bool true), { stmts = [ s (Expr arms) ]; tail = None })) ]; tail = None })))
+  in
+  s (For (v, for_loop pos x (`Vec v) body, iter))
+
 (* for x in inout v { … }（Lean `Datatypes.VecInout`）：x 是第 i 个元素本身（可变借用），不是副本。展开成
      { var #k: I64 = 0; while #k < vec_len(v) { let #jN = #k; #k = #k + 1; { …[x := vec_get(v, #jN)]… } } }
    循环体里的 x 换成位置 vec_get(v, #jN)：读 x 就是读元素，x.f = e 改元素的字段，f(inout x) 把元素借出去，
@@ -246,6 +269,7 @@ let for_inout pos x (v : expr) body =
       | Assign (y, b) -> if y = r then mention t.spos; scan b
       | SetField (b, _, c) | SetPlace (b, c) -> scan b; scan c
       | While (c, b) -> scan c; scan_block b
+      | For (a, s1, s2) -> scan a; scan_stmt s1; scan_stmt s2
       | Return b -> Option.iter scan b
       | Decl _ | Break | Continue -> ()
     in
@@ -285,6 +309,7 @@ let for_inout pos x (v : expr) body =
     | SetField (a, f, c) -> SetField (ex a, f, ex c)
     | SetPlace (a, c) -> SetPlace (ex a, ex c)
     | While (c, b) -> While (ex c, blk b)
+    | For (a, s1, s2) -> For (ex a, { s1 with s = stmt s1 }, { s2 with s = stmt s2 })
     | Return c -> Return (Option.map ex c)
     | Expr c -> Expr (ex c)
     | Errdefer c -> Errdefer (ex c)
@@ -500,7 +525,7 @@ stmt:
   | WHILE c = expr b = block { mks (While (c, b)) $startpos }
   | FOR x = IDENT IN a = expr DOTDOT b = expr bl = block { for_loop $startpos x (`Range (a, b)) bl }
   | FOR x = IDENT IN INOUT v = expr bl = block { for_inout $startpos x v bl }
-  | FOR x = IDENT IN v = expr bl = block { for_loop $startpos x (`Vec v) bl }
+  | FOR x = IDENT IN v = expr bl = block { for_in $startpos x v bl }
   | RETURN e = option(expr) { mks (Return e) $startpos }
   | BREAK { mks Break $startpos }
   | CONTINUE { mks Continue $startpos }

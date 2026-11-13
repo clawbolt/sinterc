@@ -634,6 +634,9 @@ and block st env (b : Ast.block) : operand option =
                 emit st (Assign ({ p with at = s.spos }, Use o))
             | None -> ());
             go env rest
+        | For (a, sv, si) ->
+            (* 类型检查选的展开 *)
+            go env ((if Hashtbl.find_opt Typeck.for_vec a.id = Some false then si else sv) :: rest)
         | While (c, body) ->
             let head = new_block st and bbody = new_block st and exit = new_block st in
             terminate st (Goto head);

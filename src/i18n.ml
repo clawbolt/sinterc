@@ -43,6 +43,8 @@ let table =
     ("未定义的变量 %s", "undefined variable {1}");
     ("字符串用 a.eq(b) 比较", "compare strings with a.eq(b)");
     ("for 只能遍历变量或字段里的 Vec，或者写成 a..b", "for can only iterate over a Vec in a variable or field, or a range a..b");
+    ("for 只能遍历 Vec、a..b 或迭代器（有 next 方法的值，例如 s.chars()、m.iter()），%s 不是",
+     "for can only iterate over a Vec, a range a..b, or an iterator (a value with a next method, such as s.chars() or m.iter()); {1} is none of these");
     ("%s 只能用在循环里", "{1} can only be used inside a loop");
     ("只能比较 I64、F64 和 Bool", "only I64, F64 and Bool values can be compared");
     ("consume 只能用于 linear 结构体，%s 不是", "consume only works on linear structs; {1} is not one");
@@ -361,7 +363,7 @@ let table =
 (* 填进信息里的固定中文短语。 *)
 let words =
   [
-    ("if ", "if"); ("match ", "match"); ("比较", "the comparison"); ("临时值", "a temporary value");
+    ("if ", "if"); ("match ", "match"); ("比较", "the comparison"); ("临时值", "a temporary value"); ("for 循环的迭代器", "the for loop's iterator");
     ("结构体", "struct"); ("枚举", "enum");
     ("作用域结束时", "at the end of its scope"); ("从这里返回时", "when returning here");
     ("出错从这里返回时", "when returning with an error here"); ("（可以加 errdefer）", " (consider errdefer)");

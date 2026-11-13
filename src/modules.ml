@@ -283,6 +283,7 @@ let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : m
       | SetField (a, f, e) -> SetField (ex a, f, ex e)
       | SetPlace (a, e) -> SetPlace (ex a, ex e)
       | While (c, b) -> While (ex c, blk b)
+      | For (a, s1, s2) -> For (ex a, st s1, st s2)
       | Return e -> Return (Option.map ex e)
       | Expr e -> Expr (ex e)
       | Errdefer e -> Errdefer (ex e)

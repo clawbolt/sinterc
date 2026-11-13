@@ -11,6 +11,9 @@
 impl &str in r {
     intrinsic fn len(v: &str in r) -> I64 = view_len
 
+    // 逐个字符的迭代器，借自这个切片：for c in v.chars() { … }。
+    fn chars(v: &str in r) -> Chars<&str in r> { Chars { v: v, pos: 0 } }
+
     // 第 i 个字节；越界时 panic。
     intrinsic fn byte(v: &str in r, sink i: I64) -> I64 = view_byte
 
@@ -155,3 +158,26 @@ impl &str in r {
 }
 
 fn view_space(c: I64) -> Bool { c == 32 || c == 9 || c == 10 || c == 13 }
+
+// 逐个字符的迭代器（s.chars()、v.chars()）：从 pos 起按 UTF-8 解出一个字符（不合法的字节是 U+FFFD，Lean `Library.Utf8`），
+// 不分配。P 是借自字符串的切片 &str in r，迭代器活着时字符串被锁住。
+pub struct Chars<P> { v: P, pos: I64 }
+
+impl Chars<&str in r> {
+    fn next(inout it: Chars<&str in r>) -> Option<Char> {
+        let v = it.v
+        if it.pos >= v.len() { return .None }
+        let c = view_char_at(v, it.pos)
+        it.pos = it.pos + view_char_len(v, it.pos)
+        .Some(c)
+    }
+
+    // 剩下的字符收集成新的 Vec。
+    fn collect(sink it: Chars<&str in r>) -> Vec<Char> {
+        var out: Vec<Char> = Vec.new()
+        for c in it {
+            out.push(c)
+        }
+        out
+    }
+}

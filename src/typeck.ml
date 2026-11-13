@@ -222,11 +222,9 @@ let prepare (p : program) =
                  params)
           in
           if lr <> [] then Hashtbl.replace let_regions name lr;
-          if tparams <> [] then begin
-            if List.exists (fun (_, t) -> region_names t <> []) ps || List.exists (fun r -> not (List.mem_assoc r lr)) (region_names ret) then
-              err ipos "泛型函数的签名里暂不能直接写区域或引用（类型实参可以是引用）";
-            Hashtbl.replace gparams name tparams
-          end;
+          (* 泛型函数的签名里可以写区域参数和引用（Lean `Regions.DataGeneric`：函数体把区域参数当作抽象区域检查一次，
+             调用处按实际区域换名；值里可以有一组引用，例如迭代器 MapIter<&Map<K, V> in r, &K in r>） *)
+          if tparams <> [] then Hashtbl.replace gparams name tparams;
           Hashtbl.replace fns name (ps, ret)
       | Trait { name; methods = ms; _ } ->
           (* Self 可以是任何类型（包括 linear 的），调用处的效果只由参数约定决定（Lean `Traits.Static`）。

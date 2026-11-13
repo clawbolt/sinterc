@@ -242,6 +242,9 @@ static sn_view u_text(sn_arena *a, sn_str s) {
 static sn_view u_str_view(const sn_str *s) { return (sn_view){ s->p, s->len }; }
 static int64_t u_view_len(const sn_view *v) { return v->len; }
 static int64_t u_view_byte(const sn_view *v, int64_t i) { return (unsigned char)v->p[sn_idx(v->len, i)]; }
+/* 第 i 个字节起解出一个字符（Lean `Library.Utf8` 的 decode1，不合法的字节是 U+FFFD）和它占的字节数：Chars 迭代器用 */
+static uint32_t u_view_char_at(const sn_view *v, int64_t i) { int64_t k; sn_idx(v->len, i); return sn_utf8_get((const unsigned char *)v->p + i, v->len - i, &k); }
+static int64_t u_view_char_len(const sn_view *v, int64_t i) { int64_t k; sn_idx(v->len, i); sn_utf8_get((const unsigned char *)v->p + i, v->len - i, &k); return k; }
 static sn_view u_view_sub(const sn_view *v, int64_t a, int64_t b) {
   if (a < 0 || b < a || b > v->len) sn_panic("下标越界");
   return (sn_view){ v->p + a, b - a };

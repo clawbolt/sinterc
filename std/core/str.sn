@@ -26,8 +26,9 @@ impl Str {
     // [i, j) 字节的新字符串；越界时 panic。
     intrinsic fn slice(s: Str, sink i: I64, sink j: I64) -> Str = str_slice
 
-    // 按 UTF-8 逐个解码（不合法的字节是 U+FFFD，Lean `Library.Utf8`），新的 Vec。
-    intrinsic fn chars(s: Str) -> Vec<Char> = str_chars
+    // 逐个字符的迭代器（不合法的字节是 U+FFFD，Lean `Library.Utf8`），借自 s：for c in s.chars() { … }；
+    // 要 Vec 时写 s.chars().collect()。
+    fn chars(s: Str) -> Chars<&str in s> { Chars { v: s.view(), pos: 0 } }
 
     intrinsic fn char_count(s: Str) -> I64 = str_char_count
 

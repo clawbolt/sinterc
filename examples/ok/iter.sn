@@ -1,0 +1,26 @@
+use std.map
+use std.hashmap
+
+fn main() {
+    var n = 0
+    for c in "a中😀b".chars() {
+        n = n + 1
+        if c == 'b' { println("b 是第 {n} 个") }
+    }
+    let cs = "xyz".chars().collect()
+    println("{cs.len()} {cs[2]}")
+    var m: map.Map<I64, Str> = map.Map.new()
+    let a = m.insert(3, "c")
+    let b = m.insert(1, "a")
+    for e in m.iter() {
+        let (k, v) = e
+        println("{*k} {*v}")
+    }
+    var h: hashmap.HashMap<Str, I64> = hashmap.HashMap.new()
+    let x = h.insert("one", 1)
+    var total = 0
+    for e in h.iter() {
+        total = total + *e.1
+    }
+    println("{total}")
+}

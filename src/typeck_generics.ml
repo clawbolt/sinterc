@@ -325,7 +325,7 @@ let () = covariant_fwd := covariant
 let rec unify s p t =
   match p, t with
   | TParam (n, _), t -> if not (List.mem_assoc n !s) then s := (n, t) :: !s
-  | TBox p, TBox t | TVec p, TVec t -> unify s p t
+  | TBox p, TBox t | TVec p, TVec t | TRef (p, _), TRef (t, _) -> unify s p t
   | TResult (a, b), TResult (c, d) -> unify s a c; unify s b d
   | TFn (ps, r), (TFn (qs, u) | TOFn (qs, u)) | TOFn (ps, r), TOFn (qs, u) when List.length ps = List.length qs ->
       List.iter2 (fun (_, p) (_, q) -> unify s p q) ps qs;
@@ -392,6 +392,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | SetField (a, f, e) -> SetField (ex a, f, ex e)
       | SetPlace (a, e) -> SetPlace (ex a, ex e)
       | While (c, b) -> While (ex c, blk b)
+      | For (a, s1, s2) -> For (ex a, st s1, st s2)
       | Return e -> Return (Option.map ex e)
       | Expr e -> Expr (ex e)
       | Errdefer e -> Errdefer (ex e)

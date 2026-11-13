@@ -81,6 +81,8 @@ and stmt_desc =
   | SetField of expr * string * expr   (* a.f = e：给变量里的一个字段赋值（a 是位置） *)
   | SetPlace of expr * expr   (* p = e：给 Vec 的一个元素整体赋值；for x in inout v 的展开和 v[i] = e *)
   | While of expr * block
+  | For of expr * stmt * stmt
+      (* for x in e：e 是 Vec 时按下标走（第一个展开），否则按迭代器协议 e.next()（第二个展开）；类型检查按 e 的类型选一个 *)
   | Return of expr option
   | Expr of expr
   | Errdefer of expr        (* 出错返回时执行的调用 *)

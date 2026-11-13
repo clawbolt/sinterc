@@ -19,7 +19,9 @@ let rec borrow_region env (e : expr) =
   | Field (a, _) | Call ("vec_get", [ a; _ ]) -> borrow_region env a
   | Deref ({ e = Var v; _ } as a) -> (
       match List.assoc_opt v env.vars with Some (TRef (_, w), _) -> w | _ -> borrow_region env a)
-  | Deref a -> borrow_region env a
+  | Deref a -> (
+      (* *p.m（p.m 是 &T in w）：借自 w；类型已经检查过（在 types 里） *)
+      match Hashtbl.find_opt types a.id with Some (Ty (TRef (_, w))) -> w | _ -> borrow_region env a)
   | _ -> "临时值"
 
 let rec expr env (x : expr) : t =
@@ -212,6 +214,8 @@ and expr1 env (x : expr) : t =
           match f, rest with
           | "view_len", [] -> Ty TI64
           | "view_byte", [ i ] -> int i; Ty TI64
+          | "view_char_at", [ i ] -> int i; Ty TChar
+          | "view_char_len", [ i ] -> int i; Ty TI64
           | "view_sub", [ i; j ] -> int i; int j; Ty tv
           | "view_to_str", [] -> Ty TStr
           | "view_eq", [ s ] -> expect s.pos TStr (expr env s); Ty TBool
@@ -969,6 +973,19 @@ and block ?want env (b : block) : t =
             if is_linear t then err pos "元素是 linear 值，不能直接赋值（旧值没有被消费）";
             ignore (check env t e);
             go env rest
+        | For (a, sv, si) ->
+            (* 按 a 的类型选展开（a 会在选中的展开里再检查一次，结果相同） *)
+            let vec =
+              match expr env a with
+              | Ty (TVec _) | Never -> true
+              | Ty t ->
+                  if find_inherent "next" t = None then
+                    err a.pos "for 只能遍历 Vec、a..b 或迭代器（有 next 方法的值，例如 s.chars()、m.iter()），%s 不是"
+                      (string_of_ty t);
+                  false
+            in
+            Hashtbl.replace for_vec a.id vec;
+            go env ((if vec then sv else si) :: rest)
         | While (c, body) ->
             expect c.pos TBool (expr env c);
             incr loop_depth;

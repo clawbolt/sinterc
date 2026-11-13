@@ -210,6 +210,64 @@ impl<K, V> Map<K, V> {
             walk(t, f)
         }
     }
+
+    // 按键从小到大的迭代器，给出 (&K in m, &V in m)：for e in m.iter() { let (k, v) = e … }。
+    // 迭代器活着时 m 被锁住（不能插入、删除）。
+    fn iter(m: Map<K, V>) -> MapIter<&Map<K, V> in m, &K in m> { MapIter { m: &m, last: .None, done: false } }
+}
+
+// m.iter() 的迭代器：记下上一次给出的键，每次在树里找比它大的最小的键（O(log n)，不需要栈）。
+pub struct MapIter<M, K> { m: M, last: Option<K>, done: Bool }
+
+impl<K: Ord, V> MapIter<&Map<K, V> in r, &K in r> {
+    fn next(inout it: MapIter<&Map<K, V> in r, &K in r>) -> Option<(&K in r, &V in r)> {
+        if it.done { return .None }
+        let m = it.m
+        let e = match it.last {
+            .Some(k) => after((*m).slot[0], *k),
+            .None => least((*m).slot[0])
+        }
+        match e {
+            .Some(p) => {
+                it.last = .Some(p.0)
+                .Some(p)
+            },
+            .None => {
+                it.done = true
+                .None
+            }
+        }
+    }
+}
+
+// 最小的键所在的结点的键和值
+fn least<K, V>(t: Tree<K, V>) -> Option<(&K in t, &V in t)> {
+    match t {
+        .Br(n) => {
+            match least(*n.left) {
+                .Some(e) => .Some(e),
+                .None => .Some((&n.key, &n.val))
+            }
+        },
+        .Leaf => .None
+    }
+}
+
+// 比 k 大的最小的键所在的结点的键和值
+fn after<K: Ord, V>(t: Tree<K, V>, k: K) -> Option<(&K in t, &V in t)> {
+    match t {
+        .Br(n) => {
+            if k.cmp(n.key).to_i64() == -1 {
+                match after(*n.left, k) {
+                    .Some(e) => .Some(e),
+                    .None => .Some((&n.key, &n.val))
+                }
+            } else {
+                after(*n.right, k)
+            }
+        },
+        .Leaf => .None
+    }
 }
 
 impl<K: Ord, V> Map<K, V> {

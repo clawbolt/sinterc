@@ -21,7 +21,7 @@ std.char 提供 ASCII 的分类和大小写转换。for 也能直接遍历函数
   > }
   > 
   > fn reverse(s: Str) -> Str {
-  >     let cs = s.chars()
+  >     let cs = s.chars().collect()
   >     var r = ""
   >     var i = cs.len()
   >     while i > 0 {

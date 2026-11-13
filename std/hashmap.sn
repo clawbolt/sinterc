@@ -75,6 +75,22 @@ impl<K, V> HashMap<K, V> {
             f(vec_get(m.keys, i), vec_get(m.vals, i))
         }
     }
+
+    // 按 keys 的顺序（插入顺序，删除会把最后一个换到被删的位置）给出 (&K in m, &V in m)。迭代器活着时 m 被锁住。
+    fn iter(m: HashMap<K, V>) -> HashIter<&HashMap<K, V> in m> { HashIter { m: &m, i: 0 } }
+}
+
+// m.iter() 的迭代器：键值紧凑地存在 keys、vals 里，按下标走。
+pub struct HashIter<M> { m: M, i: I64 }
+
+impl<K, V> HashIter<&HashMap<K, V> in r> {
+    fn next(inout it: HashIter<&HashMap<K, V> in r>) -> Option<(&K in r, &V in r)> {
+        let m = it.m
+        if it.i >= vec_len((*m).keys) { return .None }
+        let i = it.i
+        it.i = i + 1
+        .Some((&(*m).keys[i], &(*m).vals[i]))
+    }
 }
 
 impl<K: Eq + Hash, V> HashMap<K, V> {

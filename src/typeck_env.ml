@@ -69,6 +69,9 @@ let sigs : (string, (mode * ty) list * ty) Hashtbl.t = Hashtbl.create 16
    内建的 str_view(s) 是 [("s", 0)]。 *)
 let let_regions : (string, (string * int) list) Hashtbl.t = Hashtbl.create 16
 
+(* for x in e 选了哪个展开（按 e 的 id）：true 是 Vec 的下标展开，false 是迭代器协议。给降级用。 *)
+let for_vec : (int, bool) Hashtbl.t = Hashtbl.create 16
+
 (* 结构体定义和标了 linear 的结构体，给降级和代码生成用。 *)
 let struct_tbl : (string, field list) Hashtbl.t = Hashtbl.create 16
 let linear_tbl : (string, unit) Hashtbl.t = Hashtbl.create 16
