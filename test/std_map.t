@@ -1,5 +1,5 @@
 std.map，存成 AVL 树的有序映射（Lean `Library.TreeMap`：中序遍历就是 `Library.Map` 的有序表，插入、删除和 `Library.Map` 一致）。
-查找、插入、删除都是对数时间；值通过闭包拿到：m.get(k, |v| …)、m.for_each(|k, v| …)。
+查找、插入、删除都是对数时间；m.get(k) 是值的借用 Option<&V in m>，m.for_each(|k, v| …) 遍历。
 按升序插入 1023 个键（不平衡的树会退化成链表），AVL 树的高度是 10；删掉偶数键之后键仍然有序：
 
   $ cat > ok.sn <<'EOF'
@@ -12,8 +12,8 @@ std.map，存成 AVL 树的有序映射（Lean `Library.TreeMap`：中序遍历�
   >     }
   >     println("{m.len()}")
   >     println("{m.height()}")
-  >     match m.get(64, |v| v + 1) {
-  >         .Some(x) => println("{x}"),
+  >     match m.get(64) {
+  >         .Some(v) => println("{*v + 1}"),
   >         .None => println("没有")
   >     }
   >     println("{m.contains(1022)}")
@@ -75,8 +75,8 @@ std.map，存成 AVL 树的有序映射（Lean `Library.TreeMap`：中序遍历�
   >     let o2 = m.insert("apple", "苹果")
   >     let o3 = m.insert("fig", "无花果")
   >     m.for_each(|k, v| println(k.concat(" ").concat(v)))
-  >     match m.get("fig", |v| v.len()) {
-  >         .Some(n) => println("{n}"),
+  >     match m.get("fig") {
+  >         .Some(v) => println("{(*v).len()}"),
   >         .None => println("没有")
   >     }
   >     match m.remove("apple") {

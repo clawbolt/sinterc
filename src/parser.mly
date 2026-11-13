@@ -555,6 +555,8 @@ expr:
   | MINUS e = expr %prec UNARY { mk (Unop (Neg, e)) $startpos }
   | BANG e = expr %prec UNARY { mk (Unop (Not, e)) $startpos }
   | STAR e = expr %prec UNARY { mk (Deref e) $startpos }
+  (* 借用 &p：p 是位置（变量、字段、元素、解引用），得到 &T in 它所在的变量；降级时锁住那个变量（borrow.ml） *)
+  | AMP e = expr %prec UNARY { mk (Call ("#ref_of", [ e ])) $startpos }
   | i = if_expr { i }
   | b = block { mk (Block b) $startpos }
   (* 闭包：|x, y| e，没有参数时写 || e *)

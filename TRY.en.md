@@ -126,9 +126,9 @@ Import the rest with `use std.name` and call it as `name.function(…)`; constru
 | `std.env` | `args`, `get` (environment variables), `exit` |
 | `std.process` | `run` (starts a process without a shell and returns its exit code), `output` (also collects its standard output) |
 | `std.vec`, `std.math` | `range(n)`; `pi()`, `e()` |
-| `std.map` | ordered map (AVL tree): `map.new()`, `m.insert(k, v)`, `m.get(k, \|v\| …)`, `m.remove(k)`, `m.for_each(\|k, v\| …)` |
+| `std.map` | ordered map (AVL tree): `map.Map.new()`, `m.insert(k, v)`, `m.get(k)` (a borrow of the value, `Option<&V in m>`), `m.remove(k)`, `m.for_each(\|k, v\| …)` |
 | `std.hashmap` | hash map (open addressing; keys implement `Eq` and `Hash`; I64 and Str already do), same methods as `Map` |
-| `std.bigint` | arbitrary-size integers: `bigint.from_i64(x)`, `parse(s)`; `a.add(b)`, `sub`, `mul`, `pow`, `divmod_small` (division by a number up to 10^9); implements `Eq`, `Ord`, `ToStr` |
+| `std.bigint` | arbitrary-size integers: `bigint.BigInt.from_i64(x)`, `BigInt.parse(s)`; `a.add(b)`, `sub`, `mul`, `pow`, `divmod_small` (division by a number up to 10^9); implements `Eq`, `Ord`, `ToStr` |
 
 The core algorithms of sorting, binary search, the two maps (including AVL balance) and big integers are proved in Lean (`Core/Library/` in the sinter-formal repository).
 

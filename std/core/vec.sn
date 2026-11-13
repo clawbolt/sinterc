@@ -1,6 +1,6 @@
 // 预导入：Vec<T> 的类型函数和方法。intrinsic fn 是编译器实现的（= 后面是内建函数）；它们的元素类型不固定，类型由编译器单独检查，这里的签名是说明。
 // 第一个参数不是 Vec<T> 的是类型函数，写成 Vec.new()：元素类型由 let 标注、返回值、实参或字段决定。
-// v[i] 是位置（可以读、借用、赋值），v.get(i) 同 v[i]。接收闭包的方法（Lean `Closures.Param`）：闭包只能当实参传，可以读、改外面的变量，例如
+// v[i] 是位置（可以读、借用、赋值），越界时 panic；v.get(i)、v.first()、v.last() 是元素的借用 Option<&T in v>，越界时 .None。接收闭包的方法（Lean `Closures.Param`）：闭包只能当实参传，可以读、改外面的变量，例如
 //   v.map(|x| x * k)、v.for_each(|x| { total = total + x })。
 
 impl<T> Vec<T> {
@@ -16,8 +16,15 @@ impl<T> Vec<T> {
     // 交换第 i、j 个元素；越界时 panic（Lean `Datatypes.VecSwap`）。
     intrinsic fn swap(inout v: Vec<T>, sink i: I64, sink j: I64) = vec_swap
 
-    // 第 i 个元素这个位置，同 v[i]；越界时 panic。
-    intrinsic fn get(v: Vec<T>, sink i: I64) -> T = vec_get
+    // 第 i 个元素的借用；越界时 .None（v[i] 越界时 panic）。借用还在时 v 被锁住（Lean `Projection.Return`）。
+    fn get(v: Vec<T>, i: I64) -> Option<&T in v> {
+        if i < 0 || i >= vec_len(v) { return .None }
+        .Some(&v[i])
+    }
+
+    fn first(v: Vec<T>) -> Option<&T in v> { v.get(0) }
+
+    fn last(v: Vec<T>) -> Option<&T in v> { v.get(vec_len(v) - 1) }
 
     fn is_empty(v: Vec<T>) -> Bool { vec_len(v) == 0 }
 

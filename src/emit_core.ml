@@ -15,7 +15,8 @@
      含引用的结构体、枚举（Option<&I64 in a>、Pair<…>）：每个引用的位置各是一个引用变量
      （Lean `Regions.Data` 的“值的类型里的区域都算上”）。整体复制、取载荷、造结构体和变体时按位置 copy；
      来源不知道的位置（调用的结果、没有载荷的变体等）当作在这个位置的类型的区域里 ralloc，只会更严。
-   投影不导出锁表：通过投影读取导出成对源对象的 use。Box、Vec、Result 里的引用不跟踪。返回值局部不跟踪（值交给了调用者）。 *)
+   投影不导出锁表：通过投影读取导出成对源对象的 use。Box、Vec、Result 里的引用不跟踪。返回值局部不跟踪（值交给了调用者）。
+   借自变量的引用（返回借用、&p：区域名是变量的名字）也不跟踪，和投影一样由 borrow.ml 检查（Lean `Projection.Return`）。 *)
 open Ast
 open Mir
 
@@ -90,19 +91,27 @@ let func (f : func) =
     | Some m when List.mem_assoc r m -> np + List.assoc (List.assoc r m) f.arenas
     | _ -> ( match List.find_index (fun x -> x = r) pregions with Some i -> i | None -> ended)
   in
+  (* 借自变量的引用（返回借用、&p，区域名是变量的名字或临时值）：和投影一样不导出锁表，不作为区域引用跟踪；
+     它们由 borrow.ml 检查（Lean `Projection.Return`：就是投影） *)
+  let borrowed r =
+    r = "临时值"
+    || Array.exists (fun (li : local_info) -> li.lname = r && match li.lty with TArena _ -> false | _ -> true) f.locals
+  in
   let kinds =
     Array.init n (fun l ->
         let li = f.locals.(l) in
+        let leaves = List.filter (fun (_, r) -> not (borrowed r)) (ref_leaves li.lty) in
         if Some l = f.ret_local then None
         else
           match li.lty with
+          | TRef (_, r) when borrowed r -> None
           | TRef (_, r) -> Some (Rf (depth l r))
           | t
             when ((not li.lref) || List.mem l f.params)
                  && (not (Typeck.needs_drop t))
                  && (not (Typeck.is_linear t))
-                 && ref_leaves t <> [] ->
-              Some (Data (List.map (fun (p, r) -> (p, depth l r)) (ref_leaves t)))
+                 && leaves <> [] ->
+              Some (Data (List.map (fun (p, r) -> (p, depth l r)) leaves))
           | _ when li.lref -> None
           | t when Typeck.is_linear t -> Some Lin
           | t when Typeck.needs_drop t -> Some Own

@@ -1,4 +1,4 @@
-下标 v[i]（就是 vec_get(v, i)）和按下标赋值 v[i] = x、v.get(i) = x。和 for x in inout v 里的 x = e 一样：
+下标 v[i]（就是 vec_get(v, i)）和按下标赋值 v[i] = x。和 for x in inout v 里的 x = e 一样：
 先算右边，再查下标（越界时 panic）、析构旧值、放进新值（Lean `Datatypes.VecInout`（二））；v 要能修改，不能在右边被移走。
 不换行的输出 print(s)、原始字节 print_byte(b)。
 
@@ -38,7 +38,7 @@
   >     names.push("a")
   >     names.push("b")
   >     names[1] = "B"
-  >     names.get(0) = names[0].concat("!")
+  >     names[0] = names[0].concat("!")
   >     println(names[0])
   >     println(names[1])
   >     var ps: Vec<P> = Vec.new()

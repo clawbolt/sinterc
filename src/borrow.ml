@@ -57,6 +57,8 @@ let lent (f : func) =
                  (fun (_, i) -> Option.bind (List.nth_opt os i) (fun o -> Option.map (fun (p : place) -> owner p.base) (op_place o)))
                  l)
         | None -> xs)
+    (* &p：借自 p 所在的局部 *)
+    | Use (Ref p) -> union xs [ owner p.base ]
     | _ -> xs
   in
   let flow dst rv =

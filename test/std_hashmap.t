@@ -20,8 +20,8 @@ std.hashmap（Lean `Library.HashMap`）。开放寻址、线性探测不绕回�
   >         .None => println("新键")
   >     }
   >     println("{ages.len()}")
-  >     match ages.get("Bo", |a| a + 1) {
-  >         .Some(x) => println("Bo 明年 {x}"),
+  >     match ages.get("Bo") {
+  >         .Some(a) => println("Bo 明年 {*a + 1}"),
   >         .None => println("没有 Bo")
   >     }
   >     println(ages.contains("Di").to_str())
@@ -63,8 +63,8 @@ std.hashmap（Lean `Library.HashMap`）。开放寻址、线性探测不绕回�
   >     }
   >     var sum = 0
   >     for i in 0..10000 {
-  >         match big.get(i * 1024, |v| v) {
-  >             .Some(v) => { sum = sum + v },
+  >         match big.get(i * 1024) {
+  >             .Some(v) => { sum = sum + *v },
   >             .None => {}
   >         }
   >     }

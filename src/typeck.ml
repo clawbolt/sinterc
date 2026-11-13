@@ -223,7 +223,7 @@ let prepare (p : program) =
           in
           if lr <> [] then Hashtbl.replace let_regions name lr;
           if tparams <> [] then begin
-            if List.exists (fun (_, t) -> region_names t <> []) ps || region_names ret <> [] then
+            if List.exists (fun (_, t) -> region_names t <> []) ps || List.exists (fun r -> not (List.mem_assoc r lr)) (region_names ret) then
               err ipos "泛型函数的签名里暂不能直接写区域或引用（类型实参可以是引用）";
             Hashtbl.replace gparams name tparams
           end;
@@ -452,6 +452,7 @@ let resolve_items = function
 let check_fn ?(clos = []) ?(fvars = []) ?(rord = []) env0 = function
   | Fn { name; tparams; params; ret; body; ipos; bounds; _ } ->
       cur_fn := name;
+      Typeck_expr.bind_regions := [];
       concrete := tparams = [] && not (List.exists (fun (_, _, t) -> is_fn t) params);
       (* 区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3）；
          返回类型 &T in m 里的 let 参数 m 也是区域参数（返回借用，Lean `Projection.Return`） *)

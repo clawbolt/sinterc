@@ -82,10 +82,10 @@ impl<K: Eq + Hash, V> HashMap<K, V> {
         entry(m, k) != -1
     }
 
-    // 有键 k 时把它的值交给 f，返回 f 的结果；没有时是 .None。
-    fn get<R>(m: HashMap<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
+    // 键 k 的值的借用 &V in m；没有时是 .None。借用还在时 m 被锁住（不能插入、删除）。
+    fn get(m: HashMap<K, V>, k: K) -> Option<&V in m> {
         let e = entry(m, k)
-        if e == -1 { .None } else { .Some(f(vec_get(m.vals, e))) }
+        if e == -1 { .None } else { .Some(&m.vals[e]) }
     }
 
     // 放进 (k, v)。已有键 k 时换掉它的值并返回旧值（这时 k 被析构，保留原来的键）；否则返回 .None。

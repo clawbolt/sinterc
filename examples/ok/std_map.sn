@@ -7,8 +7,8 @@ fn main() {
     }
     println("{m.len()}")
     println("{m.height()}")
-    match m.get(64, |v| v + 1) {
-        .Some(x) => println("{x}"),
+    match m.get(64) {
+        .Some(v) => println("{*v + 1}"),
         .None => println("没有")
     }
     println("{m.contains(1022)}")

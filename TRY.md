@@ -107,9 +107,9 @@ C 编译器用环境变量 `CC` 指定，默认是 `cc`。
 | `std.env` | `args`、`get`（环境变量）、`exit` |
 | `std.process` | `run`（启动子进程，不经过 shell，返回退出码）、`output`（收集标准输出） |
 | `std.vec`、`std.math` | `range(n)`；`pi()`、`e()` |
-| `std.map` | 有序映射（AVL 树）：`map.new()`，`m.insert(k, v)`、`m.get(k, \|v\| …)`、`m.remove(k)`、`m.for_each(\|k, v\| …)` |
+| `std.map` | 有序映射（AVL 树）：`map.Map.new()`，`m.insert(k, v)`、`m.get(k)`（值的借用 `Option<&V in m>`）、`m.remove(k)`、`m.for_each(\|k, v\| …)` |
 | `std.hashmap` | 哈希表（开放寻址；键实现 `Eq` 和 `Hash`，I64 和 Str 已实现），方法和 `Map` 相同 |
-| `std.bigint` | 任意大小的整数：`bigint.from_i64(x)`、`parse(s)`；`a.add(b)`、`sub`、`mul`、`pow`、`divmod_small`（除以不超过 10^9 的数），实现了 `Eq`、`Ord`、`ToStr` |
+| `std.bigint` | 任意大小的整数：`bigint.BigInt.from_i64(x)`、`BigInt.parse(s)`；`a.add(b)`、`sub`、`mul`、`pow`、`divmod_small`（除以不超过 10^9 的数），实现了 `Eq`、`Ord`、`ToStr` |
 
 排序、二分查找、两种映射（含 AVL 树的平衡）和大整数的核心算法都在 Lean 里证明过（sinter-formal 仓库的 `Core/Library/`）。
 

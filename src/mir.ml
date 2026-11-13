@@ -301,11 +301,19 @@ let rec expr st env (x : expr) : operand option =
       let ov = Option.get (expr st env v) in
       let ty = match ty_of v with Some t -> t | None -> TI64 in
       value st x (Alloc (ty, pa, ov))
+  | Call ("ref_of", [ a ]) ->
+      (* &p：p 的地址，存进临时变量；borrow.ml 让它锁住 p 所在的局部 *)
+      let p = place st env a in
+      value st x (Use (Ref p))
   | Call (f, args) ->
       (* 泛型函数调用的是推出的类型实参对应的实例；内建类型的 to_str 直接是内建函数，
          这时实参按内建函数的签名传（I64 按值，不按 Self 的借用） *)
       let g = match Hashtbl.find_opt Typeck.call_inst x.id with Some ts -> Typeck.inst_name f ts | None -> f in
       let f, g = match Hashtbl.find_opt Typeck.aliases g with Some b -> (b, b) | None -> (f, g) in
+      (* 返回借用的泛型函数：实例也借自同样的参数 *)
+      (match Hashtbl.find_opt Typeck.let_regions f with
+      | Some l when g <> f -> Hashtbl.replace Typeck.let_regions g l
+      | _ -> ());
       let modes = List.map fst (fst (Hashtbl.find Typeck.sigs f)) in
       let os = List.map2 (arg st env) modes args in
       value st x (Call (g, os))

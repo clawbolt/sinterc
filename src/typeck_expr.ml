@@ -6,12 +6,16 @@ open Typeck_regions
 open Typeck_generics
 open Typeck_pattern
 
-(* 借自实参 e 的引用的区域名（返回借用，Lean `Projection.Return`）：e 是变量或它的字段、元素时是这个变量的名字；
-   经过 *r（r 是 &T in w）时是 w；不是位置时是临时值（先存进临时变量，降级时锁住它）。
+(* 不拥有值的变量（let 绑定的位置、match 按借用绑定的载荷、for 的元素）借自哪个变量：变量名 → 区域名，后定义的在前。
+   在 check_fn 开始时清空。只用来给引用的类型取名字（遮蔽时可能取错，那样只会多拒绝：真正锁住哪个局部由 borrow.ml 决定） *)
+let bind_regions : (string * string) list ref = ref []
+
+(* 借自位置 e 的引用的区域名（返回借用和 &p，Lean `Projection.Return`）：e 是变量或它的字段、元素时是这个变量借自的变量
+   （拥有值的变量就是它自己）；经过 *r（r 是 &T in w）时是 w；不是位置时是临时值（先存进临时变量，降级时锁住它）。
    锁住哪个局部由 borrow.ml 按降级后的局部确定，这里的名字只用来比较类型（返回的引用要借自签名里写的参数）。 *)
 let rec borrow_region env (e : expr) =
   match e.e with
-  | Var v -> v
+  | Var v -> Option.value (List.assoc_opt v !bind_regions) ~default:v
   | Field (a, _) | Call ("vec_get", [ a; _ ]) -> borrow_region env a
   | Deref ({ e = Var v; _ } as a) -> (
       match List.assoc_opt v env.vars with Some (TRef (_, w), _) -> w | _ -> borrow_region env a)
@@ -187,6 +191,14 @@ and expr1 env (x : expr) : t =
           | _ -> err pos "%s 的参数个数不对" f)
       | Never -> Never
       | Ty t -> err a.pos "%s 的第一个参数必须是区域，%s 不是" f (string_of_ty t))
+  | Call ("ref_of", [ a ]) -> (
+      (* &p：借自 p 所在变量的只读引用（Lean `Projection.Return` 的 callOwn：就是一个投影，锁住那个变量） *)
+      if root a = None then err pos "& 后面必须是变量、字段、元素或解引用（要借用的位置）";
+      match expr env a with
+      | Never -> Never
+      | Ty t when region_names t <> [] -> err pos "还不支持指向引用或区域的引用"
+      | Ty TUnit -> err pos "不能引用 ()"
+      | Ty t -> Ty (TRef (t, borrow_region env a)))
   | Call ("str_view", [ s ]) ->
       (* s.view()：整个字符串的切片，借自 s（Lean `Projection.Return`）：切片活着时 s 被锁住，不能修改、移动、析构 *)
       expect s.pos TStr (expr env s);
@@ -570,6 +582,13 @@ and call_named env want (x : expr) f args : t =
         in
         (* trait 约束：类型参数要在当前函数里写了同样的约束，具体类型要有 impl（Lean `Traits.Static` 的 RespectsT；
            泛型 impl 按 `Traits.ImplSearch` 递归地查） *)
+        (* 返回借用的泛型函数：类型实参还不能含引用（结果会是指向引用的引用） *)
+        if Hashtbl.mem let_regions f then
+          List.iter
+            (fun t ->
+              if region_names t <> [] then
+                err pos "%s 返回借用，类型实参还不能是含引用的类型 %s" (bare f) (string_of_ty t))
+            ts;
         let named = List.combine (List.map fst tps) ts in
         List.iter
           (fun (n, tr) ->
@@ -796,9 +815,12 @@ and match_ env want pos borrow (s : expr) arms : t =
       | Some vs ->
           if borrow && root s = None then
             err s.pos "match let 后面必须是变量、字段或解引用（要借用的位置）";
-          enum_match env want pos ty vs arms)
+          (* 按借用绑定的载荷借自被匹配的位置所在的变量 *)
+          let sr = if root s <> None then borrow_region env s else "临时值" in
+          enum_match ~sr env want pos ty vs arms)
 
-and enum_match env want pos ty vs arms : t =
+and enum_match ?(sr = "") env want pos ty vs arms : t =
+  let bind x t = bind_regions := (x, if sr <> "" && needs_drop t then sr else x) :: !bind_regions in
   List.iter
     (fun (v, _, (a : expr)) ->
       if v <> "_" && not (List.mem_assoc v vs) then err a.pos "%s 没有变体 %s" (string_of_ty ty) (vname v))
@@ -823,6 +845,7 @@ and enum_match env want pos ty vs arms : t =
                 (env, a)
             | Some t ->
                 if x = "" then err a.pos "%s 带载荷，分支要写 %s(x) 或 %s(_)" w w w;
+                bind x t;
                 ({ env with vars = (x, (t, false)) :: env.vars }, a)
             | None ->
                 if x <> "" then err a.pos "%s 没有载荷，分支要写 %s => …" w w;
@@ -830,7 +853,9 @@ and enum_match env want pos ty vs arms : t =
         | [] -> (
             (* 没写到的变体用 _ 分支：载荷绑到看不见的变量 _#，分支结束时析构 *)
             match arm_for arms (v, pty) with
-            | Some (x, a) when x <> "" -> ({ env with vars = (x, (Option.get pty, false)) :: env.vars }, a)
+            | Some (x, a) when x <> "" ->
+                bind x (Option.get pty);
+                ({ env with vars = (x, (Option.get pty, false)) :: env.vars }, a)
             | Some (_, a) -> (env, a)
             | None -> err pos "match 没有覆盖 %s（枚举的 match 必须穷尽）" w)
         | _ -> err pos "match 有两个 %s 分支" w)
@@ -874,6 +899,8 @@ and block ?want env (b : block) : t =
                   | Never -> err pos "%s 的初值不会返回，无法推断类型" v)
             in
             (match ty with TArena _ -> err pos "区域不能存进变量" | _ -> ());
+            (* let 绑定需要析构的位置是投影（见 mir.ml 的 proj_init）：借自那个位置所在的变量 *)
+            bind_regions := (v, if root e <> None && needs_drop ty then borrow_region env e else v) :: !bind_regions;
             go { env with vars = (v, (ty, mut)) :: env.vars } rest
         | Assign (v, e) ->
             note ~write:true env.vars v;

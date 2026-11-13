@@ -58,7 +58,10 @@
   >     v.push(box(1))
   >     v.push(box(2))
   >     println("{v.len()}")
-  >     println("{*v.get(1)}")
+  >     match v.get(1) {
+  >         .Some(b) => println("{**b}"),
+  >         .None => println("none")
+  >     }
   >     match v.pop() {
   >         .Some(b) => println("{*b}"),
   >         .None => println("{0}")
@@ -117,20 +120,21 @@ sink 的接收者被移走：
      |               ^
   [1]
 
-get 的投影还活着时 push（和 v[i] / push 一样）：
+get 返回的借用还活着时 push：
 
   $ cat > lock.sn <<'EOF'
   > fn main() {
   >     var v: Vec<Box<I64>> = Vec.new()
   >     v.push(box(1))
   >     let e = v.get(0)
+  >     let n = v.len()
   >     v.push(box(2))
-  >     println("{*e}")
+  >     println("{e.is_some()} {n}")
   > }
   > EOF
   $ sinterc lock.sn
-  lock.sn:5:5: 错误：v 正被投影 e 借用（之后还会用到 e），不能以 inout 传入
-   5 |     v.push(box(2))
+  lock.sn:6:5: 错误：v 正被引用 e 借用（之后还会用到 e），不能以 inout 传入
+   6 |     v.push(box(2))
      |     ^
   [1]
 

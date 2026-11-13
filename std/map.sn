@@ -2,7 +2,7 @@
 // 键要实现预导入的 Ord。规格见 lean/Core/Library/TreeMap.lean：树的中序遍历就是 `Library.Map` 的有序表，
 // 插入、删除和 `Library.Map` 的 ins、del 一致，所以 `Library.Map` 的定律照样成立（键严格递增，插入后查得到，删除后查不到，别的键不受影响）。
 // `Library.TreeMap`、`Library.TreeMapAvl`（Lean）：插入、删除和有序列表上的版本一致，并保持 AVL 平衡（树高是对数）。
-// 值不能直接拿出来，要传闭包：m.get(k, |v| …)、m.for_each(|k, v| …)。
+// m.get(k) 是值的借用 Option<&V in m>（借用还在时 m 被锁住）；遍历用 m.for_each(|k, v| …)。
 
 struct Node<K, V> { left: Box<Tree<K, V>>, key: K, val: V, h: I64, right: Box<Tree<K, V>> }
 enum Tree<K, V> { Br(Node<K, V>), Leaf }
@@ -168,11 +168,12 @@ fn has<K: Ord, V>(t: Tree<K, V>, k: K) -> Bool {
     }
 }
 
-fn lookup<K: Ord, V, R>(t: Tree<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
+// k 的值的借用（返回借用，借自 t）
+fn find<K: Ord, V>(t: Tree<K, V>, k: K) -> Option<&V in t> {
     match t {
         .Br(n) => {
             let c = k.cmp(n.key).to_i64()
-            if c == -1 { lookup(*n.left, k, f) } else if c == 0 { .Some(f(n.val)) } else { lookup(*n.right, k, f) }
+            if c == -1 { find(*n.left, k) } else if c == 0 { .Some(&n.val) } else { find(*n.right, k) }
         },
         .Leaf => .None
     }
@@ -247,10 +248,10 @@ impl<K: Ord, V> Map<K, V> {
         false
     }
 
-    // 有键 k 时返回 .Some(f(它的值))，否则返回 .None。例如 m.get(k, |v| v * 2)。
-    fn get<R>(m: Map<K, V>, k: K, f: fn(V) -> R) -> Option<R> {
+    // 键 k 的值的借用 &V in m；没有时是 .None。借用还在时 m 被锁住（不能插入、删除）。
+    fn get(m: Map<K, V>, k: K) -> Option<&V in m> {
         for t in m.slot {
-            return lookup(t, k, f)
+            return find(t, k)
         }
         .None
     }

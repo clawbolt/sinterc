@@ -38,8 +38,8 @@ fn main() {
     for line in lines {
         for w in words_of(line) {
             total = total + 1
-            let n = match counts.get(w, |c| c) {
-                .Some(c) => c,
+            let n = match counts.get(w) {
+                .Some(c) => *c,
                 _ => 0
             }
             // for 按借用给出 w，插入要拿走所有权，所以复制一份

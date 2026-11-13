@@ -108,7 +108,7 @@ let view_sigs =
 
 (* 特殊处理的内建函数：参数类型不固定。 *)
 let special =
-  [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "vec_swap"; "panic"; "os_exit" ]
+  [ "box"; "unbox"; "consume"; "alloc"; "vec_new"; "vec_push"; "vec_pop"; "vec_len"; "vec_get"; "vec_swap"; "panic"; "os_exit"; "ref_of" ]
   @ List.map fst view_sigs
 
 (* Vec 的内建函数的参数约定（给降级用；类型由类型检查单独处理）。vec_get 是位置，不是调用。 *)

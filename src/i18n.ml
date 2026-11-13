@@ -220,6 +220,9 @@ let table =
     ("返回的引用借自 %s，函数结束时它就不在了（只能借自返回类型里写的 let 参数）",
      "the returned reference borrows from {1}, which does not outlive the function (it can only borrow from a let parameter named in the return type)");
     ("返回的引用只能借自 let 参数，%s 是 %s 参数", "a returned reference can only borrow from a let parameter; {1} is a {2} parameter");
+    ("& 后面必须是变量、字段、元素或解引用（要借用的位置）", "& must be followed by a variable, field, element or dereference (a place to borrow)");
+    ("%s 返回借用，类型实参还不能是含引用的类型 %s",
+     "{1} returns a borrow, so its type argument cannot yet be a type containing references ({2})");
     ("整数超出 I64 范围：%s", "integer literal out of I64 range: {1}");
     ("浮点数超出 F64 范围：%s", "float literal out of F64 range: {1}");
     ("字符字面量的引号里要正好是一个字符", "a character literal must contain exactly one character between the quotes");

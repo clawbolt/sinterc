@@ -111,3 +111,105 @@ s.view() 是借自 s 的整段切片，不复制；切片的方法都能用。�
    3 |         let s = "abc".clone()
      |         ^
   [1]
+
+借用 &p：p 是变量、字段、元素或解引用，得到借自 p 所在变量的引用。泛型函数也可以返回借用：
+Vec 的 get、first、last 返回 Option<&T in v>，Map、HashMap 的 get 返回 Option<&V in m>：
+
+  $ cat > generic.sn <<'EOF2'
+  > use std.map
+  > use std.hashmap
+  > 
+  > struct P { x: I64, name: Str }
+  > 
+  > fn longest(v: Vec<Str>) -> &Str in v {
+  >     var best = 0
+  >     for i in 0..v.len() {
+  >         if v[i].len() > v[best].len() { best = i }
+  >     }
+  >     &v[best]
+  > }
+  > 
+  > fn main() {
+  >     var v: Vec<Str> = Vec.new()
+  >     v.push("ab")
+  >     v.push("abcd")
+  >     v.push("c")
+  >     let l = longest(v)
+  >     println(*l)
+  >     match v.first() {
+  >         .Some(s) => println(*s),
+  >         .None => {}
+  >     }
+  >     println("{v.get(5).is_none()} {v.last().is_some()}")
+  >     let p = P { x: 1, name: "p" }
+  >     let r = &p.name
+  >     println("{(*r).len()}")
+  >     var m: map.Map<Str, I64> = map.Map.new()
+  >     let old = m.insert("a", 1)
+  >     match m.get("a") {
+  >         .Some(n) => println("{*n + 1}"),
+  >         .None => println("没有")
+  >     }
+  >     var h: hashmap.HashMap<I64, Str> = hashmap.HashMap.new()
+  >     let old2 = h.insert(7, "seven")
+  >     match h.get(7) {
+  >         .Some(s) => println(*s),
+  >         .None => println("没有")
+  >     }
+  >     v.push("d")
+  >     println("{v.len()}")
+  > }
+  > EOF2
+  $ sinterc run generic.sn
+  abcd
+  ab
+  true true
+  1
+  2
+  seven
+  4
+
+借用还在时修改 Map：
+
+  $ cat > maplock.sn <<'EOF2'
+  > use std.map
+  > 
+  > fn main() {
+  >     var m: map.Map<I64, Str> = map.Map.new()
+  >     let a = m.insert(1, "x")
+  >     let s = m.get(1)
+  >     let b = m.insert(2, "y")
+  >     println("{s.is_some()}")
+  > }
+  > EOF2
+  $ sinterc maplock.sn
+  maplock.sn:7:13: 错误：m 正被引用 s 借用（之后还会用到 s），不能以 inout 传入
+   7 |     let b = m.insert(2, "y")
+     |             ^
+  [1]
+
+& 后面要是位置；返回借用的泛型函数的类型实参还不能含引用：
+
+  $ cat > notplace.sn <<'EOF2'
+  > fn main() {
+  >     let r = &"x".len()
+  > }
+  > EOF2
+  $ sinterc notplace.sn
+  notplace.sn:2:13: 错误：& 后面必须是变量、字段、元素或解引用（要借用的位置）
+   2 |     let r = &"x".len()
+     |             ^
+  [1]
+
+  $ cat > refref.sn <<'EOF2'
+  > fn main() {
+  >     let s = "a,b"
+  >     let parts = s.view().split(",")
+  >     let f = parts.first()
+  > }
+  > EOF2
+  $ sinterc refref.sn
+  refref.sn:4:19: 错误：Vec<T>.first 返回借用，类型实参还不能是含引用的类型 &str in s
+   4 |     let f = parts.first()
+     |                   ^
+  [1]
