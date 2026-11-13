@@ -21,6 +21,12 @@ impl Bytes {
 
     intrinsic fn eq(b: Bytes, c: Bytes) -> Bool = bytes_eq
 
+    // 从下标 from 起第一个等于 x 的字节的下标；没有时 -1。
+    intrinsic fn find(b: Bytes, sink x: I64, sink from: I64) -> I64 = bytes_find
+
+    // 去掉开头的 n 个字节（n 大于长度时全部去掉），原地移动。
+    intrinsic fn drop_front(inout b: Bytes, sink n: I64) = bytes_drop_front
+
     fn is_empty(b: Bytes) -> Bool { bytes_len(b) == 0 }
 
     // 按 UTF-8 解码：只在是合法的 UTF-8 时得到 .Some（Lean `Library.Utf8Check`）。

@@ -1,137 +1,57 @@
-// 简单的 HTTP/1.1 服务器：每个连接交给 scope 里的一个任务（Lean `Concurrency.Scope`），连接是 linear 的，任务结束前必须关闭。
+// HTTP 服务器的示例，用 std.http：每个连接交给 scope 里的一个任务（Lean `Concurrency.Scope`），连接上可以连续发多个请求。
 //   sinterc run examples/tour/http_server.sn serve 8080        然后 curl http://127.0.0.1:8080/hello/世界
 //   sinterc run examples/tour/http_server.sn selftest          服务端和客户端在同一个程序里各跑几个请求
-// 只支持 GET，每个连接一个请求（回复带 Connection: close）。
 use std.net
+use std.http { Handler }
 use std.env
 
-// 一个请求：方法和路径；读到空行为止，头部忽略。
-fn read_request(c: net.TcpStream) -> Result<(Str, Str), Str> {
-    let first = match c.read_line()? {
-        .Some(l) => l,
-        .None => { return Err("连接没有数据") }
-    }
-    while true {
-        match c.read_line()? {
-            .Some(l) => { if l.len() == 0 { break } },
-            .None => { break }
+// 处理器：所有连接的任务只读共享它
+struct App { title: Str, greeting: Str }
+
+impl Handler for App {
+    fn handle(a: App, req: http.Request) -> http.Response {
+        if req.method.eq("POST") && req.path.eq("/echo") {
+            return http.Response.text(200, "收到 {req.body.len()} 个字节：{req.text()}\n")
+        }
+        if !req.method.eq("GET") && !req.method.eq("HEAD") { return http.Response.text(405, "不支持 {req.method}\n") }
+        if req.path.eq("/") { return http.Response.text(200, "{a.title}\n") }
+        match http.route(req.path, "/hello/:name") {
+            .Some(ps) => {
+                let greeting = req.query_param("greeting").unwrap_or(a.greeting.to_str())
+                http.Response.text(200, "{greeting}，{ps[0]}\n")
+            },
+            .None => http.Response.text(404, "没有 {req.path}\n")
         }
     }
-    let parts = first.split(" ")
-    if parts.len() != 3 { return Err("请求行不对：{first}") }
-    Ok((parts[0].to_str(), parts[1].to_str()))
 }
 
-fn respond(c: net.TcpStream, status: Str, body: Str) -> Result<(), Str> {
-    let b = body.to_bytes()
-    c.write_str("HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {b.len()}\r\nConnection: close\r\n\r\n")?
-    c.write(b)
-}
+fn new_app() -> App { App { title: "Sinter 的 HTTP 示例", greeting: "你好" } }
 
-fn hex(c: I64) -> I64 {
-    if c >= 48 && c <= 57 { return c - 48 }   // 0-9
-    if c >= 97 && c <= 102 { return c - 87 }  // a-f
-    if c >= 65 && c <= 70 { return c - 55 }   // A-F
-    -1
-}
-
-// 路径里的 %XX 换成那个字节（curl 会把中文写成 %e4%b8%96…）；解出来不是合法的 UTF-8 时原样返回
-fn url_decode(s: Str) -> Str {
-    let b = s.to_bytes()
-    var out = Bytes.new()
-    var i = 0
-    while i < b.len() {
-        let c = b.get(i)
-        if c == 37 && i + 2 < b.len() && hex(b.get(i + 1)) >= 0 && hex(b.get(i + 2)) >= 0 {
-            out.push(hex(b.get(i + 1)) * 16 + hex(b.get(i + 2)))
-            i = i + 3
-        } else {
-            out.push(c)
-            i = i + 1
-        }
-    }
-    match out.decode() {
-        .Some(t) => t,
-        .None => s.to_str()
-    }
-}
-
-fn route(method: Str, raw: Str, site: Str) -> (Str, Str) {
-    if !method.eq("GET") { return ("405 Method Not Allowed", "只支持 GET\n") }
-    let path = url_decode(raw)
-    if path.eq("/") { return ("200 OK", "{site}\n") }
-    if path.starts_with("/hello/") { return ("200 OK", "你好，{path.slice(7, path.len())}\n") }
-    ("404 Not Found", "没有 {path}\n")
-}
-
-// 任务：处理一个连接。site 是所有任务只读共享的，c 移进了这个任务。
-fn handle(sink c: net.TcpStream, site: Str) {
-    let r = match read_request(c) {
-        Ok((method, path)) => {
-            let (status, body) = route(method, path, site)
-            respond(c, status, body)
-        },
-        Err(e) => respond(c, "400 Bad Request", "{e}\n")
-    }
+fn summary(target: Str, r: Result<http.Response, Str>) -> Str {
     match r {
-        Ok(_) => {},
-        Err(e) => eprintln("{e}")
-    }
-    c.close()
-}
-
-// 接受 n 个连接（n < 0 时一直接受），每个交给一个任务；scope 结束时所有任务都已结束。
-fn serve(l: net.TcpListener, n: I64, site: Str) {
-    var k = 0
-    scope |s| {
-        while n < 0 || k < n {
-            match l.accept() {
-                Ok(c) => s.spawn(|| handle(c, site)),
-                Err(e) => eprintln("{e}")
-            }
-            k = k + 1
-        }
+        Ok(resp) => "{resp.status} {resp.header("Content-Type").unwrap_or("-")} | {resp.text_body().trim()}",
+        Err(e) => "{target}：{e}"
     }
 }
 
-// 客户端：GET path，返回整个回复。
-fn get(port: I64, path: Str) -> Result<Str, Str> {
-    let c = net.connect("127.0.0.1", port)?
-    let w = c.write_str("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
-    let all = c.read_all()
-    c.close()
-    w?
-    match all?.decode() {
-        .Some(s) => Ok(s),
-        .None => Err("回复不是 UTF-8")
-    }
-}
-
-// 回复的第一行和正文
-fn summary(reply: Str) -> Str {
-    let head_end = reply.find("\r\n\r\n").unwrap_or(reply.len())
-    let first = reply.slice(0, reply.find("\r\n").unwrap_or(head_end))
-    let body = if head_end + 4 <= reply.len() { reply.slice(head_end + 4, reply.len()) } else { "" }
-    "{first} | {body.trim()}"
-}
-
+// 客户端依次发请求；服务端接受同样多的连接后结束
 fn selftest(l: net.TcpListener) {
-    let port = l.port()
-    let site = "Sinter 的 HTTP 示例"
+    let base = "http://127.0.0.1:{l.port()}"
     var paths: Vec<Str> = Vec.new()
     paths.push("/")
     paths.push("/hello/世界")
-    paths.push("/hello/%E4%B8%96%e7%95%8c")
+    paths.push("/hello/%E4%B8%96%e7%95%8c?greeting=hi")
     paths.push("/missing")
-    let n = paths.len()
+    let n = paths.len() + 1
+    let app = new_app()
     scope |s| {
-        s.spawn(|| serve(l, n, site))
+        s.spawn(|| http.serve(l, n, app))
         for p in paths {
-            match get(port, p) {
-                Ok(r) => println(summary(r)),
-                Err(e) => println("客户端：{e}")
-            }
+            let target = "{base}{p}"
+            println(summary(target, http.get(target)))
         }
+        let target = "{base}/echo"
+        println(summary(target, http.post(target, "text/plain", "你好".to_bytes())))
     }
 }
 
@@ -152,7 +72,7 @@ fn main() {
                         selftest(l)
                     } else {
                         println("在 http://127.0.0.1:{l.port()}/ 上监听")
-                        serve(l, -1, "Sinter 的 HTTP 示例")
+                        http.serve(l, -1, new_app())
                     }
                     l.close()
                 },

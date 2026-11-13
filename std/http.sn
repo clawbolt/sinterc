@@ -1,0 +1,483 @@
+// std.http：HTTP/1.1 的服务端和客户端（没有 TLS，只有 http://）。
+// 服务端：每个连接交给 scope 里的一个任务，连接上可以连续处理多个请求（keep-alive），请求体按 Content-Length 或 chunked 读。
+//     use std.http { Handler }
+//     struct App { site: Str }
+//     impl Handler for App {
+//         fn handle(a: App, req: http.Request) -> http.Response {
+//             match http.route(req.path, "/hello/:name") {
+//                 .Some(ps) => http.Response.text(200, "{a.site}：你好，{ps[0]}\n"),
+//                 .None => http.Response.text(404, "没有 {req.path}\n")
+//             }
+//         }
+//     }
+//     http.serve(listener, -1, App { site: "示例" })
+// 处理器是实现了 Handler 的值（不是闭包）：所有连接的任务只读共享它（Lean `Concurrency.Scope`），所以 handle 不能修改它。
+// 客户端：http.get(url)、http.post(url, 类型, 内容)、http.request(…)；回复体按 Content-Length、chunked 或读到连接关闭。
+use std.net
+use std.url
+
+// 头部：按添加的顺序，名字不区分大小写。
+pub struct Headers { items: Vec<(Str, Str)> }
+
+pub struct Request {
+    method: Str,      // "GET"
+    target: Str,      // 请求行里的原样："/a%20b?x=1"
+    path: Str,        // 解码后的路径："/a b"
+    query: Str,       // ? 后面的原样部分："x=1"
+    version: Str,     // "HTTP/1.1"
+    headers: Headers,
+    body: Bytes
+}
+
+pub struct Response {
+    status: I64,
+    reason: Str,      // 空的时候按 status 写标准的说明
+    headers: Headers,
+    body: Bytes
+}
+
+// 头部最多这么多行、每行这么长；请求体、回复体最大这么多字节
+fn max_headers() -> I64 { 100 }
+
+fn max_line() -> I64 { 16384 }
+
+fn max_body() -> I64 { 67108864 }
+
+fn eq_ci(a: Str, b: Str) -> Bool {
+    if a.len() != b.len() { return false }
+    var i = 0
+    while i < a.len() {
+        var x = a.byte(i)
+        var y = b.byte(i)
+        if x >= 65 && x <= 90 { x = x + 32 }
+        if y >= 65 && y <= 90 { y = y + 32 }
+        if x != y { return false }
+        i = i + 1
+    }
+    true
+}
+
+impl Headers {
+    fn new() -> Headers { Headers { items: Vec.new() } }
+
+    fn len(h: Headers) -> I64 { h.items.len() }
+
+    // 第一个叫 name 的头的值。
+    fn get(h: Headers, name: Str) -> Option<Str> {
+        for p in h.items {
+            if eq_ci(p.0, name) { return .Some(p.1.to_str()) }
+        }
+        .None
+    }
+
+    fn has(h: Headers, name: Str) -> Bool { h.get(name).is_some() }
+
+    // 加一个头（同名的可以有多个，例如 Set-Cookie）。
+    fn add(inout h: Headers, name: Str, value: Str) { h.items.push((name.to_str(), value.to_str())) }
+
+    // 设成这一个值：先去掉所有同名的。
+    fn set(inout h: Headers, name: Str, value: Str) {
+        h.remove(name)
+        h.items.push((name.to_str(), value.to_str()))
+    }
+
+    fn remove(inout h: Headers, name: Str) {
+        var out: Vec<(Str, Str)> = Vec.new()
+        for p in h.items {
+            if !eq_ci(p.0, name) { out.push((p.0.to_str(), p.1.to_str())) }
+        }
+        h.items = out
+    }
+
+    fn clone(h: Headers) -> Headers {
+        var out = Headers.new()
+        for p in h.items { out.items.push((p.0.to_str(), p.1.to_str())) }
+        out
+    }
+}
+
+// 标准的说明（"OK"、"Not Found"…）
+pub fn reason(status: I64) -> Str {
+    match status {
+        100 => "Continue",
+        101 => "Switching Protocols",
+        200 => "OK",
+        201 => "Created",
+        202 => "Accepted",
+        204 => "No Content",
+        206 => "Partial Content",
+        301 => "Moved Permanently",
+        302 => "Found",
+        303 => "See Other",
+        304 => "Not Modified",
+        307 => "Temporary Redirect",
+        308 => "Permanent Redirect",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        408 => "Request Timeout",
+        409 => "Conflict",
+        411 => "Length Required",
+        413 => "Content Too Large",
+        414 => "URI Too Long",
+        415 => "Unsupported Media Type",
+        429 => "Too Many Requests",
+        500 => "Internal Server Error",
+        501 => "Not Implemented",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        505 => "HTTP Version Not Supported",
+        _ => "Unknown"
+    }
+}
+
+impl Request {
+    fn header(r: Request, name: Str) -> Option<Str> { r.headers.get(name) }
+
+    // 查询里第一个叫 name 的参数（已解码）。
+    fn query_param(r: Request, name: Str) -> Option<Str> {
+        for p in url.parse_query(r.query) {
+            if p.0.eq(name) { return .Some(p.1.to_str()) }
+        }
+        .None
+    }
+
+    // 请求体按 UTF-8 解码（不合法时是空的）。
+    fn text(r: Request) -> Str { r.body.decode().unwrap_or("") }
+}
+
+impl Response {
+    fn new(status: I64) -> Response { Response { status: status, reason: "", headers: Headers.new(), body: Bytes.new() } }
+
+    // 内容是任意字节，类型是 content_type。
+    fn bytes(status: I64, content_type: Str, sink body: Bytes) -> Response {
+        var h = Headers.new()
+        h.set("Content-Type", content_type)
+        Response { status: status, reason: "", headers: h, body: body }
+    }
+
+    fn text(status: I64, body: Str) -> Response { Response.bytes(status, "text/plain; charset=utf-8", body.to_bytes()) }
+
+    fn html(status: I64, body: Str) -> Response { Response.bytes(status, "text/html; charset=utf-8", body.to_bytes()) }
+
+    fn json(status: I64, body: Str) -> Response { Response.bytes(status, "application/json", body.to_bytes()) }
+
+    // 重定向到 location（301、302、303、307、308）。
+    fn redirect(status: I64, location: Str) -> Response {
+        var r = Response.new(status)
+        r.headers.set("Location", location)
+        r
+    }
+
+    // 加上一个头（同名的先去掉），返回新的回复：Response.text(200, s).with_header("Cache-Control", "no-store")
+    fn with_header(sink r: Response, name: Str, value: Str) -> Response {
+        var x = r
+        x.headers.set(name, value)
+        x
+    }
+
+    fn header(r: Response, name: Str) -> Option<Str> { r.headers.get(name) }
+
+    // 回复体按 UTF-8 解码（不合法时是空的）。
+    fn text_body(r: Response) -> Str { r.body.decode().unwrap_or("") }
+
+    fn is_ok(r: Response) -> Bool { r.status >= 200 && r.status < 300 }
+}
+
+// 按模式匹配路径：模式的每一段要么和路径的这一段相同，要么是 :名字（匹配任意一段），最后一段可以是 *（匹配剩下的所有段）。
+// 匹配时得到 :名字 和 * 对应的部分（按顺序），不匹配时 .None。
+//     route("/users/42/posts", "/users/:id/posts") == .Some(["42"])
+pub fn route(path: Str, pattern: Str) -> Option<Vec<Str>> {
+    let ps = path.split("/")
+    let qs = pattern.split("/")
+    var out: Vec<Str> = Vec.new()
+    var i = 0
+    while i < qs.len() {
+        let q = qs[i]
+        if q.eq("*") && i == qs.len() - 1 {
+            var rest: Vec<Str> = Vec.new()
+            var j = i
+            while j < ps.len() {
+                rest.push(ps[j].to_str())
+                j = j + 1
+            }
+            out.push(rest.join("/"))
+            return .Some(out)
+        }
+        if i >= ps.len() { return .None }
+        if q.starts_with(":") {
+            if ps[i].len() == 0 { return .None }
+            out.push(ps[i].to_str())
+        } else if !q.eq(ps[i]) {
+            return .None
+        }
+        i = i + 1
+    }
+    if ps.len() != qs.len() { return .None }
+    .Some(out)
+}
+
+// ---------- 读写报文 ----------
+
+fn parse_hex(s: Str) -> Option<I64> {
+    if s.len() == 0 || s.len() > 15 { return .None }
+    var n = 0
+    var i = 0
+    while i < s.len() {
+        let c = s.byte(i)
+        var d = -1
+        if c >= 48 && c <= 57 { d = c - 48 }
+        if c >= 97 && c <= 102 { d = c - 87 }
+        if c >= 65 && c <= 70 { d = c - 55 }
+        if d < 0 { return .None }
+        n = n * 16 + d
+        i = i + 1
+    }
+    .Some(n)
+}
+
+fn need_line(c: net.TcpStream, what: Str) -> Result<Str, Str> {
+    match c.read_line_max(max_line())? {
+        .Some(l) => Ok(l),
+        .None => Err("{what}：连接提前关闭了")
+    }
+}
+
+// 头部：读到空行为止
+fn read_headers(c: net.TcpStream) -> Result<Headers, Str> {
+    var h = Headers.new()
+    while true {
+        let line = need_line(c, "读头部")?
+        if line.len() == 0 { break }
+        if h.len() >= max_headers() { return Err("头部超过 {max_headers()} 行") }
+        match line.find(":") {
+            .Some(i) => h.add(line.slice(0, i).trim(), line.slice(i + 1, line.len()).trim()),
+            .None => { return Err("头部的一行没有冒号：{line}") }
+        }
+    }
+    Ok(h)
+}
+
+fn read_chunked(c: net.TcpStream) -> Result<Bytes, Str> {
+    var out = Bytes.new()
+    while true {
+        let line = need_line(c, "读 chunked 的长度")?
+        let size = match line.find(";") {
+            .Some(i) => line.slice(0, i).trim(),
+            .None => line.trim()
+        }
+        let n = match parse_hex(size) {
+            .Some(n) => n,
+            .None => { return Err("chunked 的长度不是十六进制数：{line}") }
+        }
+        if n == 0 { break }
+        if out.len() + n > max_body() { return Err("内容超过 {max_body()} 字节") }
+        let data = c.read_exact(n)?
+        out.append(data)
+        let end = need_line(c, "读 chunked")?
+        if end.len() != 0 { return Err("chunked 的数据后面不是换行") }
+    }
+    while true {
+        // 尾部的头，忽略
+        let t = need_line(c, "读 chunked 的结尾")?
+        if t.len() == 0 { break }
+    }
+    Ok(out)
+}
+
+// 报文体：chunked、Content-Length，都没有时请求是空的、回复读到连接关闭
+fn read_body(c: net.TcpStream, h: Headers, is_request: Bool) -> Result<Bytes, Str> {
+    match h.get("Transfer-Encoding") {
+        .Some(te) => {
+            if te.to_lower().contains("chunked") { return read_chunked(c) }
+        },
+        .None => {}
+    }
+    match h.get("Content-Length") {
+        .Some(v) => {
+            let n = match v.parse_i64() {
+                .Some(n) => n,
+                .None => { return Err("Content-Length 不是整数：{v}") }
+            }
+            if n < 0 || n > max_body() { return Err("Content-Length 不在 0..{max_body()}：{n}") }
+            if n == 0 { return Ok(Bytes.new()) }
+            c.read_exact(n)
+        },
+        .None => {
+            if is_request { return Ok(Bytes.new()) }
+            c.read_all()
+        }
+    }
+}
+
+// 读一个请求；连接在请求开始之前就关闭了时 .None。
+pub fn read_request(c: net.TcpStream) -> Result<Option<Request>, Str> {
+    var line = ""
+    while line.len() == 0 {
+        // 请求之间可以有空行
+        match c.read_line_max(max_line())? {
+            .Some(l) => { line = l },
+            .None => { return Ok(.None) }
+        }
+    }
+    let parts = line.split(" ")
+    if parts.len() != 3 { return Err("请求行不对：{line}") }
+    let version = parts[2].to_str()
+    if !version.starts_with("HTTP/1.") { return Err("不支持的版本：{version}") }
+    let headers = read_headers(c)?
+    let body = read_body(c, headers, true)?
+    let target = parts[1].to_str()
+    let q = match target.find("?") {
+        .Some(i) => i,
+        .None => target.len()
+    }
+    let raw = target.slice(0, q)
+    let query = if q < target.len() { target.slice(q + 1, target.len()) } else { "" }
+    let path = url.decode(raw).unwrap_or(raw.to_str())
+    Ok(.Some(Request {
+        method: parts[0].to_str(), target: target, path: path, query: query, version: version,
+        headers: headers, body: body
+    }))
+}
+
+// 写一个回复。Content-Length 和 Connection 由这里写（回复里同名的头不用）；head_only 时不写回复体（HEAD 请求）。
+pub fn write_response(c: net.TcpStream, r: Response, close: Bool, head_only: Bool) -> Result<(), Str> {
+    let why = if r.reason.len() > 0 { r.reason.to_str() } else { reason(r.status) }
+    var head = "HTTP/1.1 {r.status} {why}\r\n"
+    for p in r.headers.items {
+        if !eq_ci(p.0, "Content-Length") && !eq_ci(p.0, "Connection") { head = "{head}{p.0}: {p.1}\r\n" }
+    }
+    let conn = if close { "close" } else { "keep-alive" }
+    head = "{head}Content-Length: {r.body.len()}\r\nConnection: {conn}\r\n\r\n"
+    var out = head.to_bytes()
+    if !head_only { out.append(r.body) }
+    c.write(out)
+}
+
+// 这个请求之后要不要关闭连接：HTTP/1.0 默认关闭，HTTP/1.1 默认保持；Connection 头可以改
+fn wants_close(r: Request) -> Bool {
+    match r.headers.get("Connection") {
+        .Some(v) => {
+            let l = v.to_lower()
+            if l.contains("close") { return true }
+            if l.contains("keep-alive") { return false }
+        },
+        .None => {}
+    }
+    r.version.eq("HTTP/1.0")
+}
+
+// ---------- 服务端 ----------
+
+// 处理器：每个请求调用一次 handle。
+pub trait Handler {
+    fn handle(h: Self, req: Request) -> Response
+}
+
+// 处理一个连接上的所有请求，最后关闭它。连接空闲超过 30 秒时关闭。
+pub fn serve_conn<H: Handler>(sink c: net.TcpStream, h: H) {
+    c.set_timeout(30000)
+    while true {
+        match read_request(c) {
+            Ok(.Some(req)) => {
+                let close = wants_close(req)
+                let head_only = req.method.eq("HEAD")
+                let resp = h.handle(req)
+                match write_response(c, resp, close, head_only) {
+                    Ok(_) => {},
+                    Err(e) => { break }
+                }
+                if close { break }
+            },
+            Ok(.None) => { break },
+            Err(e) => {
+                if !net.is_timeout(e) {
+                    let w = write_response(c, Response.text(400, "{e}\n"), true, false)
+                }
+                break
+            }
+        }
+    }
+    c.close()
+}
+
+// 接受 n 个连接（n < 0 时一直接受），每个连接交给一个任务（serve_conn）；所有任务结束后返回。
+pub fn serve<H: Handler>(l: net.TcpListener, n: I64, h: H) {
+    var k = 0
+    scope |s| {
+        while n < 0 || k < n {
+            match l.accept() {
+                Ok(c) => s.spawn(|| serve_conn(c, h)),
+                Err(e) => eprintln("http：{e}")
+            }
+            k = k + 1
+        }
+    }
+}
+
+// ---------- 客户端 ----------
+
+fn read_response(c: net.TcpStream, head_only: Bool) -> Result<Response, Str> {
+    let line = need_line(c, "读回复")?
+    let sp1 = match line.find(" ") {
+        .Some(i) => i,
+        .None => { return Err("回复的状态行不对：{line}") }
+    }
+    if !line.slice(0, sp1).starts_with("HTTP/1.") { return Err("回复的状态行不对：{line}") }
+    let rest = line.slice(sp1 + 1, line.len())
+    let sp2 = match rest.find(" ") {
+        .Some(i) => i,
+        .None => rest.len()
+    }
+    let status = match rest.slice(0, sp2).parse_i64() {
+        .Some(s) => s,
+        .None => { return Err("回复的状态码不是整数：{line}") }
+    }
+    let why = if sp2 < rest.len() { rest.slice(sp2 + 1, rest.len()) } else { "" }
+    let headers = read_headers(c)?
+    let no_body = head_only || status == 204 || status == 304 || (status >= 100 && status < 200)
+    let body = if no_body { Bytes.new() } else { read_body(c, headers, false)? }
+    Ok(Response { status: status, reason: why, headers: headers, body: body })
+}
+
+fn exchange(c: net.TcpStream, method: Str, u: url.Url, headers: Headers, body: Bytes) -> Result<Response, Str> {
+    var head = "{method} {u.request_target()} HTTP/1.1\r\nHost: {u.authority()}\r\n"
+    if !headers.has("User-Agent") { head = "{head}User-Agent: sinter\r\n" }
+    for p in headers.items {
+        if !eq_ci(p.0, "Content-Length") && !eq_ci(p.0, "Connection") && !eq_ci(p.0, "Host") { head = "{head}{p.0}: {p.1}\r\n" }
+    }
+    if body.len() > 0 || method.eq("POST") || method.eq("PUT") || method.eq("PATCH") {
+        head = "{head}Content-Length: {body.len()}\r\n"
+    }
+    head = "{head}Connection: close\r\n\r\n"
+    var out = head.to_bytes()
+    out.append(body)
+    c.write(out)?
+    read_response(c, method.eq("HEAD"))
+}
+
+// 发一个请求，等回复（每个请求一个连接）。timeout_ms 用于连接和每次读写（<= 0 是不限）。
+// 只支持 http://；https:// 是 Err（没有 TLS）。不自动跟随重定向。
+pub fn request(method: Str, target: Str, headers: Headers, body: Bytes, timeout_ms: I64) -> Result<Response, Str> {
+    let u = url.Url.parse(target)?
+    if u.scheme.eq("https") { return Err("std.http 还不支持 https（没有 TLS）：{target}") }
+    if !u.scheme.eq("http") { return Err("不是 http:// 的 URL：{target}") }
+    let c = net.connect_timeout(u.host, u.port(), timeout_ms)?
+    c.set_timeout(timeout_ms)
+    let r = exchange(c, method, u, headers, body)
+    c.close()
+    r
+}
+
+// GET，超时 30 秒。
+pub fn get(target: Str) -> Result<Response, Str> { request("GET", target, Headers.new(), Bytes.new(), 30000) }
+
+// POST，内容类型是 content_type，超时 30 秒。
+pub fn post(target: Str, content_type: Str, body: Bytes) -> Result<Response, Str> {
+    var h = Headers.new()
+    h.set("Content-Type", content_type)
+    request("POST", target, h, body, 30000)
+}

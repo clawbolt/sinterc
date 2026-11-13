@@ -1,0 +1,269 @@
+// std.url：URL 的解析和拼写，%XX 编码。
+//     let u = url.Url.parse("http://user@example.com:8080/a/b?x=1&y=%E4%B8%AD#top")?
+//     u.host        // "example.com"
+//     u.port()      // 8080（没写时按 scheme：http 80、https 443）
+//     url.parse_query(u.query)   // [("x", "1"), ("y", "中")]
+// 只处理 scheme://authority/path?query#fragment 这种带 // 的 URL（http、https、ws、ftp…）。
+// host 是 IPv6 时存的是方括号里面的部分（"::1"），拼写时再加上方括号。
+
+pub struct Url {
+    scheme: Str,      // 小写，"http"
+    user: Str,        // @ 前面的部分（没写时是空的），原样保留 %XX
+    host: Str,        // 小写；IPv6 不带方括号
+    port_num: I64,    // 写了的端口；没写时 -1
+    path: Str,        // 以 / 开头（没写时是 "/"），原样保留 %XX
+    query: Str,       // ? 后面的部分（不含 ?），原样保留
+    fragment: Str     // # 后面的部分（不含 #）
+}
+
+fn is_alpha(c: I64) -> Bool { (c >= 65 && c <= 90) || (c >= 97 && c <= 122) }
+
+fn is_digit(c: I64) -> Bool { c >= 48 && c <= 57 }
+
+// s 里从 from 起第一个属于 set 的字节的下标，没有时 s.len()
+fn find_any(s: Str, set: Str, from: I64) -> I64 {
+    var i = from
+    while i < s.len() {
+        let c = s.byte(i)
+        var j = 0
+        while j < set.len() {
+            if set.byte(j) == c { return i }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    s.len()
+}
+
+fn lower(s: Str) -> Str {
+    var b = s.to_bytes()
+    var i = 0
+    while i < b.len() {
+        let c = b.get(i)
+        if c >= 65 && c <= 90 { b.set(i, c + 32) }
+        i = i + 1
+    }
+    b.decode().unwrap_or("")
+}
+
+// scheme 的默认端口：http、ws 80，https、wss 443，ftp 21；不认识的是 -1
+pub fn default_port(scheme: Str) -> I64 {
+    if scheme.eq("http") || scheme.eq("ws") { return 80 }
+    if scheme.eq("https") || scheme.eq("wss") { return 443 }
+    if scheme.eq("ftp") { return 21 }
+    -1
+}
+
+impl Url {
+    // 解析。没有 scheme://、scheme 不合法、端口不是 0..65535 的整数、方括号不配对时 Err。
+    fn parse(s: Str) -> Result<Url, Str> {
+        let sep = match s.find("://") {
+            .Some(i) => i,
+            .None => { return Err("不是 URL（没有 ://）：{s}") }
+        }
+        if sep == 0 || !is_alpha(s.byte(0)) { return Err("URL 的 scheme 不对：{s}") }
+        var i = 0
+        while i < sep {
+            let c = s.byte(i)
+            if !(is_alpha(c) || is_digit(c) || c == 43 || c == 45 || c == 46) { return Err("URL 的 scheme 不对：{s}") }
+            i = i + 1
+        }
+        let scheme = lower(s.slice(0, sep))
+        let a = sep + 3
+        let auth_end = find_any(s, "/?#", a)
+        let auth = s.slice(a, auth_end)
+        // 路径、查询、片段
+        let hash = find_any(s, "#", auth_end)
+        let fragment = if hash < s.len() { s.slice(hash + 1, s.len()) } else { "" }
+        let qmark = find_any(s.slice(0, hash), "?", auth_end)
+        let query = if qmark < hash { s.slice(qmark + 1, hash) } else { "" }
+        let path = if qmark > auth_end { s.slice(auth_end, qmark) } else { "/" }
+        // user@host:port
+        var user = ""
+        var hostport = auth.to_str()
+        var k = auth.len() - 1
+        while k >= 0 {
+            if auth.byte(k) == 64 { break }   // '@'
+            k = k - 1
+        }
+        if k >= 0 {
+            user = auth.slice(0, k)
+            hostport = auth.slice(k + 1, auth.len())
+        }
+        var host = ""
+        var port_str = ""
+        if hostport.starts_with("[") {
+            let close = match hostport.find("]") {
+                .Some(j) => j,
+                .None => { return Err("URL 的 IPv6 地址缺 ]：{s}") }
+            }
+            host = hostport.slice(1, close)
+            let after = hostport.slice(close + 1, hostport.len())
+            if after.len() > 0 {
+                if !after.starts_with(":") { return Err("URL 的 ] 后面只能是 :端口：{s}") }
+                port_str = after.slice(1, after.len())
+            }
+        } else {
+            let colon = find_any(hostport, ":", 0)
+            host = hostport.slice(0, colon)
+            if colon < hostport.len() {
+                port_str = hostport.slice(colon + 1, hostport.len())
+                if port_str.contains(":") { return Err("URL 的主机名里有多个 :（IPv6 要加方括号）：{s}") }
+            }
+        }
+        var port_num = -1
+        if port_str.len() > 0 {
+            port_num = match port_str.parse_i64() {
+                .Some(p) => p,
+                .None => { return Err("URL 的端口不是整数：{s}") }
+            }
+            if port_num < 0 || port_num > 65535 { return Err("URL 的端口不在 0..65535：{s}") }
+        }
+        Ok(Url { scheme: scheme, user: user, host: lower(host), port_num: port_num, path: path, query: query, fragment: fragment })
+    }
+
+    // 端口：写了的，没写时是 scheme 的默认端口（不认识的 scheme 是 -1）。
+    fn port(u: Url) -> I64 { if u.port_num >= 0 { u.port_num } else { default_port(u.scheme) } }
+
+    // 请求行里用的部分：路径加上 ?查询。
+    fn request_target(u: Url) -> Str { if u.query.len() > 0 { "{u.path}?{u.query}" } else { u.path.to_str() } }
+
+    // host:port 的写法（Host 头用）：端口是默认的时省略，IPv6 加方括号。
+    fn authority(u: Url) -> Str {
+        let h = if u.host.contains(":") { "[{u.host}]" } else { u.host.to_str() }
+        if u.port_num >= 0 && u.port_num != default_port(u.scheme) { "{h}:{u.port_num}" } else { h }
+    }
+
+    // 相对于这个 URL 解析 r：r 本身是 URL 时就是 r；以 / 开头时换掉路径；否则换掉最后一个 / 之后的部分。
+    // 不处理 . 和 ..
+    fn join(u: Url, r: Str) -> Result<Url, Str> {
+        if r.contains("://") { return Url.parse(r) }
+        let base = "{u.scheme}://{u.authority_full()}"
+        if r.starts_with("/") { return Url.parse("{base}{r}") }
+        var k = u.path.len() - 1
+        while k >= 0 {
+            if u.path.byte(k) == 47 { break }
+            k = k - 1
+        }
+        let dir = if k >= 0 { u.path.slice(0, k + 1) } else { "/" }
+        Url.parse("{base}{dir}{r}")
+    }
+
+    fn authority_full(u: Url) -> Str {
+        let a = u.authority()
+        if u.user.len() > 0 { "{u.user}@{a}" } else { a }
+    }
+
+    fn clone(u: Url) -> Url {
+        Url {
+            scheme: u.scheme.to_str(), user: u.user.to_str(), host: u.host.to_str(), port_num: u.port_num,
+            path: u.path.to_str(), query: u.query.to_str(), fragment: u.fragment.to_str()
+        }
+    }
+}
+
+// 完整的写法；parse 再 to_str 得到规范的形式（scheme、host 小写，默认端口省略）。
+impl ToStr for Url {
+    fn to_str(u: Url) -> Str {
+        var s = "{u.scheme}://{u.authority_full()}{u.path}"
+        if u.query.len() > 0 { s = "{s}?{u.query}" }
+        if u.fragment.len() > 0 { s = "{s}#{u.fragment}" }
+        s
+    }
+}
+
+// ---------- %XX 编码 ----------
+
+fn hex_val(c: I64) -> I64 {
+    if c >= 48 && c <= 57 { return c - 48 }
+    if c >= 97 && c <= 102 { return c - 87 }
+    if c >= 65 && c <= 70 { return c - 55 }
+    -1
+}
+
+fn unreserved(c: I64) -> Bool { is_alpha(c) || is_digit(c) || c == 45 || c == 46 || c == 95 || c == 126 }   // - . _ ~
+
+fn push_pct(inout out: Bytes, c: I64) {
+    let digits = "0123456789ABCDEF"
+    out.push(37)
+    out.push(digits.byte(c / 16))
+    out.push(digits.byte(c % 16))
+}
+
+// 编码 URL 的一个部分（路径的一段、查询的键或值）：字母、数字和 - . _ ~ 之外的字节都写成 %XX（大写）。
+pub fn encode(s: Str) -> Str {
+    let b = s.to_bytes()
+    var out = Bytes.new()
+    var i = 0
+    while i < b.len() {
+        let c = b.get(i)
+        if unreserved(c) { out.push(c) } else { push_pct(out, c) }
+        i = i + 1
+    }
+    out.decode().unwrap_or("")
+}
+
+// 编码路径：和 encode 一样，但 / 保留。
+pub fn encode_path(s: Str) -> Str {
+    let b = s.to_bytes()
+    var out = Bytes.new()
+    var i = 0
+    while i < b.len() {
+        let c = b.get(i)
+        if unreserved(c) || c == 47 { out.push(c) } else { push_pct(out, c) }
+        i = i + 1
+    }
+    out.decode().unwrap_or("")
+}
+
+fn decode_with(s: Str, plus: Bool) -> Option<Str> {
+    let b = s.to_bytes()
+    var out = Bytes.new()
+    var i = 0
+    while i < b.len() {
+        let c = b.get(i)
+        if c == 37 {
+            if i + 2 >= b.len() { return .None }
+            let h = hex_val(b.get(i + 1))
+            let l = hex_val(b.get(i + 2))
+            if h < 0 || l < 0 { return .None }
+            out.push(h * 16 + l)
+            i = i + 3
+        } else {
+            if plus && c == 43 { out.push(32) } else { out.push(c) }
+            i = i + 1
+        }
+    }
+    out.decode()
+}
+
+// 解码 %XX；% 后面不是两位十六进制、或者解出来不是合法的 UTF-8 时 .None。+ 保持原样（查询里的 + 用 parse_query）。
+pub fn decode(s: Str) -> Option<Str> { decode_with(s, false) }
+
+// 解析查询 "a=1&b=x%20y&c"：按 & 分开，每段在第一个 = 处分成键和值（没有 = 时值是空的），
+// 键和值都解码（+ 是空格）；解码失败的保持原样。空的段跳过。
+pub fn parse_query(q: Str) -> Vec<(Str, Str)> {
+    var out: Vec<(Str, Str)> = Vec.new()
+    for part in q.split("&") {
+        if part.len() == 0 { continue }
+        let eq = find_any(part, "=", 0)
+        let k = part.slice(0, eq)
+        let v = if eq < part.len() { part.slice(eq + 1, part.len()) } else { "" }
+        let kd = decode_with(k, true).unwrap_or(k.to_str())
+        let vd = decode_with(v, true).unwrap_or(v.to_str())
+        out.push((kd, vd))
+    }
+    out
+}
+
+// 拼查询：键和值都 encode，用 = 和 & 连起来。
+pub fn encode_query(pairs: Vec<(Str, Str)>) -> Str {
+    var s = ""
+    var first = true
+    for p in pairs {
+        let item = "{encode(p.0)}={encode(p.1)}"
+        s = if first { item } else { "{s}&{item}" }
+        first = false
+    }
+    s
+}

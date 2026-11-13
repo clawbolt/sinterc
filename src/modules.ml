@@ -87,7 +87,8 @@ let io_builtins =
     "read_stdin_in"; "read_chunk"; "os_env"; "os_list_dir"; "os_exists"; "os_is_dir"; "os_make_dir"; "os_remove";
     "os_run"; "os_output"; "os_exit"; "net_ip_canon"; "net_lookup"; "net_listen"; "net_connect"; "net_udp_bind";
     "net_accept"; "net_read"; "net_write"; "net_shutdown"; "net_close"; "net_local_ip"; "net_local_port"; "net_peer_ip";
-    "net_peer_port"; "net_send_to"; "net_recv_from"; "net_recv_ip"; "net_recv_port";
+    "net_peer_port"; "net_send_to"; "net_recv_from"; "net_recv_ip"; "net_recv_port"; "net_read_line"; "net_set_timeout";
+    "net_timeout";
   ]
 
 let is_builtin f = List.mem_assoc f Typeck_builtins.builtins || List.mem f Typeck_builtins.special

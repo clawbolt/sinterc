@@ -239,3 +239,107 @@ UDP：两个套接字互发一个数据报。linear 值不能用 unwrap 取出�
   > EOF2
   $ sinterc run many.sn
   完成
+
+超时：服务端接受连接后什么都不发，客户端的 read_line 在 100 毫秒后得到超时的 Err，连接还能继续用；
+accept 没有连接时也按超时返回。
+
+  $ cat > timeout.sn <<'EOF2'
+  > use std.net
+  > 
+  > fn silent(l: net.TcpListener) {
+  >     match l.accept() {
+  >         Ok(c) => {
+  >             let r = c.read_line()   // 等客户端说再见
+  >             c.close()
+  >         },
+  >         Err(e) => println(e)
+  >     }
+  > }
+  > 
+  > fn client(port: I64) {
+  >     match net.connect_timeout("127.0.0.1", port, 1000) {
+  >         Ok(c) => {
+  >             c.set_timeout(100)
+  >             match c.read_line() {
+  >                 Ok(_) => println("没有超时"),
+  >                 Err(e) => println("{e} {net.is_timeout(e)}")
+  >             }
+  >             let w = c.write_str("再见\n")
+  >             println("{w.is_ok()} {c.timeout()}")
+  >             c.close()
+  >         },
+  >         Err(e) => println(e)
+  >     }
+  > }
+  > 
+  > fn main() {
+  >     match net.listen("127.0.0.1", 0) {
+  >         Ok(l) => {
+  >             let port = l.port()
+  >             scope |s| {
+  >                 s.spawn(|| silent(l))
+  >                 s.spawn(|| client(port))
+  >             }
+  >             l.set_timeout(50)
+  >             match l.accept() {
+  >                 Ok(c) => c.close(),
+  >                 Err(e) => println(e)
+  >             }
+  >             l.close()
+  >         },
+  >         Err(e) => println(e)
+  >     }
+  > }
+  > EOF2
+  $ sinterc run timeout.sn
+  read_line：超时 true
+  true 100
+  accept：超时
+
+带缓冲的读：一次发来的几行由 read_line 一行一行取，剩下的部分 read_exact 接着读。
+
+  $ cat > buffered.sn <<'EOF2'
+  > use std.net
+  > 
+  > fn send(l: net.TcpListener) {
+  >     match l.accept() {
+  >         Ok(c) => {
+  >             let w = c.write_str("第一行\r\n第二行\n\nABCDEF尾巴")
+  >             c.close()
+  >         },
+  >         Err(e) => println(e)
+  >     }
+  > }
+  > 
+  > fn recv(port: I64) -> Result<(), Str> {
+  >     let c = net.connect("127.0.0.1", port)?
+  >     let a = c.read_line()
+  >     let b = c.read_line()
+  >     let e = c.read_line()
+  >     let x = c.read_exact(6)
+  >     let rest = c.read_line()
+  >     let end = c.read_line()
+  >     c.close()
+  >     println("{a?.unwrap()}|{b?.unwrap()}|{e?.unwrap().len()}|{x?.decode().unwrap()}|{rest?.unwrap()}|{end?.is_none()}")
+  >     Ok(())
+  > }
+  > 
+  > fn main() {
+  >     match net.listen("127.0.0.1", 0) {
+  >         Ok(l) => {
+  >             let port = l.port()
+  >             scope |s| {
+  >                 s.spawn(|| send(l))
+  >                 match recv(port) {
+  >                     Ok(_) => {},
+  >                     Err(e) => println(e)
+  >                 }
+  >             }
+  >             l.close()
+  >         },
+  >         Err(e) => println(e)
+  >     }
+  > }
+  > EOF2
+  $ sinterc run buffered.sn
+  第一行|第二行|0|ABCDEF|尾巴|true

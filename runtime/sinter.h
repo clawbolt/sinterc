@@ -186,6 +186,20 @@ static void u_bytes_push(sn_str *b, int64_t x) {
 }
 static void u_bytes_append(sn_str *b, const sn_str *c) { u_str_push(b, c); }
 static sn_str u_bytes_slice(const sn_str *b, int64_t x, int64_t y) { return u_str_slice(b, x, y); }
+/* 从下标 from 起第一个等于 x 的字节的下标，没有时 -1（from 超出范围时也是 -1） */
+static int64_t u_bytes_find(const sn_str *b, int64_t x, int64_t from) {
+  if (from < 0 || from >= b->len || x < 0 || x > 255) return -1;
+  const char *q = memchr(b->p + from, (int)x, (size_t)(b->len - from));
+  return q ? (int64_t)(q - b->p) : -1;
+}
+/* 去掉开头的 n 个字节（n 大于长度时全部去掉），原地移动，不重新分配 */
+static void u_bytes_drop_front(sn_str *b, int64_t n) {
+  if (n <= 0) return;
+  sn_str_own(b);   /* 字面量先复制到堆上，才能改 */
+  if (n >= b->len) { b->len = 0; if (b->p) b->p[0] = 0; return; }
+  memmove(b->p, b->p + n, (size_t)(b->len - n));
+  b->len -= n; b->p[b->len] = 0;
+}
 static sn_str u_bytes_clone(const sn_str *b) { return u_str_clone(b); }
 static bool u_bytes_eq(const sn_str *a, const sn_str *b) { return u_str_eq(a, b); }
 static sn_str u_str_to_bytes(const sn_str *s) { return u_str_clone(s); }
@@ -300,6 +314,7 @@ static void u_view_print_str(const sn_view *v) { fwrite(v->p, 1, (size_t)v->len,
    这些都经过 noinline、带内存屏障的函数取（sn_cur_slot、sn_errno），编译器不会把它们合并到让出之前。 */
 #include <sys/mman.h>
 #include <poll.h>
+#include <time.h>
 #include <fcntl.h>
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/event.h>
@@ -346,6 +361,9 @@ typedef struct sn_co {
   void (*hook)(struct sn_co *);   /* 让出后由工作线程执行（登记等待）：这时协程的状态已经保存，别人放回队列也安全 */
   int done;
   int wfd, wwrite;                /* 等的套接字和方向 */
+  int64_t deadline;               /* 等到什么时候（单调时钟的毫秒），-1 是一直等 */
+  int heap_idx;                   /* 在超时的堆里的位置，-1 是不在 */
+  int timedout;                   /* 这次等待是超时结束的 */
   struct sn_co *next;             /* 队列、等待链表 */
   struct sockaddr_storage from;   /* 最近一次 recv_from 的发送方（std.net） */
 } sn_co;
@@ -502,15 +520,70 @@ static inline void u_scope_join(int64_t h) {
   free(s);
 }
 
-/* 等套接字 fd 可读（wwrite = 0）或可写。每个 fd 一对等待链表（只读共享的监听套接字可以被几个任务同时 accept），
-   登记用一次性的事件，触发时唤醒这个方向上所有等着的任务，它们重试，没抢到的再登记。 */
+/* 等套接字 fd 可读（wwrite = 0）或可写，最多等到 deadline（单调时钟的毫秒，-1 是一直等）；超时返回 1。
+   每个 fd 一对等待链表（只读共享的监听套接字可以被几个任务同时 accept），登记用一次性的事件，
+   触发时唤醒这个方向上所有等着的任务，它们重试，没抢到的再登记。
+   有期限的任务同时放进按期限排的最小堆；轮询线程等到最早的期限为止，到期的任务从等待链表里摘下来，标上 timedout 放回队列。
+   新的期限比堆顶早时往自管道里写一个字节，叫醒轮询线程重新算要等多久。sn_wq_mu 保护等待链表和堆。 */
 typedef struct { sn_co *rd, *wr; } sn_waitq;
 static pthread_mutex_t sn_wq_mu = PTHREAD_MUTEX_INITIALIZER;
 static sn_waitq *sn_wq;
 static int sn_wq_cap;
 static int sn_poll_fd = -1;
+static int sn_wake_pipe[2] = { -1, -1 };
 static pthread_once_t sn_poll_once = PTHREAD_ONCE_INIT;
-static void sn_wake_list(sn_co *l) { while (l) { sn_co *n = l->next; sn_rq_push(l); l = n; } }
+static sn_co **sn_heap;
+static int sn_heap_len, sn_heap_cap;
+
+static int64_t sn_now_ms(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+static void sn_heap_set(int i, sn_co *t) { sn_heap[i] = t; t->heap_idx = i; }
+static void sn_heap_up(int i) {
+  while (i > 0) {
+    int p = (i - 1) / 2;
+    if (sn_heap[p]->deadline <= sn_heap[i]->deadline) break;
+    sn_co *a = sn_heap[p]; sn_heap_set(p, sn_heap[i]); sn_heap_set(i, a); i = p;
+  }
+}
+static void sn_heap_down(int i) {
+  for (;;) {
+    int l = 2 * i + 1, r = l + 1, m = i;
+    if (l < sn_heap_len && sn_heap[l]->deadline < sn_heap[m]->deadline) m = l;
+    if (r < sn_heap_len && sn_heap[r]->deadline < sn_heap[m]->deadline) m = r;
+    if (m == i) break;
+    sn_co *a = sn_heap[m]; sn_heap_set(m, sn_heap[i]); sn_heap_set(i, a); i = m;
+  }
+}
+static void sn_heap_push(sn_co *t) {
+  if (sn_heap_len == sn_heap_cap) {
+    int c = sn_heap_cap ? sn_heap_cap * 2 : 64;
+    sn_co **h = realloc(sn_heap, (size_t)c * sizeof *h);
+    if (!h) sn_panic("内存不足");
+    sn_heap = h; sn_heap_cap = c;
+  }
+  sn_heap_set(sn_heap_len++, t);
+  sn_heap_up(t->heap_idx);
+}
+static void sn_heap_remove(sn_co *t) {
+  int i = t->heap_idx;
+  if (i < 0) return;
+  t->heap_idx = -1;
+  sn_heap_len--;
+  if (i == sn_heap_len) return;
+  sn_heap_set(i, sn_heap[sn_heap_len]);
+  sn_heap_up(i);
+  sn_heap_down(sn_heap[i]->heap_idx);
+}
+/* 唤醒链表上的任务（持有 sn_wq_mu）：顺便从堆里拿掉 */
+static void sn_wake_list(sn_co *l) {
+  while (l) { sn_co *n = l->next; sn_heap_remove(l); sn_rq_push(l); l = n; }
+}
+static void sn_unlink(sn_co **l, sn_co *t) {
+  for (; *l; l = &(*l)->next) if (*l == t) { *l = t->next; return; }
+}
 static void sn_arm(int fd) {   /* 持有 sn_wq_mu 时调用：按两个链表重新登记 */
   sn_waitq *q = &sn_wq[fd];
 #ifdef SN_KQUEUE
@@ -531,29 +604,44 @@ static void sn_arm(int fd) {   /* 持有 sn_wq_mu 时调用：按两个链表重
   }
 #endif
 }
+/* 到期的任务：从等待链表摘下，标上超时，放回队列（持有 sn_wq_mu） */
+static void sn_expire(int64_t now) {
+  while (sn_heap_len > 0 && sn_heap[0]->deadline <= now) {
+    sn_co *t = sn_heap[0];
+    sn_heap_remove(t);
+    sn_waitq *q = &sn_wq[t->wfd];
+    sn_unlink(t->wwrite ? &q->wr : &q->rd, t);
+    t->timedout = 1;
+    sn_rq_push(t);
+  }
+}
 static void *sn_poller(void *arg) {
   (void)arg;
   for (;;) {
+    pthread_mutex_lock(&sn_wq_mu);
+    int64_t wait = -1;
+    if (sn_heap_len > 0) { wait = sn_heap[0]->deadline - sn_now_ms(); if (wait < 0) wait = 0; }
+    pthread_mutex_unlock(&sn_wq_mu);
 #ifdef SN_KQUEUE
     struct kevent evs[64];
-    int n = kevent(sn_poll_fd, 0, 0, evs, 64, 0);
-    if (n < 0) continue;
+    struct timespec ts = { (time_t)(wait / 1000), (long)(wait % 1000) * 1000000 };
+    int n = kevent(sn_poll_fd, 0, 0, evs, 64, wait < 0 ? 0 : &ts);
     pthread_mutex_lock(&sn_wq_mu);
     for (int i = 0; i < n; i++) {
       int fd = (int)evs[i].ident;
+      if (fd == sn_wake_pipe[0]) { char b[64]; while (read(fd, b, sizeof b) > 0) {} continue; }
       if (fd < 0 || fd >= sn_wq_cap) continue;
       sn_waitq *q = &sn_wq[fd];
       if (evs[i].filter == EVFILT_READ) { sn_wake_list(q->rd); q->rd = 0; }
       else if (evs[i].filter == EVFILT_WRITE) { sn_wake_list(q->wr); q->wr = 0; }
     }
-    pthread_mutex_unlock(&sn_wq_mu);
 #else
     struct epoll_event evs[64];
-    int n = epoll_wait(sn_poll_fd, evs, 64, -1);
-    if (n < 0) continue;
+    int n = epoll_wait(sn_poll_fd, evs, 64, wait < 0 ? -1 : (int)(wait > 1000000 ? 1000000 : wait));
     pthread_mutex_lock(&sn_wq_mu);
     for (int i = 0; i < n; i++) {
       int fd = evs[i].data.fd;
+      if (fd == sn_wake_pipe[0]) { char b[64]; while (read(fd, b, sizeof b) > 0) {} continue; }
       if (fd < 0 || fd >= sn_wq_cap) continue;
       sn_waitq *q = &sn_wq[fd];
       uint32_t e = evs[i].events;
@@ -561,8 +649,9 @@ static void *sn_poller(void *arg) {
       if (e & (EPOLLOUT | EPOLLERR | EPOLLHUP)) { sn_wake_list(q->wr); q->wr = 0; }
       sn_arm(fd);   /* 还有另一个方向在等 */
     }
-    pthread_mutex_unlock(&sn_wq_mu);
 #endif
+    sn_expire(sn_now_ms());
+    pthread_mutex_unlock(&sn_wq_mu);
   }
   return 0;
 }
@@ -572,7 +661,21 @@ static void sn_poll_start(void) {
 #else
   sn_poll_fd = epoll_create1(EPOLL_CLOEXEC);
 #endif
-  if (sn_poll_fd < 0) sn_panic("无法创建事件队列");
+  if (sn_poll_fd < 0 || pipe(sn_wake_pipe) != 0) sn_panic("无法创建事件队列");
+  for (int i = 0; i < 2; i++) {
+    int f = fcntl(sn_wake_pipe[i], F_GETFL, 0);
+    fcntl(sn_wake_pipe[i], F_SETFL, f | O_NONBLOCK);
+  }
+#ifdef SN_KQUEUE
+  struct kevent ev;
+  EV_SET(&ev, sn_wake_pipe[0], EVFILT_READ, EV_ADD, 0, 0, 0);
+  if (kevent(sn_poll_fd, &ev, 1, 0, 0, 0) < 0) sn_panic("无法创建事件队列");
+#else
+  struct epoll_event ev;
+  memset(&ev, 0, sizeof ev);
+  ev.events = EPOLLIN; ev.data.fd = sn_wake_pipe[0];
+  if (epoll_ctl(sn_poll_fd, EPOLL_CTL_ADD, sn_wake_pipe[0], &ev) < 0) sn_panic("无法创建事件队列");
+#endif
   pthread_t th;
   if (pthread_create(&th, 0, sn_poller, 0)) sn_panic("无法创建轮询线程");
   pthread_detach(th);
@@ -590,20 +693,33 @@ static void sn_wait_hook(sn_co *t) {
   }
   sn_waitq *q = &sn_wq[fd];
   if (t->wwrite) { t->next = q->wr; q->wr = t; } else { t->next = q->rd; q->rd = t; }
+  int earliest = 0;
+  if (t->deadline >= 0) { sn_heap_push(t); earliest = t->heap_idx == 0; }
   sn_arm(fd);
   pthread_mutex_unlock(&sn_wq_mu);
+  if (earliest) { char c = 1; ssize_t w = write(sn_wake_pipe[1], &c, 1); (void)w; }
 }
-static void sn_wait_fd(int fd, int write) {
+static int sn_wait_fd(int fd, int write, int64_t deadline) {
   sn_co *t = *sn_cur_slot();
   if (!t) {   /* 主线程：直接阻塞 */
     struct pollfd p = { fd, (short)(write ? POLLOUT : POLLIN), 0 };
-    while (poll(&p, 1, -1) < 0 && sn_errno() == EINTR) {}
-    return;
+    for (;;) {
+      int ms = -1;
+      if (deadline >= 0) { int64_t d = deadline - sn_now_ms(); if (d <= 0) return 1; ms = d > 1000000 ? 1000000 : (int)d; }
+      int r = poll(&p, 1, ms);
+      if (r > 0) return 0;
+      if (r == 0 && deadline >= 0 && sn_now_ms() >= deadline) return 1;
+      if (r < 0 && sn_errno() != EINTR) return 0;
+    }
   }
   pthread_once(&sn_poll_once, sn_poll_start);
-  t->wfd = fd; t->wwrite = write;
+  t->wfd = fd; t->wwrite = write; t->deadline = deadline; t->heap_idx = -1; t->timedout = 0;
   sn_co_park(sn_wait_hook);
+  t = *sn_cur_slot();
+  return t->timedout;
 }
+/* 超时（毫秒，<= 0 是不限）→ 期限 */
+static int64_t sn_deadline(int64_t ms) { return ms > 0 ? sn_now_ms() + ms : -1; }
 static void sn_nonblock(int fd) { int f = fcntl(fd, F_GETFL, 0); if (f >= 0) fcntl(fd, F_SETFL, f | O_NONBLOCK); }
 #define u_scope_keep(p) ((void)(p))
 

@@ -227,8 +227,19 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   `listen(host, port)`（`port` 是 0 时由系统选，用 `l.port()` 取）、`connect(host, port)`（按顺序试每个地址）、`bind_udp(host, port)`，
   `host` 可以是 IP 或域名。`TcpListener`、`TcpStream`、`UdpSocket` 是 linear 结构体，每个都必须 `close`，忘了关编译不过；
   所以 `Result<TcpStream, Str>` 不能 `unwrap`（`Result.unwrap` 的 `T` 不是 linear），要写 `match`。`read(n)` 有数据就返回，
-  另一端关闭写入之后是空的 `Bytes`；`read_line()` 一次读一个字节，适合协议的头部；`write` 全部写完才返回；写入断开的连接得到 `Err`，不发 SIGPIPE。
+  另一端关闭写入之后是空的 `Bytes`；`read_exact(n)` 读满 `n` 个字节；`read_line()` 一次读一块，多读的部分留在运行时的缓冲里，
+  之后的 `read` / `read_line` 先用它（`read_line_max(max)` 限制行长）；`write` 全部写完才返回；写入断开的连接得到 `Err`，不发 SIGPIPE。
+  `set_timeout(ms)` 之后每次读写、`accept` 最多等 `ms` 毫秒，超时的 `Err` 以“：超时”结尾（`net.is_timeout(e)`）；`connect_timeout(host, port, ms)`。
   读写阻塞当前任务；同时处理多个连接时每个连接交给 `scope` 里的一个任务，见 `examples/tour/http_server.sn`。
+- `std.url`（`url.t`）：`Url.parse(s)` 得到 `scheme`、`user`、`host`（IPv6 去掉方括号）、`port()`（没写时按 scheme）、`path`、`query`、`fragment`；
+  `u.join(相对地址)`、`u.request_target()`、`"{u}"`（规范形式：scheme、host 小写，省略默认端口）。`encode`、`encode_path`（保留 `/`）、
+  `decode`（不合法时 `.None`）、`parse_query`（`+` 是空格）、`encode_query`。
+- `std.http`（`http.t`，HTTP/1.1，没有 TLS）：`Headers`（按添加顺序，名字不区分大小写）、`Request`（`method`、`path`（已解码）、`query`、`headers`、`body`，
+  `query_param`、`text`）、`Response`（`text`、`html`、`json`、`bytes`、`redirect`、`with_header`）、`route(path, "/users/:id/*")`。
+  服务端 `http.serve(l, n, h)` 接受 `n` 个连接（负数是一直接受），每个连接一个任务，连接上连续处理多个请求，请求体按 Content-Length 或 chunked 读，
+  HEAD 不写回复体，坏的请求回 400 并关闭，空闲 30 秒关闭。`h` 是实现了 `Handler`（`fn handle(h: Self, req: Request) -> Response`）的值，
+  所有任务只读共享它；闭包还不能传进任务，所以不是闭包。客户端 `http.get(url)`、`http.post(url, 类型, 内容)`、`http.request(方法, url, 头部, 内容, timeout_ms)`，
+  每个请求一个连接，回复体按 Content-Length、chunked 或读到连接关闭；`https://` 是 `Err`，不跟随重定向。
 
 ## 结构化并发
 
@@ -276,7 +287,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   `v.sort()` 和 `v.sort_by(|a, b| a < b)`（`less` 要是严格弱序）都原地排序（Lean `Library.HeapSort`）：堆排序，只交换元素，O(n log n)，不稳定。
 - `print`：`print`、`println`、`eprint`、`eprintln`。
 
-系统层：`std.io`、`std.fs`、`std.env`、`std.process`、`std.net`，见“输入输出”一节。
+系统层：`std.io`、`std.fs`、`std.env`、`std.process`、`std.net`、`std.http`，见“输入输出”一节（`std.url` 不读写外部，也在那里）。
 
 其余模块：
 

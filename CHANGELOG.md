@@ -93,6 +93,15 @@
   （地址可以是 IP 或域名）；`TcpListener`（`accept`、`port`）、`TcpStream`（`read`、`read_all`、`read_line`、`write`、`write_str`、
   `shutdown`、`peer_addr`）、`UdpSocket`（`send_to`、`recv_from`）都是 linear 结构体，必须 `close`。写入断开的连接得到 `Err`，不发 SIGPIPE。
   示例 `examples/tour/http_server.sn`：每个连接一个任务的 HTTP/1.1 服务器。linear 值不能 `unwrap`，要写 `match`。
+- 网络库（C77）：`std.net` 加超时和带缓冲的读：`set_timeout(ms)`（之后每次读写、`accept` 最多等这么久，超时的 `Err` 以“：超时”结尾，
+  `net.is_timeout(e)`）、`connect_timeout`；`read_line` 一次读一块，多读的部分留在运行时的缓冲里，之后的 `read` / `read_line` 先用它；
+  新加 `read_exact`、`read_line_max`、`local_addr`。新模块 `std.url`：`Url.parse`（scheme、user、host（含 IPv6）、端口、path、query、fragment）、
+  `join`、`request_target`、`"{u}"`（规范形式）；`encode`、`encode_path`、`decode`、`parse_query`（`+` 是空格）、`encode_query`。
+  新模块 `std.http`（HTTP/1.1，没有 TLS）：`Headers`（不区分大小写）、`Request`、`Response`（`text`、`html`、`json`、`redirect`、`with_header`）、
+  `route(path, "/users/:id/*")`；服务端 `http.serve(l, n, h)`：每个连接一个任务，keep-alive，请求体按 Content-Length 或 chunked 读，
+  HEAD 不写回复体，坏的请求回 400，空闲 30 秒关闭；`h` 是实现了 trait `Handler` 的值（闭包还不能传进任务），所有任务只读共享它。
+  客户端 `http.get`、`http.post`、`http.request(…, timeout_ms)`：回复体按 Content-Length、chunked 或读到连接关闭。
+  新内建方法 `Bytes` 的 `find`、`drop_front`。示例 `http_server.sn` 改用 `std.http`。
 - 字符串的字面量标记和长度共用 8 字节，`Str` 保持 16 字节（C61 最初让它变成了 24 字节）。
 
 **验证**

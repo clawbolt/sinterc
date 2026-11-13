@@ -65,6 +65,8 @@ let builtins =
     "bytes_slice", ([ (MLet, TBytes); (MSink, TI64); (MSink, TI64) ], TBytes);
     "bytes_clone", ([ (MLet, TBytes) ], TBytes);
     "bytes_eq", ([ (MLet, TBytes); (MLet, TBytes) ], TBool);
+    "bytes_find", ([ (MLet, TBytes); (MSink, TI64); (MSink, TI64) ], TI64);
+    "bytes_drop_front", ([ (MInout, TBytes); (MSink, TI64) ], TUnit);
     "str_to_bytes", ([ (MLet, TStr) ], TBytes);
     "str_from_utf8", ([ (MLet, TBytes) ], TApp ("Option", [ TStr ]));
     "read_bytes", ([ (MLet, TStr) ], TResult (TBytes, TStr));
@@ -84,14 +86,19 @@ let builtins =
     "os_output", ([ (MLet, TStr); (MLet, TVec TStr) ], TResult (TStr, TStr));
     (* std.net 用的内建函数（runtime/sinter_lib.h）：套接字是文件描述符（I64），地址是文本形式的 IP 加端口。
        net_read 读到的是新的 Bytes（另一端关闭写入之后是空的），net_write 全部写完才返回；
+       net_connect 的最后一个参数是超时（毫秒，<= 0 是不限）；accept、read、write、recv_from 用 net_set_timeout 设的超时，
+       超时时 Err 以“：超时”结尾；net_read_line 读到 \n 为止（含 \n），多读的留在运行时的缓冲里，close 时释放；
        net_recv_from 之后紧接着用 net_recv_ip、net_recv_port 取发送方（记在当前线程里） *)
     "net_ip_canon", ([ (MLet, TStr) ], TApp ("Option", [ TStr ]));
     "net_lookup", ([ (MLet, TStr) ], TResult (TVec TStr, TStr));
     "net_listen", ([ (MLet, TStr); (MSink, TI64) ], TResult (TI64, TStr));
-    "net_connect", ([ (MLet, TStr); (MSink, TI64) ], TResult (TI64, TStr));
+    "net_connect", ([ (MLet, TStr); (MSink, TI64); (MSink, TI64) ], TResult (TI64, TStr));
     "net_udp_bind", ([ (MLet, TStr); (MSink, TI64) ], TResult (TI64, TStr));
     "net_accept", ([ (MSink, TI64) ], TResult (TI64, TStr));
     "net_read", ([ (MSink, TI64); (MSink, TI64) ], TResult (TBytes, TStr));
+    "net_read_line", ([ (MSink, TI64); (MSink, TI64) ], TResult (TBytes, TStr));
+    "net_set_timeout", ([ (MSink, TI64); (MSink, TI64) ], TUnit);
+    "net_timeout", ([ (MSink, TI64) ], TI64);
     "net_write", ([ (MSink, TI64); (MLet, TBytes) ], TResult (TUnit, TStr));
     "net_shutdown", ([ (MSink, TI64) ], TUnit);
     "net_close", ([ (MSink, TI64) ], TUnit);

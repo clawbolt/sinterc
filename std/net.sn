@@ -126,8 +126,11 @@ fn resolve(host: Str) -> Result<Vec<Str>, Str> {
 // 监听的套接字：accept 等下一个连接。
 pub linear struct TcpListener { fd: I64 }
 
-// 一个 TCP 连接。
+// 一个 TCP 连接。read_line 多读的部分留在运行时的缓冲里，之后的 read / read_line 先用它。
 pub linear struct TcpStream { fd: I64 }
+
+// 超时的 Err 以“：超时”结尾（例如 "read：超时"）。
+pub fn is_timeout(e: Str) -> Bool { e.ends_with("：超时") }
 
 // 在 host（IP 或域名，用第一个地址）的 port 上监听；port 是 0 时由系统选一个空闲的端口，用 l.port() 取。
 pub fn listen(host: Str, port: I64) -> Result<TcpListener, Str> {
@@ -138,11 +141,14 @@ pub fn listen(host: Str, port: I64) -> Result<TcpListener, Str> {
 }
 
 // 连到 host（IP 或域名）的 port：按顺序试每个地址，都失败时是最后一个错误。
-pub fn connect(host: Str, port: I64) -> Result<TcpStream, Str> {
+pub fn connect(host: Str, port: I64) -> Result<TcpStream, Str> { connect_timeout(host, port, 0) }
+
+// 和 connect 一样，每个地址最多等 ms 毫秒（<= 0 是不限）。
+pub fn connect_timeout(host: Str, port: I64, ms: I64) -> Result<TcpStream, Str> {
     let ips = resolve(host)?
     var last = "connect {host}：没有地址"
     for ip in ips {
-        match net_connect(ip, port) {
+        match net_connect(ip, port, ms) {
             Ok(fd) => { return Ok(TcpStream { fd: fd }) },
             Err(e) => { last = e }
         }
@@ -152,12 +158,26 @@ pub fn connect(host: Str, port: I64) -> Result<TcpStream, Str> {
 
 fn addr_of(sink ip: Str, port: I64) -> SocketAddr { SocketAddr { ip: ip_of(ip), port: port } }
 
+// 去掉行尾的 \n 或 \r\n，按 UTF-8 解码
+fn line_of(sink b: Bytes) -> Result<Str, Str> {
+    var n = b.len()
+    if n > 0 && b.get(n - 1) == 10 { n = n - 1 }
+    if n > 0 && b.get(n - 1) == 13 { n = n - 1 }
+    match b.slice(0, n).decode() {
+        .Some(s) => Ok(s),
+        .None => Err("read_line：不是合法的 UTF-8")
+    }
+}
+
 impl TcpListener {
-    // 等下一个连接。
+    // 等下一个连接（最多等 set_timeout 设的时间）。
     fn accept(l: TcpListener) -> Result<TcpStream, Str> {
         let fd = net_accept(l.fd)?
         Ok(TcpStream { fd: fd })
     }
+
+    // accept 最多等 ms 毫秒（<= 0 是不限，默认）。
+    fn set_timeout(l: TcpListener, ms: I64) { net_set_timeout(l.fd, ms) }
 
     fn local_addr(l: TcpListener) -> SocketAddr { addr_of(net_local_ip(l.fd), net_local_port(l.fd)) }
 
@@ -170,8 +190,24 @@ impl TcpListener {
 }
 
 impl TcpStream {
+    // 之后的每次读、写最多等 ms 毫秒（<= 0 是不限，默认）；超时时 Err（is_timeout 是 true），连接还可以继续用。
+    fn set_timeout(c: TcpStream, ms: I64) { net_set_timeout(c.fd, ms) }
+
+    fn timeout(c: TcpStream) -> I64 { net_timeout(c.fd) }
+
     // 最多读 n 个字节，有数据就返回；另一端关闭写入之后是空的 Bytes。
     fn read(c: TcpStream, n: I64) -> Result<Bytes, Str> { net_read(c.fd, n) }
+
+    // 正好读 n 个字节；不够 n 个连接就关闭了时 Err。
+    fn read_exact(c: TcpStream, n: I64) -> Result<Bytes, Str> {
+        var out = Bytes.new()
+        while out.len() < n {
+            let b = net_read(c.fd, n - out.len())?
+            if b.len() == 0 { return Err("read_exact：读到 {out.len()} 个字节时连接关闭了（要 {n} 个）") }
+            out.append(b)
+        }
+        Ok(out)
+    }
 
     // 一直读到另一端关闭写入。
     fn read_all(c: TcpStream) -> Result<Bytes, Str> {
@@ -185,25 +221,15 @@ impl TcpStream {
     }
 
     // 读一行（到 \n 为止，去掉行尾的 \r\n 或 \n）；连接在一行的中间关闭时得到已经读到的部分，什么都没读到就关闭时 .None。
-    // 一次读一个字节：适合读协议的头部，大块数据用 read。
-    fn read_line(c: TcpStream) -> Result<Option<Str>, Str> {
-        var line = Bytes.new()
-        var any = false
-        while true {
-            let b = net_read(c.fd, 1)?
-            if b.len() == 0 { break }
-            any = true
-            let x = b.get(0)
-            if x == 10 { break }
-            line.push(x)
-        }
-        if !any { return Ok(.None) }
-        let n = line.len()
-        if n > 0 && line.get(n - 1) == 13 { line = line.slice(0, n - 1) }
-        match line.decode() {
-            .Some(s) => Ok(.Some(s)),
-            .None => Err("read_line：不是合法的 UTF-8")
-        }
+    // 一行最长 1 MB。
+    fn read_line(c: TcpStream) -> Result<Option<Str>, Str> { c.read_line_max(1048576) }
+
+    // 和 read_line 一样，一行最长 max 字节，超过时 Err。
+    fn read_line_max(c: TcpStream, max: I64) -> Result<Option<Str>, Str> {
+        let b = net_read_line(c.fd, max)?
+        if b.len() == 0 { return Ok(.None) }
+        let s = line_of(b)?
+        Ok(.Some(s))
     }
 
     // 全部写完才返回。
@@ -237,6 +263,9 @@ pub fn bind_udp(host: Str, port: I64) -> Result<UdpSocket, Str> {
 }
 
 impl UdpSocket {
+    // recv_from 最多等 ms 毫秒（<= 0 是不限，默认）。
+    fn set_timeout(u: UdpSocket, ms: I64) { net_set_timeout(u.fd, ms) }
+
     // 发一个数据报。
     fn send_to(u: UdpSocket, b: Bytes, to: SocketAddr) -> Result<(), Str> {
         let ip = to.ip.to_str()
