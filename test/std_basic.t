@@ -76,7 +76,7 @@ std.vec、std.math、std.map、std.hashmap、std.bigint。标准库的代码和�
   > }
   > EOF
   $ sinterc nostd.sn
-  nostd.sn:1:1: 错误：标准库里没有模块 nothing（有：bigint、env、fs、hashmap、io、map、math、process、vec）
+  nostd.sn:1:1: 错误：标准库里没有模块 nothing（有：bigint、env、fs、hashmap、io、map、math、net、process、vec）
    1 | use std.nothing
      | ^
   [1]

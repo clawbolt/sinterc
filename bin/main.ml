@@ -140,7 +140,7 @@ let usage () =
 let cc ~release c_file exe =
   let cc = Option.value (Sys.getenv_opt "CC") ~default:"cc" in
   let opt = if release then "-O2 -DSN_RELEASE" else "-O1" in
-  let cmd = Printf.sprintf "%s -std=gnu11 %s -w %s -o %s -lm" cc opt (Filename.quote c_file) (Filename.quote exe) in
+  let cmd = Printf.sprintf "%s -std=gnu11 %s -w %s -o %s -lm -pthread" cc opt (Filename.quote c_file) (Filename.quote exe) in
   if Sys.command cmd <> 0 then begin
     prerr_endline
       (I18n.pick

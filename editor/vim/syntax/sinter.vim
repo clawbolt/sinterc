@@ -3,7 +3,7 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn keyword sinterControl if else while for in match return break continue errdefer
+syn keyword sinterControl if else while for in match return break continue errdefer scope
 syn keyword sinterDecl fn struct enum trait impl let var use pub arena
 syn keyword sinterModifier inout sink linear
 syn keyword sinterBool true false

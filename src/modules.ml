@@ -85,7 +85,9 @@ let io_builtins =
     "print"; "print_str"; "print_byte"; "eprint"; "eprint_str";
     "print_bytes"; "read_line"; "args"; "read_file"; "write_file"; "read_bytes"; "write_bytes"; "read_file_in";
     "read_stdin_in"; "read_chunk"; "os_env"; "os_list_dir"; "os_exists"; "os_is_dir"; "os_make_dir"; "os_remove";
-    "os_run"; "os_output"; "os_exit";
+    "os_run"; "os_output"; "os_exit"; "net_ip_canon"; "net_lookup"; "net_listen"; "net_connect"; "net_udp_bind";
+    "net_accept"; "net_read"; "net_write"; "net_shutdown"; "net_close"; "net_local_ip"; "net_local_port"; "net_peer_ip";
+    "net_peer_port"; "net_send_to"; "net_recv_from"; "net_recv_ip"; "net_recv_port";
   ]
 
 let is_builtin f = List.mem_assoc f Typeck_builtins.builtins || List.mem f Typeck_builtins.special
@@ -141,6 +143,7 @@ let builtin_hint f =
   | "os_exit", _ -> "env.exit(code)"
   | ("os_run" | "os_output"), _ -> "process." ^ strip "os_" ^ "(prog, args)"
   | _ when starts "os_" -> "fs." ^ strip "os_" ^ "(path)"
+  | _ when starts "net_" -> "std.net 里的函数（net.connect、net.listen…）"
   | _ -> f ^ "(…)"
 
 let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
@@ -189,7 +192,7 @@ let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : m
     let p = !files.(me.index) in
     me.index > 0 && String.length p > 4 && String.sub p 0 4 = "std/"
   in
-  let io_ok = in_std && (List.mem me.modname [ "io"; "fs"; "env"; "process" ] || !files.(me.index) = "std/core/print.sn") in
+  let io_ok = in_std && (List.mem me.modname [ "io"; "fs"; "env"; "process"; "net" ] || !files.(me.index) = "std/core/print.sn") in
   let io_check pos f =
     if List.mem f io_builtins && not io_ok then
       err pos "%s 读写外部，标准库里只有 std.io、std.fs、std.env、std.process 和打印能调用它" f
@@ -284,6 +287,9 @@ let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : m
       | SetPlace (a, e) -> SetPlace (ex a, ex e)
       | While (c, b) -> While (ex c, blk b)
       | For (a, s1, s2) -> For (ex a, st s1, st s2)
+      | Scope (a, b) ->
+          (match a.e with Var x -> binder pos x | _ -> ());
+          Scope (a, blk b)
       | Return e -> Return (Option.map ex e)
       | Expr e -> Expr (ex e)
       | Errdefer e -> Errdefer (ex e)

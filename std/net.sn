@@ -1,0 +1,260 @@
+// std.net：TCP、UDP、域名解析和地址类型。套接字（TcpListener、TcpStream、UdpSocket）是 linear 结构体：
+// 每个都必须用 close 显式关闭，忘了关会编译不过，所以不会泄漏文件描述符。
+// 读写会阻塞当前任务；同时处理多个连接时，每个连接交给 scope 里的一个任务（见 examples/tour/http_server.sn）：
+//     let l = net.listen("127.0.0.1", 8080)?
+//     scope |s| {
+//         while true {
+//             let c = l.accept()?   // 不能在 scope 里用 ?，写成 match，见示例
+//             s.spawn(|| handle(c))
+//         }
+//     }
+// 出错时 Err 里是“操作 地址：系统的说明”。
+
+// IP 地址，存规范的文本形式（"127.0.0.1"、"::1"）。
+pub enum IpAddr { V4(Str), V6(Str) }
+
+// IP 地址加端口。
+pub struct SocketAddr { ip: IpAddr, port: I64 }
+
+fn ip_of(sink s: Str) -> IpAddr {
+    if s.contains(":") { .V6(s) } else { .V4(s) }
+}
+
+impl IpAddr {
+    // 解析文本形式的 IP（"10.0.0.1"、"::1"、"fe80::1"）；不是 IP 时 .None（不解析域名，域名用 lookup）。
+    fn parse(s: Str) -> Option<IpAddr> {
+        match net_ip_canon(s) {
+            .Some(t) => .Some(ip_of(t)),
+            .None => .None
+        }
+    }
+
+    fn is_v4(ip: IpAddr) -> Bool {
+        match let ip {
+            .V4(s) => true,
+            .V6(s) => false
+        }
+    }
+
+    fn is_v6(ip: IpAddr) -> Bool { !ip.is_v4() }
+
+    fn clone(ip: IpAddr) -> IpAddr {
+        match let ip {
+            .V4(s) => .V4(s.to_str()),
+            .V6(s) => .V6(s.to_str())
+        }
+    }
+}
+
+// 文本形式（不带方括号）。
+impl ToStr for IpAddr {
+    fn to_str(ip: IpAddr) -> Str {
+        match let ip {
+            .V4(s) => s.to_str(),
+            .V6(s) => s.to_str()
+        }
+    }
+}
+
+impl SocketAddr {
+    // ip 是文本形式的 IP；ip 不是 IP 或端口不在 0..65535 时 .None。
+    fn new(ip: Str, port: I64) -> Option<SocketAddr> {
+        if port < 0 || port > 65535 { return .None }
+        match IpAddr.parse(ip) {
+            .Some(a) => .Some(SocketAddr { ip: a, port: port }),
+            .None => .None
+        }
+    }
+
+    // "1.2.3.4:80"、"[::1]:8080"。
+    fn parse(s: Str) -> Option<SocketAddr> {
+        let n = s.len()
+        var i = n - 1
+        while i >= 0 {
+            if s.byte(i) == 58 { break }   // ':'
+            i = i - 1
+        }
+        if i <= 0 { return .None }
+        let port = match s.slice(i + 1, n).parse_i64() {
+            .Some(p) => p,
+            .None => { return .None }
+        }
+        let host = s.slice(0, i)
+        if host.starts_with("[") && host.ends_with("]") {
+            let inner = host.slice(1, host.len() - 1)
+            if !inner.contains(":") { return .None }
+            return SocketAddr.new(inner, port)
+        }
+        if host.contains(":") { return .None }   // IPv6 要加方括号
+        SocketAddr.new(host, port)
+    }
+
+    fn clone(a: SocketAddr) -> SocketAddr { SocketAddr { ip: a.ip.clone(), port: a.port } }
+}
+
+// "1.2.3.4:80"；IPv6 加方括号："[::1]:80"。
+impl ToStr for SocketAddr {
+    fn to_str(a: SocketAddr) -> Str {
+        match let a.ip {
+            .V4(s) => "{s}:{a.port}",
+            .V6(s) => "[{s}]:{a.port}"
+        }
+    }
+}
+
+// 域名解析：域名的所有地址，按系统给的顺序（"localhost" 一般是 ::1 和 127.0.0.1）。host 本身是 IP 时就是它自己。
+pub fn lookup(host: Str) -> Result<Vec<IpAddr>, Str> {
+    let ips = resolve(host)?
+    var out: Vec<IpAddr> = Vec.new()
+    for t in ips { out.push(ip_of(t.to_str())) }
+    Ok(out)
+}
+
+fn resolve(host: Str) -> Result<Vec<Str>, Str> {
+    match net_ip_canon(host) {
+        .Some(t) => {
+            var v: Vec<Str> = Vec.new()
+            v.push(t)
+            Ok(v)
+        },
+        .None => net_lookup(host)
+    }
+}
+
+// ---------- TCP ----------
+
+// 监听的套接字：accept 等下一个连接。
+pub linear struct TcpListener { fd: I64 }
+
+// 一个 TCP 连接。
+pub linear struct TcpStream { fd: I64 }
+
+// 在 host（IP 或域名，用第一个地址）的 port 上监听；port 是 0 时由系统选一个空闲的端口，用 l.port() 取。
+pub fn listen(host: Str, port: I64) -> Result<TcpListener, Str> {
+    let ips = resolve(host)?
+    if ips.len() == 0 { return Err("listen {host}：没有地址") }
+    let fd = net_listen(ips[0], port)?
+    Ok(TcpListener { fd: fd })
+}
+
+// 连到 host（IP 或域名）的 port：按顺序试每个地址，都失败时是最后一个错误。
+pub fn connect(host: Str, port: I64) -> Result<TcpStream, Str> {
+    let ips = resolve(host)?
+    var last = "connect {host}：没有地址"
+    for ip in ips {
+        match net_connect(ip, port) {
+            Ok(fd) => { return Ok(TcpStream { fd: fd }) },
+            Err(e) => { last = e }
+        }
+    }
+    Err(last)
+}
+
+fn addr_of(sink ip: Str, port: I64) -> SocketAddr { SocketAddr { ip: ip_of(ip), port: port } }
+
+impl TcpListener {
+    // 等下一个连接。
+    fn accept(l: TcpListener) -> Result<TcpStream, Str> {
+        let fd = net_accept(l.fd)?
+        Ok(TcpStream { fd: fd })
+    }
+
+    fn local_addr(l: TcpListener) -> SocketAddr { addr_of(net_local_ip(l.fd), net_local_port(l.fd)) }
+
+    fn port(l: TcpListener) -> I64 { net_local_port(l.fd) }
+
+    fn close(sink l: TcpListener) {
+        net_close(l.fd)
+        consume(l)
+    }
+}
+
+impl TcpStream {
+    // 最多读 n 个字节，有数据就返回；另一端关闭写入之后是空的 Bytes。
+    fn read(c: TcpStream, n: I64) -> Result<Bytes, Str> { net_read(c.fd, n) }
+
+    // 一直读到另一端关闭写入。
+    fn read_all(c: TcpStream) -> Result<Bytes, Str> {
+        var out = Bytes.new()
+        while true {
+            let b = net_read(c.fd, 65536)?
+            if b.len() == 0 { break }
+            out.append(b)
+        }
+        Ok(out)
+    }
+
+    // 读一行（到 \n 为止，去掉行尾的 \r\n 或 \n）；连接在一行的中间关闭时得到已经读到的部分，什么都没读到就关闭时 .None。
+    // 一次读一个字节：适合读协议的头部，大块数据用 read。
+    fn read_line(c: TcpStream) -> Result<Option<Str>, Str> {
+        var line = Bytes.new()
+        var any = false
+        while true {
+            let b = net_read(c.fd, 1)?
+            if b.len() == 0 { break }
+            any = true
+            let x = b.get(0)
+            if x == 10 { break }
+            line.push(x)
+        }
+        if !any { return Ok(.None) }
+        let n = line.len()
+        if n > 0 && line.get(n - 1) == 13 { line = line.slice(0, n - 1) }
+        match line.decode() {
+            .Some(s) => Ok(.Some(s)),
+            .None => Err("read_line：不是合法的 UTF-8")
+        }
+    }
+
+    // 全部写完才返回。
+    fn write(c: TcpStream, b: Bytes) -> Result<(), Str> { net_write(c.fd, b) }
+
+    fn write_str(c: TcpStream, s: Str) -> Result<(), Str> { net_write(c.fd, s.to_bytes()) }
+
+    // 关闭写入的一半：另一端读到末尾，这一端还可以继续读。
+    fn shutdown(c: TcpStream) { net_shutdown(c.fd) }
+
+    fn peer_addr(c: TcpStream) -> SocketAddr { addr_of(net_peer_ip(c.fd), net_peer_port(c.fd)) }
+
+    fn local_addr(c: TcpStream) -> SocketAddr { addr_of(net_local_ip(c.fd), net_local_port(c.fd)) }
+
+    fn close(sink c: TcpStream) {
+        net_close(c.fd)
+        consume(c)
+    }
+}
+
+// ---------- UDP ----------
+
+pub linear struct UdpSocket { fd: I64 }
+
+// 绑定到 host（IP 或域名，用第一个地址）的 port；port 是 0 时由系统选。
+pub fn bind_udp(host: Str, port: I64) -> Result<UdpSocket, Str> {
+    let ips = resolve(host)?
+    if ips.len() == 0 { return Err("bind {host}：没有地址") }
+    let fd = net_udp_bind(ips[0], port)?
+    Ok(UdpSocket { fd: fd })
+}
+
+impl UdpSocket {
+    // 发一个数据报。
+    fn send_to(u: UdpSocket, b: Bytes, to: SocketAddr) -> Result<(), Str> {
+        let ip = to.ip.to_str()
+        net_send_to(u.fd, b, ip, to.port)
+    }
+
+    // 收一个数据报（最多 n 个字节，多的丢掉）和发送方的地址。
+    fn recv_from(u: UdpSocket, n: I64) -> Result<(Bytes, SocketAddr), Str> {
+        let b = net_recv_from(u.fd, n)?
+        Ok((b, addr_of(net_recv_ip(), net_recv_port())))
+    }
+
+    fn local_addr(u: UdpSocket) -> SocketAddr { addr_of(net_local_ip(u.fd), net_local_port(u.fd)) }
+
+    fn port(u: UdpSocket) -> I64 { net_local_port(u.fd) }
+
+    fn close(sink u: UdpSocket) {
+        net_close(u.fd)
+        consume(u)
+    }
+}

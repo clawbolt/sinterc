@@ -393,6 +393,7 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | SetPlace (a, e) -> SetPlace (ex a, ex e)
       | While (c, b) -> While (ex c, blk b)
       | For (a, s1, s2) -> For (ex a, st s1, st s2)
+      | Scope (a, b) -> Scope (ex a, blk b)
       | Return e -> Return (Option.map ex e)
       | Expr e -> Expr (ex e)
       | Errdefer e -> Errdefer (ex e)

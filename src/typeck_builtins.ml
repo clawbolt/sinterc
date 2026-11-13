@@ -82,6 +82,27 @@ let builtins =
     "os_remove", ([ (MLet, TStr) ], TResult (TUnit, TStr));
     "os_run", ([ (MLet, TStr); (MLet, TVec TStr) ], TResult (TI64, TStr));
     "os_output", ([ (MLet, TStr); (MLet, TVec TStr) ], TResult (TStr, TStr));
+    (* std.net 用的内建函数（runtime/sinter_lib.h）：套接字是文件描述符（I64），地址是文本形式的 IP 加端口。
+       net_read 读到的是新的 Bytes（另一端关闭写入之后是空的），net_write 全部写完才返回；
+       net_recv_from 之后紧接着用 net_recv_ip、net_recv_port 取发送方（记在当前线程里） *)
+    "net_ip_canon", ([ (MLet, TStr) ], TApp ("Option", [ TStr ]));
+    "net_lookup", ([ (MLet, TStr) ], TResult (TVec TStr, TStr));
+    "net_listen", ([ (MLet, TStr); (MSink, TI64) ], TResult (TI64, TStr));
+    "net_connect", ([ (MLet, TStr); (MSink, TI64) ], TResult (TI64, TStr));
+    "net_udp_bind", ([ (MLet, TStr); (MSink, TI64) ], TResult (TI64, TStr));
+    "net_accept", ([ (MSink, TI64) ], TResult (TI64, TStr));
+    "net_read", ([ (MSink, TI64); (MSink, TI64) ], TResult (TBytes, TStr));
+    "net_write", ([ (MSink, TI64); (MLet, TBytes) ], TResult (TUnit, TStr));
+    "net_shutdown", ([ (MSink, TI64) ], TUnit);
+    "net_close", ([ (MSink, TI64) ], TUnit);
+    "net_local_ip", ([ (MSink, TI64) ], TStr);
+    "net_local_port", ([ (MSink, TI64) ], TI64);
+    "net_peer_ip", ([ (MSink, TI64) ], TStr);
+    "net_peer_port", ([ (MSink, TI64) ], TI64);
+    "net_send_to", ([ (MSink, TI64); (MLet, TBytes); (MLet, TStr); (MSink, TI64) ], TResult (TUnit, TStr));
+    "net_recv_from", ([ (MSink, TI64); (MSink, TI64) ], TResult (TBytes, TStr));
+    "net_recv_ip", ([], TStr);
+    "net_recv_port", ([], TI64);
   ]
 
 (* 字符串切片的内建函数（Lean `Strings.Slice`）：text(a, s) 把 s 放进区域 a，得到整段的切片；view_… 是切片的方法。
@@ -131,6 +152,11 @@ let vec_calls : (string, string * ty) Hashtbl.t = Hashtbl.create 16
 let method_res : (int, string) Hashtbl.t = Hashtbl.create 16
 
 let is_method f = f <> "" && f.[0] = '.'
+
+(* 方法名的最后一段（.geom.area → area） *)
+let method_base f =
+  let m = String.sub f 1 (String.length f - 1) in
+  match String.rindex_opt m '.' with Some i -> String.sub m (i + 1) (String.length m - i - 1) | None -> m
 
 (* 调用实际的函数名。 *)
 let callee (x : expr) f =

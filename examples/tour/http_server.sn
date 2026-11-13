@@ -1,0 +1,164 @@
+// 简单的 HTTP/1.1 服务器：每个连接交给 scope 里的一个任务（Lean `Concurrency.Scope`），连接是 linear 的，任务结束前必须关闭。
+//   sinterc run examples/tour/http_server.sn serve 8080        然后 curl http://127.0.0.1:8080/hello/世界
+//   sinterc run examples/tour/http_server.sn selftest          服务端和客户端在同一个程序里各跑几个请求
+// 只支持 GET，每个连接一个请求（回复带 Connection: close）。
+use std.net
+use std.env
+
+// 一个请求：方法和路径；读到空行为止，头部忽略。
+fn read_request(c: net.TcpStream) -> Result<(Str, Str), Str> {
+    let first = match c.read_line()? {
+        .Some(l) => l,
+        .None => { return Err("连接没有数据") }
+    }
+    while true {
+        match c.read_line()? {
+            .Some(l) => { if l.len() == 0 { break } },
+            .None => { break }
+        }
+    }
+    let parts = first.split(" ")
+    if parts.len() != 3 { return Err("请求行不对：{first}") }
+    Ok((parts[0].to_str(), parts[1].to_str()))
+}
+
+fn respond(c: net.TcpStream, status: Str, body: Str) -> Result<(), Str> {
+    let b = body.to_bytes()
+    c.write_str("HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {b.len()}\r\nConnection: close\r\n\r\n")?
+    c.write(b)
+}
+
+fn hex(c: I64) -> I64 {
+    if c >= 48 && c <= 57 { return c - 48 }   // 0-9
+    if c >= 97 && c <= 102 { return c - 87 }  // a-f
+    if c >= 65 && c <= 70 { return c - 55 }   // A-F
+    -1
+}
+
+// 路径里的 %XX 换成那个字节（curl 会把中文写成 %e4%b8%96…）；解出来不是合法的 UTF-8 时原样返回
+fn url_decode(s: Str) -> Str {
+    let b = s.to_bytes()
+    var out = Bytes.new()
+    var i = 0
+    while i < b.len() {
+        let c = b.get(i)
+        if c == 37 && i + 2 < b.len() && hex(b.get(i + 1)) >= 0 && hex(b.get(i + 2)) >= 0 {
+            out.push(hex(b.get(i + 1)) * 16 + hex(b.get(i + 2)))
+            i = i + 3
+        } else {
+            out.push(c)
+            i = i + 1
+        }
+    }
+    match out.decode() {
+        .Some(t) => t,
+        .None => s.to_str()
+    }
+}
+
+fn route(method: Str, raw: Str, site: Str) -> (Str, Str) {
+    if !method.eq("GET") { return ("405 Method Not Allowed", "只支持 GET\n") }
+    let path = url_decode(raw)
+    if path.eq("/") { return ("200 OK", "{site}\n") }
+    if path.starts_with("/hello/") { return ("200 OK", "你好，{path.slice(7, path.len())}\n") }
+    ("404 Not Found", "没有 {path}\n")
+}
+
+// 任务：处理一个连接。site 是所有任务只读共享的，c 移进了这个任务。
+fn handle(sink c: net.TcpStream, site: Str) {
+    let r = match read_request(c) {
+        Ok((method, path)) => {
+            let (status, body) = route(method, path, site)
+            respond(c, status, body)
+        },
+        Err(e) => respond(c, "400 Bad Request", "{e}\n")
+    }
+    match r {
+        Ok(_) => {},
+        Err(e) => eprintln("{e}")
+    }
+    c.close()
+}
+
+// 接受 n 个连接（n < 0 时一直接受），每个交给一个任务；scope 结束时所有任务都已结束。
+fn serve(l: net.TcpListener, n: I64, site: Str) {
+    var k = 0
+    scope |s| {
+        while n < 0 || k < n {
+            match l.accept() {
+                Ok(c) => s.spawn(|| handle(c, site)),
+                Err(e) => eprintln("{e}")
+            }
+            k = k + 1
+        }
+    }
+}
+
+// 客户端：GET path，返回整个回复。
+fn get(port: I64, path: Str) -> Result<Str, Str> {
+    let c = net.connect("127.0.0.1", port)?
+    let w = c.write_str("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    let all = c.read_all()
+    c.close()
+    w?
+    match all?.decode() {
+        .Some(s) => Ok(s),
+        .None => Err("回复不是 UTF-8")
+    }
+}
+
+// 回复的第一行和正文
+fn summary(reply: Str) -> Str {
+    let head_end = reply.find("\r\n\r\n").unwrap_or(reply.len())
+    let first = reply.slice(0, reply.find("\r\n").unwrap_or(head_end))
+    let body = if head_end + 4 <= reply.len() { reply.slice(head_end + 4, reply.len()) } else { "" }
+    "{first} | {body.trim()}"
+}
+
+fn selftest(l: net.TcpListener) {
+    let port = l.port()
+    let site = "Sinter 的 HTTP 示例"
+    var paths: Vec<Str> = Vec.new()
+    paths.push("/")
+    paths.push("/hello/世界")
+    paths.push("/hello/%E4%B8%96%e7%95%8c")
+    paths.push("/missing")
+    let n = paths.len()
+    scope |s| {
+        s.spawn(|| serve(l, n, site))
+        for p in paths {
+            match get(port, p) {
+                Ok(r) => println(summary(r)),
+                Err(e) => println("客户端：{e}")
+            }
+        }
+    }
+}
+
+fn main() {
+    let args = env.args()
+    let test = args.len() >= 1 && args[0].eq("selftest")
+    if !test && args.len() < 2 {
+        eprintln("用法：http_server serve 端口 | http_server selftest")
+        return
+    }
+    let port: Option<I64> = if test { .Some(0) } else { args[1].parse_i64() }
+    match port {
+        .Some(p) => {
+            // linear 值（这里是 TcpListener）不能用 unwrap 取出，写成 match
+            match net.listen("127.0.0.1", p) {
+                Ok(l) => {
+                    if test {
+                        selftest(l)
+                    } else {
+                        println("在 http://127.0.0.1:{l.port()}/ 上监听")
+                        serve(l, -1, "Sinter 的 HTTP 示例")
+                    }
+                    l.close()
+                },
+                Err(e) => eprintln(e)
+            }
+        },
+        .None => eprintln("端口要是整数：{args[1]}")
+    }
+}

@@ -9,3 +9,12 @@
   cat: 1
   dog: 1
   end: 1
+
+HTTP 服务器的示例（std.net、scope）：selftest 在同一个程序里起服务端，客户端依次发四个请求
+（第三个和 curl 一样把中文写成 %XX，服务端解码）。
+
+  $ sinterc run ../examples/tour/http_server.sn selftest
+  HTTP/1.1 200 OK | Sinter 的 HTTP 示例
+  HTTP/1.1 200 OK | 你好，世界
+  HTTP/1.1 200 OK | 你好，世界
+  HTTP/1.1 404 Not Found | 没有 /missing

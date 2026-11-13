@@ -422,6 +422,24 @@ let closures () =
                k k (String.concat "" sets) k k)
       | _ -> ())
     names;
+  (* s.spawn(|| …)（Lean `Concurrency.Scope`）：每个 spawn#… 一个环境结构体（只读共享的捕获存指针，移进任务的存值）、
+     一个在新线程里运行的函数（按提升出的函数的约定交出捕获，再释放环境），spawn#… 本身填好环境交给 sn_spawn *)
+  let tasks = List.sort compare (Hashtbl.fold (fun n c acc -> (n, c) :: acc) Typeck.spawns []) in
+  List.iteri
+    (fun k (sp, (c : Typeck.closure)) ->
+      let fields = List.mapi (fun i (m, _, t) -> Printf.sprintf " %s c%d;" (pty (m, t)) i) c.caps in
+      add (Printf.sprintf "struct sn_tenv%d {%s };\n" k (if fields = [] then " char c_;" else String.concat "" fields));
+      add
+        (Printf.sprintf "static void sn_task%d(void *e) { struct sn_tenv%d *x = e; (void)x; %s(%s); free(e); }\n" k k
+           (fname c.cname)
+           (String.concat ", " (List.mapi (fun i _ -> Printf.sprintf "x->c%d" i) c.caps)));
+      let ps = List.mapi (fun i (m, _, t) -> Printf.sprintf ", %s c%d" (pty (m, t)) i) c.caps in
+      let sets = List.mapi (fun i _ -> Printf.sprintf "x->c%d = c%d; " i i) c.caps in
+      add
+        (Printf.sprintf
+           "static void %s(int64_t *s%s) { struct sn_tenv%d *x = malloc(sizeof(struct sn_tenv%d)); if (!x) sn_panic(\"内存不足\"); %ssn_spawn(*s, sn_task%d, x); }\n"
+           (fname sp) (String.concat "" ps) k k (String.concat "" sets) k))
+    tasks;
   let calls = List.sort compare (Hashtbl.fold (fun n t acc -> (n, t) :: acc) Typeck.fcalls []) in
   List.iter
     (fun (n, t) ->

@@ -72,6 +72,31 @@ let let_regions : (string, (string * int) list) Hashtbl.t = Hashtbl.create 16
 (* for x in e 选了哪个展开（按 e 的 id）：true 是 Vec 的下标展开，false 是迭代器协议。给降级用。 *)
 let for_vec : (int, bool) Hashtbl.t = Hashtbl.create 16
 
+(* ---------- 结构化并发（Lean `Concurrency.Scope`） ----------
+   scope |s| { … } 里 s.spawn(|| …) 启动任务，块结束时等所有任务结束。任务的捕获只有两种：
+   scope 外面的变量只读共享（let，整个 scope 里谁都不能修改、移动它），scope 里面的变量移进任务（sink，可复制的复制一份）。
+   scopes：正在检查的 scope，内层在前：s 的名字、s 在 env.vars 里的深度（从外往里数）、外面的变量个数、只读共享的变量、是否写在闭包里。
+   scope_shares：scope（按 Var s 的 id）→ 只读共享的变量，降级时在 scope 开头锁住它们，结尾才放开（borrow.ml 检查）。
+   spawns：spawn#… → 提升出的任务函数和它的捕获，代码生成为它写启动线程的 C 函数。 *)
+type scope_frame = { sname : string; sdepth : int; souter : int; shared : string list ref; slam : bool }
+
+let scopes : scope_frame list ref = ref []
+let scope_shares : (int, string list) Hashtbl.t = Hashtbl.create 16
+let spawns : (string, closure) Hashtbl.t = Hashtbl.create 16
+
+(* s 是不是正在检查的某个 scope 的 s（按深度认，被遮住的不算） *)
+let scope_of vars v =
+  let rec depth = function [] -> None | (y, _) :: r -> if y = v then Some (List.length r) else depth r in
+  match depth vars with
+  | Some d -> List.find_opt (fun f -> f.sname = v && f.sdepth = d) !scopes
+  | None -> None
+
+(* return、? 不能离开 scope（同一个函数体里的；任务的闭包体里 return 只是结束这个任务） *)
+let no_exit pos what =
+  let here = !lambda_frame <> None in
+  if List.exists (fun f -> f.slam = here) !scopes then
+    err pos "scope 里不能写 %s：离开 scope 之前要等所有任务结束（可以先把结果存进 scope 外面的 var 变量）" what
+
 (* 结构体定义和标了 linear 的结构体，给降级和代码生成用。 *)
 let struct_tbl : (string, field list) Hashtbl.t = Hashtbl.create 16
 let linear_tbl : (string, unit) Hashtbl.t = Hashtbl.create 16

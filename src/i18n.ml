@@ -46,6 +46,15 @@ let table =
     ("for 只能遍历 Vec、a..b 或迭代器（有 next 方法的值，例如 s.chars()、m.iter()），%s 不是",
      "for can only iterate over a Vec, a range a..b, or an iterator (a value with a next method, such as s.chars() or m.iter()); {1} is none of these");
     ("%s 只能用在循环里", "{1} can only be used inside a loop");
+    ("%s 是 scope 的句柄，只能用来启动任务：%s.spawn(|| …)", "{1} is a scope handle; it can only start tasks: {2}.spawn(|| …)");
+    ("spawn 的参数要写成闭包 || …", "the argument of spawn must be a closure || …");
+    ("spawn 的闭包没有参数（写成 || …）", "the closure passed to spawn takes no parameters (write || …)");
+    ("任务暂不能用含引用或区域的变量 %s", "tasks cannot use {1} yet: its type contains a reference or region");
+    ("任务不能修改 scope 外面的变量 %s：它被所有任务只读共享（要修改的值先在 scope 里放进新的变量，再移进任务）",
+     "a task cannot modify {1}, which is declared outside the scope: all tasks share it read-only (put the value in a new variable inside the scope and move that into the task)");
+    ("scope 里不能写 %s：离开 scope 之前要等所有任务结束（可以先把结果存进 scope 外面的 var 变量）",
+     "{1} is not allowed inside a scope: all tasks must finish before leaving it (store the result in a var declared outside the scope first)");
+    ("%s 被 scope 里的任务只读共享，scope 结束之前不能%s", "{1} is shared read-only with the tasks of the scope, so it cannot be {2} before the scope ends");
     ("只能比较 I64、F64 和 Bool", "only I64, F64 and Bool values can be compared");
     ("consume 只能用于 linear 结构体，%s 不是", "consume only works on linear structs; {1} is not one");
     ("unbox 的参数必须是 Box，%s 不是", "unbox needs a Box; {1} is not one");

@@ -72,7 +72,7 @@
     },
     "keyword": {
       "patterns": [
-        { "name": "keyword.control.sinter", "match": "\\b(if|else|while|for|in|match|return|break|continue|errdefer)\\b" },
+        { "name": "keyword.control.sinter", "match": "\\b(if|else|while|for|in|match|return|break|continue|errdefer|scope)\\b" },
         { "name": "keyword.declaration.sinter", "match": "\\b(fn|struct|enum|trait|impl|let|var|use|pub|arena)\\b" },
         { "name": "storage.modifier.sinter", "match": "\\b(inout|sink|linear)\\b" },
         { "name": "constant.language.boolean.sinter", "match": "\\b(true|false)\\b" }

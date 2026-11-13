@@ -223,6 +223,26 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   一块里没有换行（行比块长）时接着读；输入最后没有换行时，最后一段是剩下的部分；读完时是 `.None`。
   每次循环开一个内层的 `arena |b| { … }`，在里面 `io.next_block_in(r, b, n)` 并处理这一段，峰值内存大约是两块加上最长的一行，和输入大小无关。
   不管输入怎么切成块，得到的行和整个读进来再 `lines` 的相同（`stream_eq`）；`io_line_reader.t` 用块大小 1 到 4096 检查。
+- `std.net`（`net.t`）：`IpAddr`（`.V4`、`.V6`，存规范的文本形式）、`SocketAddr`（`parse("[::1]:80")`、`"{a}"`）、`lookup(host)`；
+  `listen(host, port)`（`port` 是 0 时由系统选，用 `l.port()` 取）、`connect(host, port)`（按顺序试每个地址）、`bind_udp(host, port)`，
+  `host` 可以是 IP 或域名。`TcpListener`、`TcpStream`、`UdpSocket` 是 linear 结构体，每个都必须 `close`，忘了关编译不过；
+  所以 `Result<TcpStream, Str>` 不能 `unwrap`（`Result.unwrap` 的 `T` 不是 linear），要写 `match`。`read(n)` 有数据就返回，
+  另一端关闭写入之后是空的 `Bytes`；`read_line()` 一次读一个字节，适合协议的头部；`write` 全部写完才返回；写入断开的连接得到 `Err`，不发 SIGPIPE。
+  读写阻塞当前任务；同时处理多个连接时每个连接交给 `scope` 里的一个任务，见 `examples/tour/http_server.sn`。
+
+## 结构化并发
+
+- `scope |s| { … s.spawn(|| 任务) … }`（Lean `Concurrency.Scope`）：任务和块里后面的代码、别的任务同时运行，块结束时等所有任务结束。
+  任务的捕获只有两种：scope 外面的变量只读共享，整个 scope 里谁都不能修改、移动、析构它（降级时在 scope 开头建一个投影，结尾才用到，
+  由 borrow.ml 锁住），任务也不能写它；scope 里面的变量移进任务（可复制的复制一份）。Lean 证明了这条规则保证足迹互不冲突，
+  于是任何调度下都不出错（`safe`）、不死锁（`progress`），结束时的内存等于在每个 `spawn` 处把任务整个执行完的顺序程序（`scope_eq_seq`）；
+  所有权、析构、不泄漏都沿用单线程的结论。
+- 任务按闭包提升成普通函数（只读共享的按 `let`、移进的按 `sink`），调用换成 `spawn#…`；C 里把捕获放进环境交给运行时。
+  运行时是 M:N 调度：任务是协程（栈 8 MB，按需占用内存），在和 CPU 核数一样多的工作线程上运行；等套接字时让出工作线程，
+  由 kqueue（macOS）/ epoll（Linux）在就绪时放回队列；任务里的 `scope` 结束时也让出等子任务。主线程在这两处直接阻塞。
+  文件、标准输入、子进程仍然阻塞所在的工作线程。协程的切换是 `runtime/sinter.h` 里 x86_64 和 arm64 的几行汇编。
+  scope 里不能 `return`、`?`，不能 `break` / `continue` 到外面的循环；`s` 只能用来 `spawn`；
+  任务暂不能捕获含引用的变量，也还不能返回结果。`println` / `eprintln` 整行加锁写出，多个任务同时打印时各行不交错。
 
 ## 标准库
 
@@ -256,7 +276,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
   `v.sort()` 和 `v.sort_by(|a, b| a < b)`（`less` 要是严格弱序）都原地排序（Lean `Library.HeapSort`）：堆排序，只交换元素，O(n log n)，不稳定。
 - `print`：`print`、`println`、`eprint`、`eprintln`。
 
-系统层：`std.io`、`std.fs`、`std.env`、`std.process`，见上一节。
+系统层：`std.io`、`std.fs`、`std.env`、`std.process`、`std.net`，见“输入输出”一节。
 
 其余模块：
 

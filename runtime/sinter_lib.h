@@ -211,3 +211,219 @@ static SN_RES_STR u_os_output(const sn_str *prog, const SN_VEC_STR *args) {
   }
   return (SN_RES_STR){ .tag = 0, .u.v0 = s };
 }
+
+/* std.net：套接字（Lean `Library.FileIO` 的形状：只读写外部的状态、返回新的值）。套接字是文件描述符，
+   std/net.sn 把它包进 linear 结构体，所以每个连接都必须显式关闭。地址在这里是文本形式的 IP（"127.0.0.1"、"::1"）加端口。
+   出错说明是“操作 地址：系统的说明”。写入断开的连接时不发 SIGPIPE，而是得到 Err。 */
+static sn_str sn_net_err(const char *what, const char *ip, int64_t port, int e) {
+  char b[512]; int n;
+  if (ip && strchr(ip, ':')) n = snprintf(b, sizeof b, "%s [%s]:%lld：%s", what, ip, (long long)port, strerror(e));
+  else if (ip) n = snprintf(b, sizeof b, "%s %s:%lld：%s", what, ip, (long long)port, strerror(e));
+  else n = snprintf(b, sizeof b, "%s：%s", what, strerror(e));
+  if (n < 0) n = 0; if (n >= (int)sizeof b) n = (int)sizeof b - 1;
+  return sn_str_make(b, n);
+}
+/* 文本形式的 IP 和端口 → sockaddr；不是合法的 IP 或端口时返回 0 */
+static socklen_t sn_sockaddr(const char *ip, int64_t port, struct sockaddr_storage *ss) {
+  memset(ss, 0, sizeof *ss);
+  if (port < 0 || port > 65535) return 0;
+  struct sockaddr_in *a = (struct sockaddr_in *)ss;
+  if (inet_pton(AF_INET, ip, &a->sin_addr) == 1) {
+    a->sin_family = AF_INET; a->sin_port = htons((uint16_t)port); return sizeof *a;
+  }
+  struct sockaddr_in6 *b = (struct sockaddr_in6 *)ss;
+  if (inet_pton(AF_INET6, ip, &b->sin6_addr) == 1) {
+    b->sin6_family = AF_INET6; b->sin6_port = htons((uint16_t)port); return sizeof *b;
+  }
+  return 0;
+}
+static sn_str sn_addr_ip(const struct sockaddr_storage *ss) {
+  char b[INET6_ADDRSTRLEN] = "";
+  if (ss->ss_family == AF_INET) inet_ntop(AF_INET, &((const struct sockaddr_in *)ss)->sin_addr, b, sizeof b);
+  else if (ss->ss_family == AF_INET6) inet_ntop(AF_INET6, &((const struct sockaddr_in6 *)ss)->sin6_addr, b, sizeof b);
+  return sn_str_cstr(b);
+}
+static int64_t sn_addr_port(const struct sockaddr_storage *ss) {
+  if (ss->ss_family == AF_INET) return ntohs(((const struct sockaddr_in *)ss)->sin_port);
+  if (ss->ss_family == AF_INET6) return ntohs(((const struct sockaddr_in6 *)ss)->sin6_port);
+  return 0;
+}
+static void sn_nosigpipe(int fd) {
+#ifdef SO_NOSIGPIPE
+  int one = 1; setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#else
+  (void)fd;
+#endif
+}
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+/* 规范的文本形式（"::0001" → "::1"）；不是 IP 时 .None */
+static SN_OPT_STR u_net_ip_canon(const sn_str *ip) {
+  struct sockaddr_storage ss;
+  if (!sn_sockaddr(ip->p, 0, &ss)) return (SN_OPT_STR){ .tag = 1 };
+  return (SN_OPT_STR){ .tag = 0, .u.v0 = sn_addr_ip(&ss) };
+}
+/* 域名解析：所有地址的文本形式，按系统给的顺序，去掉重复的 */
+static SN_RES_VEC_STR u_net_lookup(const sn_str *host) {
+  struct addrinfo hint, *res = 0;
+  memset(&hint, 0, sizeof hint); hint.ai_family = AF_UNSPEC; hint.ai_socktype = SOCK_STREAM;
+  int e = getaddrinfo(host->p, 0, &hint, &res);
+  if (e != 0) {
+    char b[512]; int n = snprintf(b, sizeof b, "lookup %s：%s", host->p, gai_strerror(e));
+    if (n < 0) n = 0; if (n >= (int)sizeof b) n = (int)sizeof b - 1;
+    return (SN_RES_VEC_STR){ .tag = 1, .u.v1 = sn_str_make(b, n) };
+  }
+  SN_VEC_STR v = { 0, 0, 0 };
+  for (struct addrinfo *p = res; p; p = p->ai_next) {
+    struct sockaddr_storage ss; memset(&ss, 0, sizeof ss); memcpy(&ss, p->ai_addr, p->ai_addrlen);
+    sn_str s = sn_addr_ip(&ss);
+    bool dup = false;
+    for (int64_t i = 0; i < v.len; i++) if (v.data[i].len == s.len && memcmp(v.data[i].p, s.p, (size_t)s.len) == 0) dup = true;
+    if (dup || s.len == 0) { sn_free(s.p); continue; }
+    if (v.len == v.cap) { int64_t c = v.cap ? v.cap * 2 : 4; v.data = sn_realloc(v.data, (size_t)c * sizeof(sn_str)); v.cap = c; }
+    v.data[v.len++] = s;
+  }
+  freeaddrinfo(res);
+  return (SN_RES_VEC_STR){ .tag = 0, .u.v0 = v };
+}
+/* 套接字都是非阻塞的：调用得到 EAGAIN 时 sn_wait_fd 等它就绪（任务让出工作线程，主线程用 poll 阻塞），再重试。
+   让出之后 errno 要经过 sn_errno 取（见 sinter.h 的调度器）。 */
+#define SN_AGAIN(e) ((e) == EAGAIN || (e) == EWOULDBLOCK)
+static SN_RES_I64 sn_net_open(const char *what, const sn_str *ip, int64_t port, int type, bool listen_) {
+  struct sockaddr_storage ss; socklen_t n = sn_sockaddr(ip->p, port, &ss);
+  if (!n) return (SN_RES_I64){ .tag = 1, .u.v1 = sn_net_err(what, ip->p, port, EINVAL) };
+  int fd = socket(ss.ss_family, type, 0);
+  if (fd < 0) return (SN_RES_I64){ .tag = 1, .u.v1 = sn_net_err(what, ip->p, port, sn_errno()) };
+  sn_nosigpipe(fd);
+  sn_nonblock(fd);
+  int r, e = 0;
+  if (listen_ || type == SOCK_DGRAM) {
+    int one = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    r = bind(fd, (struct sockaddr *)&ss, n);
+    if (r == 0 && listen_) r = listen(fd, 1024);
+    if (r != 0) e = sn_errno();
+  } else {
+    r = connect(fd, (struct sockaddr *)&ss, n);
+    if (r != 0) e = sn_errno();
+    if (r != 0 && (e == EINPROGRESS || e == EINTR)) {
+      /* 连接在进行中：等可写，再看结果 */
+      sn_wait_fd(fd, 1);
+      socklen_t l = sizeof e;
+      if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &e, &l) != 0) e = sn_errno();
+      r = e == 0 ? 0 : -1;
+    }
+    if (r == 0) { int one = 1; setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one); }
+  }
+  if (r != 0) { close(fd); return (SN_RES_I64){ .tag = 1, .u.v1 = sn_net_err(what, ip->p, port, e) }; }
+  return (SN_RES_I64){ .tag = 0, .u.v0 = fd };
+}
+static SN_RES_I64 u_net_listen(const sn_str *ip, int64_t port) { return sn_net_open("listen", ip, port, SOCK_STREAM, true); }
+static SN_RES_I64 u_net_connect(const sn_str *ip, int64_t port) { return sn_net_open("connect", ip, port, SOCK_STREAM, false); }
+static SN_RES_I64 u_net_udp_bind(const sn_str *ip, int64_t port) { return sn_net_open("bind", ip, port, SOCK_DGRAM, false); }
+static SN_RES_I64 u_net_accept(int64_t fd) {
+  int c;
+  for (;;) {
+    c = accept((int)fd, 0, 0);
+    if (c >= 0) break;
+    int e = sn_errno();
+    if (e == EINTR || e == ECONNABORTED) continue;
+    if (SN_AGAIN(e)) { sn_wait_fd((int)fd, 0); continue; }
+    return (SN_RES_I64){ .tag = 1, .u.v1 = sn_net_err("accept", 0, 0, e) };
+  }
+  sn_nosigpipe(c);
+  sn_nonblock(c);   /* Linux 上 accept 得到的套接字不继承 O_NONBLOCK */
+  int one = 1; setsockopt(c, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+  return (SN_RES_I64){ .tag = 0, .u.v0 = c };
+}
+/* 最多读 n 个字节；连接的另一端关闭写入之后是空的 Bytes */
+static SN_RES_BYTES u_net_read(int64_t fd, int64_t n) {
+  if (n <= 0) sn_panic("read 的大小必须大于 0");
+  sn_str b = { 0 }; b.p = sn_alloc((size_t)n + 1);
+  ssize_t k;
+  for (;;) {
+    k = recv((int)fd, b.p, (size_t)n, 0);
+    if (k >= 0) break;
+    int e = sn_errno();
+    if (e == EINTR) continue;
+    if (SN_AGAIN(e)) { sn_wait_fd((int)fd, 0); continue; }
+    sn_free(b.p);
+    return (SN_RES_BYTES){ .tag = 1, .u.v1 = sn_net_err("read", 0, 0, e) };
+  }
+  b.len = k; b.p[k] = 0;
+  return (SN_RES_BYTES){ .tag = 0, .u.v0 = b };
+}
+/* 全部写完才返回 */
+static SN_RES_UNIT u_net_write(int64_t fd, const sn_str *b) {
+  int64_t i = 0;
+  while (i < b->len) {
+    ssize_t k = send((int)fd, b->p + i, (size_t)(b->len - i), MSG_NOSIGNAL);
+    if (k < 0) {
+      int e = sn_errno();
+      if (e == EINTR) continue;
+      if (SN_AGAIN(e)) { sn_wait_fd((int)fd, 1); continue; }
+      return (SN_RES_UNIT){ .tag = 1, .u.v1 = sn_net_err("write", 0, 0, e) };
+    }
+    i += k;
+  }
+  return (SN_RES_UNIT){ .tag = 0 };
+}
+static void u_net_shutdown(int64_t fd) { shutdown((int)fd, SHUT_WR); }
+static void u_net_close(int64_t fd) { close((int)fd); }
+static sn_str u_net_local_ip(int64_t fd) {
+  struct sockaddr_storage ss; socklen_t n = sizeof ss; memset(&ss, 0, sizeof ss);
+  getsockname((int)fd, (struct sockaddr *)&ss, &n); return sn_addr_ip(&ss);
+}
+static int64_t u_net_local_port(int64_t fd) {
+  struct sockaddr_storage ss; socklen_t n = sizeof ss; memset(&ss, 0, sizeof ss);
+  getsockname((int)fd, (struct sockaddr *)&ss, &n); return sn_addr_port(&ss);
+}
+static sn_str u_net_peer_ip(int64_t fd) {
+  struct sockaddr_storage ss; socklen_t n = sizeof ss; memset(&ss, 0, sizeof ss);
+  getpeername((int)fd, (struct sockaddr *)&ss, &n); return sn_addr_ip(&ss);
+}
+static int64_t u_net_peer_port(int64_t fd) {
+  struct sockaddr_storage ss; socklen_t n = sizeof ss; memset(&ss, 0, sizeof ss);
+  getpeername((int)fd, (struct sockaddr *)&ss, &n); return sn_addr_port(&ss);
+}
+static SN_RES_UNIT u_net_send_to(int64_t fd, const sn_str *b, const sn_str *ip, int64_t port) {
+  struct sockaddr_storage ss; socklen_t n = sn_sockaddr(ip->p, port, &ss);
+  if (!n) return (SN_RES_UNIT){ .tag = 1, .u.v1 = sn_net_err("send_to", ip->p, port, EINVAL) };
+  for (;;) {
+    ssize_t k = sendto((int)fd, b->p, (size_t)b->len, MSG_NOSIGNAL, (struct sockaddr *)&ss, n);
+    if (k >= 0) break;
+    int e = sn_errno();
+    if (e == EINTR) continue;
+    if (SN_AGAIN(e)) { sn_wait_fd((int)fd, 1); continue; }
+    return (SN_RES_UNIT){ .tag = 1, .u.v1 = sn_net_err("send_to", ip->p, port, e) };
+  }
+  return (SN_RES_UNIT){ .tag = 0 };
+}
+/* 收一个数据报（最多 n 个字节，多的丢掉）。发送方记在当前任务里（主线程是 sn_from_main），紧接着用 recv_ip、recv_port 取。
+   不用线程局部变量：任务等数据时可能换了工作线程 */
+static struct sockaddr_storage sn_from_main;
+static __attribute__((noinline)) struct sockaddr_storage *sn_from_slot(void) {
+  sn_co *t = *sn_cur_slot();
+  return t ? &t->from : &sn_from_main;
+}
+static SN_RES_BYTES u_net_recv_from(int64_t fd, int64_t n) {
+  if (n <= 0) sn_panic("recv_from 的大小必须大于 0");
+  sn_str b = { 0 }; b.p = sn_alloc((size_t)n + 1);
+  struct sockaddr_storage from;
+  ssize_t k;
+  for (;;) {
+    socklen_t l = sizeof from; memset(&from, 0, sizeof from);
+    k = recvfrom((int)fd, b.p, (size_t)n, 0, (struct sockaddr *)&from, &l);
+    if (k >= 0) break;
+    int e = sn_errno();
+    if (e == EINTR) continue;
+    if (SN_AGAIN(e)) { sn_wait_fd((int)fd, 0); continue; }
+    sn_free(b.p);
+    return (SN_RES_BYTES){ .tag = 1, .u.v1 = sn_net_err("recv_from", 0, 0, e) };
+  }
+  *sn_from_slot() = from;
+  b.len = k; b.p[k] = 0;
+  return (SN_RES_BYTES){ .tag = 0, .u.v0 = b };
+}
+static sn_str u_net_recv_ip(void) { return sn_addr_ip(sn_from_slot()); }
+static int64_t u_net_recv_port(void) { return sn_addr_port(sn_from_slot()); }

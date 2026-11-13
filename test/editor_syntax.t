@@ -3,7 +3,7 @@
 
   $ grep -o '"[a-z]*", [A-Z]*;' ../src/lexer.mll | sed 's/"\([a-z]*\)".*/\1/' > keywords
   $ wc -l < keywords | tr -d ' '
-  25
+  26
   $ for k in $(cat keywords) I64 F64 Bool Char Str Bytes Self; do
   >   grep -qw "$k" ../editor/vscode/syntaxes/sinter.tmLanguage.json || echo "vscode 缺 $k"
   >   grep -qw "$k" ../editor/vim/syntax/sinter.vim || echo "vim 缺 $k"

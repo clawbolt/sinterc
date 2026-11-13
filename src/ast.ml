@@ -83,6 +83,9 @@ and stmt_desc =
   | While of expr * block
   | For of expr * stmt * stmt
       (* for x in e：e 是 Vec 时按下标走（第一个展开），否则按迭代器协议 e.next()（第二个展开）；类型检查按 e 的类型选一个 *)
+  | Scope of expr * block
+      (* scope |s| { … }（Lean `Concurrency.Scope`）：第一个是 Var s（它的 id 用来登记只读共享的变量），
+         块里 s.spawn(|| …) 启动任务，块结束时等所有任务结束 *)
   | Return of expr option
   | Expr of expr
   | Errdefer of expr        (* 出错返回时执行的调用 *)

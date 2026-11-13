@@ -1,0 +1,22 @@
+fn count(label: Str, n: I64, words: Vec<Str>) {
+    var total = 0
+    for i in 0..n {
+        total = total + i
+    }
+    println("{label} {n}: {total} {words.len()}")
+}
+
+fn main() {
+    var words: Vec<Str> = Vec.new()
+    words.push("x")
+    words.push("y")
+    let prefix = "task"
+    scope |s| {
+        for k in 1..3 {
+            let label = "{prefix}{k}"
+            s.spawn(|| count(label, k * 10, words))
+        }
+    }
+    words.push("z")
+    println("{words.len()}")
+}

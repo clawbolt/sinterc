@@ -241,7 +241,10 @@ let check (f : func) =
               List.iter
                 (fun q ->
                   if q <> z && List.mem z (locks f bs q) then
-                    if is_proj f q && f.roots.(q) = z then
+                    if f.locals.(q).lname = "#task" then
+                      (* scope 的只读共享（mir.ml 的 Scope，Lean `Concurrency.Scope`） *)
+                      err at "%s 被 scope 里的任务只读共享，scope 结束之前不能%s" (name f z) how
+                    else if is_proj f q && f.roots.(q) = z then
                       err at "%s 正被投影 %s 借用（之后还会用到 %s），不能%s" (name f z) (name f q) (name f q) how
                     else if at = Mir.nopos then
                       (* 析构没有位置：作用域结束时。报在变量声明的地方 *)

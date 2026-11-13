@@ -82,6 +82,8 @@ and check1 env want (x : expr) : t =
 and expr1 env (x : expr) : t =
   let pos = x.pos in
   match x.e with
+  | Call (f, [ { e = Var sv; _ }; lam ]) when is_method f && method_base f = "spawn" && scope_of env.vars sv <> None ->
+      spawn env x (Option.get (scope_of env.vars sv)) sv lam
   | Call (f, (r :: _ as args)) when is_method f -> expr1 env { x with e = Call (method_name env x f r, args) }
   | Int _ -> Ty TI64
   | Float _ -> Ty TF64
@@ -90,6 +92,7 @@ and expr1 env (x : expr) : t =
   | Unit -> Ty TUnit
   | Str _ -> Ty TStr
   | Var v -> (
+      if scope_of env.vars v <> None then err pos "%s 是 scope 的句柄，只能用来启动任务：%s.spawn(|| …)" v v;
       note env.vars v;
       match List.assoc_opt v env.vars with
       | Some (TFn _, _) ->
@@ -289,6 +292,7 @@ and expr1 env (x : expr) : t =
   | Variant (v, _) ->
       err pos "无法确定 %s 的类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方" (vname v)
   | Try a -> (
+      no_exit pos "?";
       match expr env a with
       | Never -> Never
       | Ty (TResult (t, e)) -> (
@@ -391,10 +395,38 @@ and pack env (x : expr) ys body want : t =
       Ty want
   | _ -> assert false
 
+(* s.spawn(|| body)（Lean `Concurrency.Scope`）：闭包和当实参传的一样检查、提升成普通函数，捕获按位置分两种：
+   scope 外面的变量只读共享（let；记进 fr.shared，降级时整个 scope 锁住它），scope 里面的变量移进任务（sink）。
+   调用换成 spawn#提升出的函数名(inout s, 捕获…)，代码生成为它写启动线程的 C 函数。 *)
+and spawn env (x : expr) fr sv (lam : expr) : t =
+  let ys, body =
+    match lam.e with Lambda (ys, b) -> (ys, b) | _ -> err lam.pos "spawn 的参数要写成闭包 || …"
+  in
+  if ys <> [] then err lam.pos "spawn 的闭包没有参数（写成 || …）";
+  let inner = List.length env.vars - fr.souter in   (* env.vars 的前 inner 个是 scope 里面声明的 *)
+  let mode v written t =
+    let rec idx i = function [] -> max_int | (y, _) :: r -> if y = v then i else idx (i + 1) r in
+    if region_names t <> [] then err lam.pos "任务暂不能用含引用或区域的变量 %s" v;
+    if idx 0 env.vars < inner then MSink
+    else begin
+      if written then
+        err lam.pos "任务不能修改 scope 外面的变量 %s：它被所有任务只读共享（要修改的值先在 scope 里放进新的变量，再移进任务）" v;
+      if not (List.mem v !(fr.shared)) then fr.shared := v :: !(fr.shared);
+      MLet
+    end
+  in
+  let c, _ = lambda ~mode env lam [] body [] (Some TUnit) in
+  let sp = "spawn#" ^ c.cname in
+  if not (Hashtbl.mem sigs sp) then
+    Hashtbl.replace sigs sp ((MInout, TI64) :: List.map (fun (m, _, t) -> (m, t)) c.caps, TUnit);
+  if !concrete then Hashtbl.replace spawns sp c;
+  Hashtbl.replace rewrites x.id (sp, var_expr x.pos sv TI64 :: List.map (fun (_, v, t) -> var_expr x.pos v t) c.caps);
+  Ty TUnit
+
 (* 闭包 |ys| body 作 fn(pts) -> r 类型的参数的实参：参数的类型取 pts，在原地检查函数体，找出捕获。
    r 为 None 时只推出函数体的类型（泛型函数的类型实参还没确定时）。会生成代码时把闭包提升成普通函数：
    捕获在前、闭包的参数在后；名字按位置和类型确定，同一个闭包只提升一次。 *)
-and lambda env (a : expr) ys body pts r : closure * t =
+and lambda ?mode env (a : expr) ys body pts r : closure * t =
   let pos = a.pos in
   if !lambda_frame <> None then err pos "闭包里暂不能再写闭包";
   if List.length ys <> List.length pts then
@@ -422,7 +454,8 @@ and lambda env (a : expr) ys body pts r : closure * t =
         (match t with
         | TFn _ -> err pos "闭包里暂不能用函数参数 %s（可以把它作为实参直接传下去）" v
         | _ -> ());
-        ((if Hashtbl.mem fr.written v then MInout else MLet), v, t))
+        let w = Hashtbl.mem fr.written v in
+        ((match mode with Some m -> m v w t | None -> if w then MInout else MLet), v, t))
       !(fr.used)
   in
   (* 捕获的类型里的区域换成区域参数 'c00、'c01…：按这里的嵌套顺序编号（外层在前），
@@ -991,16 +1024,35 @@ and block ?want env (b : block) : t =
             incr loop_depth;
             Fun.protect ~finally:(fun () -> decr loop_depth) (fun () -> expect pos TUnit (block env body));
             go env rest
+        | Scope (a, body) ->
+            (* scope |s| { … }（Lean `Concurrency.Scope`）：s 只能用来 s.spawn(|| …)；块里不能 return、?，
+               也不能 break / continue 到外面的循环（离开 scope 之前一定要等任务结束） *)
+            let sname = match a.e with Var s -> s | _ -> assert false in
+            let outer = List.length env.vars in
+            let fr = { sname; sdepth = outer; souter = outer; shared = ref []; slam = !lambda_frame <> None } in
+            let env' = { env with vars = (sname, (TI64, false)) :: env.vars } in
+            let depth = !loop_depth in
+            scopes := fr :: !scopes;
+            loop_depth := 0;
+            Fun.protect
+              ~finally:(fun () ->
+                scopes := List.tl !scopes;
+                loop_depth := depth)
+              (fun () -> expect pos TUnit (block env' body));
+            Hashtbl.replace scope_shares a.id (List.rev !(fr.shared));
+            go env rest
         | (Break | Continue) as d ->
             (* 之后的语句走不到，和 return 一样记作 Never *)
             if !loop_depth = 0 then err pos "%s 只能用在循环里" (if d = Break then "break" else "continue");
             ignore (go env rest);
             Never
         | Return None ->
+            no_exit pos "return";
             expect pos env.ret (Ty TUnit);
             ignore (go env rest);
             Never
         | Return (Some e) ->
+            no_exit pos "return";
             ignore (check env env.ret e);
             ignore (go env rest);
             Never

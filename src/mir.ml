@@ -637,6 +637,27 @@ and block st env (b : Ast.block) : operand option =
         | For (a, sv, si) ->
             (* 类型检查选的展开 *)
             go env ((if Hashtbl.find_opt Typeck.for_vec a.id = Some false then si else sv) :: rest)
+        | Scope (a, body) ->
+            (* scope |s| { … }（Lean `Concurrency.Scope`）：s 是 scope_new() 建的句柄。任务只读共享的变量各建一个投影 #task，
+               块结束时 scope_keep 才用到它，所以整个 scope 里这些变量都被锁住（borrow.ml：不能修改、移动、析构），
+               然后 scope_join 等所有任务结束。类型检查保证块里没有 return、? 和跳到外面的 break / continue *)
+            let sname = match a.e with Var v -> v | _ -> assert false in
+            let sl = new_local ~pos:s.spos st sname TI64 in
+            emit st (Assign (whole sl, Call ("scope_new", [])));
+            let locks =
+              List.map
+                (fun v ->
+                  let p = whole ~at:s.spos (List.assoc v env) in
+                  let q = new_local ~lref:true ~pos:s.spos st "#task" (info st p.base).lty in
+                  st.proots <- (q, root st p.base) :: st.proots;
+                  emit st (Proj (q, p));
+                  q)
+                (Option.value (Hashtbl.find_opt Typeck.scope_shares a.id) ~default:[])
+            in
+            ignore (block st ((sname, sl) :: env) body);
+            List.iter (fun q -> emit st (Eval (Call ("scope_keep", [ Ref (whole q) ])))) locks;
+            emit st (Eval (Call ("scope_join", [ Copy (whole sl) ])));
+            go env rest
         | While (c, body) ->
             let head = new_block st and bbody = new_block st and exit = new_block st in
             terminate st (Goto head);

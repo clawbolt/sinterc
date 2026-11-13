@@ -84,6 +84,15 @@
   它的方法的签名里可以带区域参数，泛型函数的类型实参也可以含引用（C74 的限制去掉）。
   **不兼容**：`s.chars()`、`v.chars()` 返回逐个解码的迭代器，不再分配 `Vec<Char>`，要 Vec 时写 `s.chars().collect()`。
   新加 `m.iter()`（`Map` 按键的顺序，`HashMap` 按存放的顺序），给出 `(&K in m, &V in m)`；迭代器活着时 `m` 被锁住，循环里不能插入、删除。
+- 结构化并发（C76，Lean M32 `Concurrency.Scope`）：`scope |s| { s.spawn(|| …) }`，块结束时等所有任务结束。
+  任务的捕获只有两种：scope 外面的变量只读共享（整个 scope 里谁都不能修改、移动它，任务也不能写），scope 里面的变量移进任务。
+  Lean 证明了这条规则下任何调度都不出错、不死锁，结果等于在每个 `spawn` 处按顺序执行任务。scope 里不能 `return`、`?`，
+  不能 `break` / `continue` 到外面的循环；任务暂不能捕获含引用的变量。任务是协程，在和 CPU 核数一样多的工作线程上运行（M:N 调度，等套接字时让出，kqueue / epoll）；生成的程序链接 `-pthread`，
+  `println` / `eprintln` 整行加锁写出，泄漏计数改成原子操作。新关键字 `scope`。
+- 网络（C76）：新模块 `std.net`。`IpAddr`、`SocketAddr`（`parse`、`"{a}"`）、`lookup`；`listen`、`connect`、`bind_udp`
+  （地址可以是 IP 或域名）；`TcpListener`（`accept`、`port`）、`TcpStream`（`read`、`read_all`、`read_line`、`write`、`write_str`、
+  `shutdown`、`peer_addr`）、`UdpSocket`（`send_to`、`recv_from`）都是 linear 结构体，必须 `close`。写入断开的连接得到 `Err`，不发 SIGPIPE。
+  示例 `examples/tour/http_server.sn`：每个连接一个任务的 HTTP/1.1 服务器。linear 值不能 `unwrap`，要写 `match`。
 - 字符串的字面量标记和长度共用 8 字节，`Str` 保持 16 字节（C61 最初让它变成了 24 字节）。
 
 **验证**

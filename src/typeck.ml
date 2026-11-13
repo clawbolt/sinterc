@@ -49,6 +49,9 @@ let prepare (p : program) =
   Hashtbl.reset skip_lower;
   Hashtbl.reset rewrites;
   Hashtbl.reset packs;
+  Hashtbl.reset scope_shares;
+  Hashtbl.reset spawns;
+  scopes := [];
   Hashtbl.reset fcalls;
   Hashtbl.reset pdesugar;
   Hashtbl.reset fn_items;

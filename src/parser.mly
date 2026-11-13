@@ -270,6 +270,7 @@ let for_inout pos x (v : expr) body =
       | SetField (b, _, c) | SetPlace (b, c) -> scan b; scan c
       | While (c, b) -> scan c; scan_block b
       | For (a, s1, s2) -> scan a; scan_stmt s1; scan_stmt s2
+      | Scope (_, b) -> scan_block b
       | Return b -> Option.iter scan b
       | Decl _ | Break | Continue -> ()
     in
@@ -310,6 +311,7 @@ let for_inout pos x (v : expr) body =
     | SetPlace (a, c) -> SetPlace (ex a, ex c)
     | While (c, b) -> While (ex c, blk b)
     | For (a, s1, s2) -> For (ex a, { s1 with s = stmt s1 }, { s2 with s = stmt s2 })
+    | Scope (a, b) -> Scope (a, blk b)
     | Return c -> Return (Option.map ex c)
     | Expr c -> Expr (ex c)
     | Errdefer c -> Errdefer (ex c)
@@ -356,7 +358,7 @@ let ty_of_name = function
 %token <string> STRING
 %token <string> IDENT UIDENT
 %token FN STRUCT LET VAR IF ELSE WHILE RETURN TRUE FALSE BOX INOUT SINK
-%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM TRAIT IMPL FOR BREAK CONTINUE USE PUB
+%token LINEAR ERRDEFER MATCH RESULT FATARROW QUESTION ARENA IN AMP BAR ENUM TRAIT IMPL FOR BREAK CONTINUE USE PUB SCOPE
 %token ARROW EQEQ NE LE GE LT GT ANDAND OROR EQ DOTDOT
 %token PLUS MINUS STAR SLASH PERCENT BANG
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET COMMA COLON DOT NL EOF
@@ -526,6 +528,7 @@ stmt:
   | FOR x = IDENT IN a = expr DOTDOT b = expr bl = block { for_loop $startpos x (`Range (a, b)) bl }
   | FOR x = IDENT IN INOUT v = expr bl = block { for_inout $startpos x v bl }
   | FOR x = IDENT IN v = expr bl = block { for_in $startpos x v bl }
+  | SCOPE BAR x = IDENT BAR bl = block { mks (Scope (mk (Var x) $startpos, bl)) $startpos }
   | RETURN e = option(expr) { mks (Return e) $startpos }
   | BREAK { mks Break $startpos }
   | CONTINUE { mks Continue $startpos }

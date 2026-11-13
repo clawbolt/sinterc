@@ -17,7 +17,7 @@ let keywords = [
   "while", WHILE; "return", RETURN; "true", TRUE; "false", FALSE;
   "inout", INOUT; "sink", SINK; "linear", LINEAR; "errdefer", ERRDEFER; "match", MATCH;
   "arena", ARENA; "in", IN; "enum", ENUM; "trait", TRAIT; "impl", IMPL; "for", FOR;
-  "break", BREAK; "continue", CONTINUE; "use", USE; "pub", PUB;
+  "break", BREAK; "continue", CONTINUE; "use", USE; "pub", PUB; "scope", SCOPE;
 ]
 
 (* 字符串插值："x = {x}" 拆成记号 #fmt("x = ", (x).to_str())，由 parser 展开。
