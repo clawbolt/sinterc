@@ -2,3 +2,4 @@ _build/
 npm-cache/
 _batch/
 .DS_Store
+_baseline/
