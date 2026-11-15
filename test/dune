@@ -23,3 +23,17 @@
 (cram
  (applies_to runtime)
  (deps %{project_root}/runtime/sinter.h %{project_root}/runtime/sinter_lib.h))
+
+; 英文的信息表和代码里的报错对得上（见 src/messages.ml）
+
+(executable
+ (name check_messages)
+ (libraries sinter))
+
+(cram
+ (applies_to messages)
+ (deps
+  check_messages.exe
+  (glob_files %{project_root}/src/*.ml)
+  (glob_files %{project_root}/src/*.mll)
+  (glob_files %{project_root}/src/*.mly)))

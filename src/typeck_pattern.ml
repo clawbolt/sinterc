@@ -5,7 +5,6 @@ open Typeck_generics
 
 (* ---- 嵌套模式（Lean `Matching.Nested`、`Matching.Coverage`） ---- *)
 
-let pm_count = ref 0
 let fresh_pvar () = incr pm_count; "#p" ^ string_of_int !pm_count
 let mkx pos e = { e; pos; id = fresh_id () }
 

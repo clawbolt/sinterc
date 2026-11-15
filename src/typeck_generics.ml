@@ -11,13 +11,6 @@ open Typeck_regions
    T: linear 必须交出去；不能对 T 做运算、取字段或 match。调用处推出类型实参并检查约束，
    用到的每个实例复制一份函数体，换成具体类型后照常检查（单态化）。 *)
 
-(* 泛型结构体、枚举的定义：类型参数名和原始定义（类型还没解析）。 *)
-let gtypes : (string, string list * item) Hashtbl.t = Hashtbl.create 16
-
-(* 泛型函数的类型参数；解析过类型的泛型函数本身，实例化时复制它。 *)
-let gparams : (string, (string * bool) list) Hashtbl.t = Hashtbl.create 16
-let gfns : (string, item) Hashtbl.t = Hashtbl.create 16
-
 (* trait（Lean `Traits.Static`）：每个方法当作带一个类型参数 Self 的泛型函数，Self 换成实现的类型。
    方法的函数名是 trait.方法（例如 Ord.cmp），不占用全局的名字：只能用方法调用 x.cmp(y) 调用，
    按接收者的类型在约束和 impl 里找（Lean `Traits.Inherent` 的 resolve_tra）。
@@ -26,19 +19,6 @@ let gfns : (string, item) Hashtbl.t = Hashtbl.create 16
    impl 里的方法是普通的具体函数，名字记作 trait.方法<类型>（和泛型函数的实例同一种写法），单态化时直接调用它。
    泛型 impl（Lean `Traits.ImplSearch`）：impl 可以是泛型的（头部 Vec<T>，约束 T: ToStr），它的方法是以 impl 的类型参数为类型参数的泛型函数，
    名字是 trait.方法<头部>；trait 的方法可以有默认的函数体（defaults），它是泛型函数 trait.方法（类型参数 Self）。 *)
-type impl_info = {
-  head : ty;   (* 实现的类型，impl 的类型参数是 TParam *)
-  itps : string list;   (* impl 的类型参数 *)
-  ibounds : (string * string) list;
-  defined : string list;   (* impl 里写了的方法（方法名） *)
-}
-
-let traits : (string, string list) Hashtbl.t = Hashtbl.create 16
-let methods : (string, string) Hashtbl.t = Hashtbl.create 16
-let tmethods : (string, string * string) Hashtbl.t = Hashtbl.create 16
-let impls : (string, impl_info) Hashtbl.t = Hashtbl.create 16
-let gbounds : (string, (string * string) list) Hashtbl.t = Hashtbl.create 16
-let defaults : (string, unit) Hashtbl.t = Hashtbl.create 16
 
 (* trait tr 的方法 m 的函数名；报错时只显示方法名。 *)
 let trait_key tr m = tr ^ "." ^ m
@@ -48,37 +28,7 @@ let bare f =
   | Some tr -> String.sub f (String.length tr + 1) (String.length f - String.length tr - 1)
   | None -> f
 
-(* 泛型 impl 的方法的实例：实例名 方法<具体类型> → (泛型函数 方法<头部>, impl 的类型实参)。 *)
-let minst : (string, string * ty list) Hashtbl.t = Hashtbl.create 16
-
-(* 内建类型的 ToStr：实例名 to_str<I64> 等直接调用内建函数，降级时换名。 *)
-let aliases : (string, string) Hashtbl.t = Hashtbl.create 16
-
-(* 每个泛型调用（按调用表达式的 id）推出的类型实参，给降级时找实例的名字用。 *)
-let call_inst : (int, ty list) Hashtbl.t = Hashtbl.create 16
-
-(* 还没有生成的函数实例。 *)
-let pending : (string * ty list) Queue.t = Queue.create ()
-let requested : (string, unit) Hashtbl.t = Hashtbl.create 16
-
 let inst_name g ts = Ast.app_name g (List.map string_of_ty ts)
-
-(* 闭包：当前检查的函数会不会生成代码（不是泛型函数、没有 fn(…) 参数；泛型实例、特化、提升出的闭包都是）。
-   只有这时才提升闭包、登记特化、改写调用；其他函数里的闭包只检查。 *)
-let concrete = ref false
-let cur_fn = ref ""
-
-(* 函数体里有闭包、自己又不生成代码的泛型函数：不在定义处降级（它的实例照常降级、检查）。 *)
-let skip_lower : (string, unit) Hashtbl.t = Hashtbl.create 16
-
-(* 还没检查的提升出的闭包和特化：条目、特化里 fn(…) 参数绑定的闭包、这些 fn(…) 参数的名字和类型（仍可在函数体里用）、
-   区域参数的先后关系（`Closures.CapRef`）。 *)
-let pending_items :
-    (item * (string * (closure * (string * ty) list)) list * (string * ty) list * (string * string list) list) Queue.t =
-  Queue.create ()
-
-(* 调用的改写：调用表达式的 id → 新的函数名和实参，检查完之后换上（和方法调用的名字一样）。 *)
-let rewrites : (int, string * expr list) Hashtbl.t = Hashtbl.create 16
 
 (* ---------- 可以存起来的闭包 Fn(…)（Lean `Closures.Stored`） ----------
    写在需要 Fn(pts) -> r 的地方（let 标注、返回值、实参、字段、Vec 元素）的闭包：和当实参传的闭包一样提升成普通函数
@@ -87,18 +37,6 @@ let rewrites : (int, string * expr list) Hashtbl.t = Hashtbl.create 16
    闭包按 inout：闭包体访问的环境和实参不重叠（`Closures.Stored` 的 env_disjoint），所以提升出的函数照常检查就够了。
    Fn 值需要析构（析构环境），只能移动；环境里不能有引用、区域和 fn(…) 参数（`Closures.Stored` 的 ok：存起来也不会悬空）。
    packs：Fn#… → (闭包, 它的类型)；fcalls：call#… → 闭包的类型。代码生成为它们写 C 函数。 *)
-let packs : (string, closure * ty) Hashtbl.t = Hashtbl.create 16
-let fcalls : (string, ty) Hashtbl.t = Hashtbl.create 16
-
-
-(* 带嵌套模式的 match 展开后的表达式（按 PMatch 的 id）：map_body 把 PMatch 换成它，之后的阶段只看到 Match、If、Destruct。 *)
-let pdesugar : (int, expr) Hashtbl.t = Hashtbl.create 16
-
-(* 当前函数按 let 传入的参数（借来的）：在它们上面的嵌套模式按借用拆开，和 match let 一样 *)
-let let_params : string list ref = ref []
-
-(* 解析过类型的非泛型函数，特化时复制。 *)
-let fn_items : (string, item) Hashtbl.t = Hashtbl.create 16
 
 let inst_of n = Option.map fst (Hashtbl.find_opt inst_tbl n)
 
@@ -159,7 +97,7 @@ and instantiate g ts =
   if not (Hashtbl.mem inst_tbl name) then begin
     Hashtbl.replace inst_tbl name (g, ts);
     if Hashtbl.length inst_tbl > 1000 then
-      err { line = 1; col = 1 } "泛型类型的实例超过 1000 个（可能是类型实参越来越大的递归类型，例如 W<T> 里有 Box<W<Box<T>>>）";
+      err Source.start "泛型类型的实例超过 1000 个（可能是类型实参越来越大的递归类型，例如 W<T> 里有 Box<W<Box<T>>>）";
     let ps, it = Hashtbl.find gtypes g in
     let sc = List.combine ps ts in
     match it with
@@ -242,10 +180,6 @@ let rec compat ?(loose = false) p q =
   | TResult (a, b), TResult (c, d) -> compat ~loose a c && compat ~loose b d
   | _ -> p = q
 
-(* 类型自己的方法（Lean `Traits.Inherent`）：方法名 → (解析过的头部, impl 的类型参数, 函数名)。
-   prepare 从 Ast.inherent 登记，同名方法的头部两两不相容（CoherentM）。 *)
-let inherent_heads : (string, ty * string list * string) Hashtbl.t = Hashtbl.create 16
-
 (* 接收者类型 t 的方法 m（`Traits.Inherent` 的 pickM）：CoherentM 保证至多一个头部能匹配，和登记的顺序无关。 *)
 let find_inherent m t =
   List.find_map
@@ -284,8 +218,6 @@ let rec why_not tb tr t =
    g<…外层…> 可以当作 g<…内层…> 用。只读的位置：字段、载荷直接是这个参数，
    或者在 Result 里，或者是另一个实例里能协变的类型实参。
    Box、Vec 里的保守地算不变（实例之间不比较）；可以修改的 inout 实参本来就要求类型完全相同。 *)
-let cov_memo : (string * int, bool) Hashtbl.t = Hashtbl.create 16
-
 let rec covariant g i =
   match Hashtbl.find_opt cov_memo (g, i) with
   | Some b -> b

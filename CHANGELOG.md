@@ -121,6 +121,12 @@
 - 删掉 `i18n.ml` 里 4 条已经没有地方用的翻译。
 - C 运行时从 `emit_c.ml` 的字符串里搬到 `runtime/sinter.h` 和 `runtime/sinter_lib.h`，构建时编进编译器：Vec 的辅助函数改成 `SN_VEC_*` 宏，I/O、解析、`std.os` 的函数用 `SN_OPT_STR` 等宏代替类型名，入口改成 `sn_main`、`sn_batch`。`emit_c.ml` 只生成按类型变化的部分（原来 981 行，现在 466 行）。`test/runtime.t` 检查 `sinter.h` 单独能编译、生成的 C 以它开头。
 - `typeck.ml`（2571 行）按依赖的顺序拆成 `typeck_env`、`typeck_builtins`、`typeck_regions`、`typeck_generics`、`typeck_pattern`、`typeck_expr` 和 `typeck`（整个程序），代码不变，其他模块照旧通过 `Typeck` 访问。
+- 编译器内部按阶段整理（`ARCHITECTURE.md` 记着每一步；生成的 C、报错、Lean 对照都和整理前逐字节相同）：
+  位置是 `{file; line; col}`；各阶段的报错都是 `Diag.t`（带键和参数），英文按键查 `messages.ml`；`bin/main.ml` 拆成六个文件；
+  模块解析的结果是 `Resolved.t`；类型检查的表集中在 `typing.ml`，整个程序的登记在 `collect.ml`；
+  定义（结构体、枚举、签名、trait）是 `Defs.t`，降级读带类型的语法树 `Tast`，所有权检查、投影检查和两个后端不再依赖 `Typeck`；
+  C 后端拆成 `c_names`、`c_types`、`c_func`、`c_closures`；C 运行时按职责拆成六个文件（`runtime/README.md`），构建时拼回 `sinter.h`、`sinter_lib.h`。
+- 删掉 `tools/migrate.ml`：标准库重新划分时的一次性改写工具，旧写法都已经迁移完。
 
 ## 0.2.0-pre（2026-11）
 

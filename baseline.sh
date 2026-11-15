@@ -88,7 +88,12 @@ one() {
     # shellcheck disable=SC2046
     (cd "$run" && "./$n.exe" $(args_of "$n") < "$(stdin_of "$n")" > "$n.stdout" 2> "$n.stderr")
     c=$?
-    { cat "$run/$n.stdout"; echo "--- 标准错误"; cat "$run/$n.stderr"; echo "退出码 $c"; } > "$out/$n.run"
+    # scope 里的任务在不同的工作线程上打印，行的先后每次可能不同：这些程序的标准输出排序后再记
+    case "$n" in
+      ok_scope) out_of() { sort "$1"; } ;;
+      *) out_of() { cat "$1"; } ;;
+    esac
+    { out_of "$run/$n.stdout"; echo "--- 标准错误"; cat "$run/$n.stderr"; echo "退出码 $c"; } > "$out/$n.run"
   else
     echo "没能编译成程序" > "$out/$n.run"
   fi

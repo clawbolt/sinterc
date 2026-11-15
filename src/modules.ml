@@ -8,7 +8,7 @@
    模块按最后一段名字区分：同一个程序里不能既有自己的 m.sn 又用 std.m。 *)
 open Ast
 
-let err pos fmt = Printf.ksprintf (fun m -> raise (Syntax (pos, m))) fmt
+let err pos fmt = Diag.error pos fmt
 
 type modinfo = {
   modname : string;                        (* 主文件是 "" *)
@@ -38,11 +38,12 @@ let is_core_file name = String.length name > 5 && String.sub name 0 5 = "core/"
 
 (* 这个位置在核心部分的文件里吗（用来去掉没有用到的核心函数）。 *)
 let in_core (p : pos) =
-  let i = file_of p in
-  i > 0 && i < Array.length !files && is_core_file (String.sub !files.(i) 4 (max 0 (String.length !files.(i) - 4)))
+  let files = !Source.files in
+  p.file > 0 && p.file < Array.length files && is_core_file (String.sub files.(p.file) 4 (max 0 (String.length files.(p.file) - 4)))
 
-(* 读一个文件（text 给出时读标准库里编进来的源码）：第 index 个文件的行号从 index * line_base + 1 开始。 *)
+(* 读第 index 个文件（text 给出时读标准库里编进来的源码）。 *)
 let parse_file ?text path index =
+  Source.current := index;
   Lexer.depth := 0;
   Lexer.saved := [];
   Lexer.pending := [];
@@ -58,16 +59,11 @@ let parse_file ?text path index =
     | None, t -> Lexing.from_string (Option.value t ~default:"")
   in
   Lexing.set_filename lexbuf path;
-  lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_lnum = (index * line_base) + 1 };
   let src =
     try Parser.program Lexer.next lexbuf with
     | Parser.Error ->
         close ();
-        let p = Lexing.lexeme_start_p lexbuf in
-        raise
-          (Syntax
-             ( { line = p.pos_lnum; col = p.pos_cnum - p.pos_bol + 1 },
-               Printf.sprintf "语法错误（在 '%s' 附近）" (Lexing.lexeme lexbuf) ))
+        Diag.error (Source.of_lexing (Lexing.lexeme_start_p lexbuf)) "语法错误（在 '%s' 附近）" (Lexing.lexeme lexbuf)
     | e -> close (); raise e
   in
   close ();
@@ -98,11 +94,11 @@ let removed_builtins = [ "print_i64"; "print_bool"; "print_f64"; "print_char" ]
 
 (* 直接调用内建函数 f 时给出的写法。核心部分里有对应的 intrinsic fn 时写成那个类型函数（Vec.new()）或方法（s.len()、n.to_str()），
    其余的是系统层的函数 *)
-let builtin_hint f =
+let builtin_hint (res : Resolved.t) f =
   let starts p = String.starts_with ~prefix:p f in
   let strip p = String.sub f (String.length p) (String.length f - String.length p) in
-  let stat = Hashtbl.fold (fun k (b, _) acc -> if b = f then Some k else acc) statics None in
-  let meths = Hashtbl.fold (fun g (b, ps, _, _, _) acc -> if b = f then (g, ps) :: acc else acc) prims [] in
+  let stat = Hashtbl.fold (fun k (s : Resolved.static) acc -> if s.Resolved.target = f then Some k else acc) res.Resolved.statics None in
+  let meths = Hashtbl.fold (fun g (p : Resolved.prim) acc -> if p.Resolved.builtin = f then (g, p.Resolved.params) :: acc else acc) res.Resolved.prims [] in
   let meth =
     match List.partition (fun (g, _) -> not (String.ends_with ~suffix:".to_str" g)) meths with
     | m :: _, _ | [], m :: _ -> Some m
@@ -147,7 +143,7 @@ let builtin_hint f =
   | _ when starts "net_" -> "std.net 里的函数（net.connect、net.listen…）"
   | _ -> f ^ "(…)"
 
-let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
+let rename ?(only_register = false) (r : Resolved.t) (mods : (string, modinfo) Hashtbl.t) (me : modinfo) : item list =
   let imported = List.map (fun (m, _, _) -> alias m) me.src.uses in
   (* 直接可见的名字 → 合并后的名字：先是预导入的（核心部分的 pub 名字），本文件的定义和 use 引入的名字盖过它们 *)
   let names : (string, string) Hashtbl.t = Hashtbl.create 16 in
@@ -190,10 +186,12 @@ let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : m
     | (TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TArena _ | TParam _) as t -> t
   in
   let in_std =
-    let p = !files.(me.index) in
+    let p = !Source.files.(me.index) in
     me.index > 0 && String.length p > 4 && String.sub p 0 4 = "std/"
   in
-  let io_ok = in_std && (List.mem me.modname [ "io"; "fs"; "env"; "process"; "net" ] || !files.(me.index) = "std/core/print.sn") in
+  let io_ok =
+    in_std && (List.mem me.modname [ "io"; "fs"; "env"; "process"; "net" ] || !Source.files.(me.index) = "std/core/print.sn")
+  in
   let io_check pos f =
     if List.mem f io_builtins && not io_ok then
       err pos "%s 读写外部，标准库里只有 std.io、std.fs、std.env、std.process 和打印能调用它" f
@@ -201,9 +199,9 @@ let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : m
   (* 直接调用的 f 不是本文件、引入或预导入的函数，而是内建函数 *)
   let builtin_check pos f =
     if (not (Hashtbl.mem names f)) && List.mem f removed_builtins then
-      err pos "%s 已经去掉了：写成 %s" f (builtin_hint f);
+      err pos "%s 已经去掉了：写成 %s" f (builtin_hint r f);
     if (not (Hashtbl.mem names f)) && is_builtin f && not (List.mem f prelude_builtins) then
-      if not in_std then err pos "%s 是内建函数，标准库以外不能直接调用：写成 %s" f (builtin_hint f) else io_check pos f
+      if not in_std then err pos "%s 是内建函数，标准库以外不能直接调用：写成 %s" f (builtin_hint r f) else io_check pos f
   in
   let binder pos x =
     if List.mem x imported then err pos "变量 %s 和引入的模块同名，换一个名字" x
@@ -236,8 +234,8 @@ let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : m
           let i = String.rindex s '.' in
           let t = String.sub s 0 i and g = String.sub s (i + 1) (String.length s - i - 1) in
           let h = qual pos t in
-          match Hashtbl.find_opt statics (h ^ "." ^ g) with
-          | Some (target, _) -> Call (target, List.map ex args)
+          match Hashtbl.find_opt r.Resolved.statics (h ^ "." ^ g) with
+          | Some s -> Call (s.Resolved.target, List.map ex args)
           | None -> err pos "%s 没有类型函数 %s" t g)
       | Call (f, args) ->
           builtin_check pos f;
@@ -312,11 +310,11 @@ let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : m
     match it with
     | Struct s ->
         let name = prefixed me.modname s.name in
-        Hashtbl.replace type_file name me.index;
+        Hashtbl.replace r.Resolved.type_file name me.index;
         Struct { s with name; fields = List.map (fun f -> { f with fty = ty s.ipos f.fty }) s.fields }
     | Enum e ->
         let name = prefixed me.modname e.name in
-        Hashtbl.replace type_file name me.index;
+        Hashtbl.replace r.Resolved.type_file name me.index;
         Enum { e with name; variants = List.map (fun (v, t) -> (v, Option.map (ty e.ipos) t)) e.variants }
     | Fn f ->
         (* impl 里的方法（top = false）不改名 *)
@@ -356,8 +354,8 @@ let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : m
           }
   in
   (* impl 类型 { … }：每个函数换成普通函数 头部.名字（例如 Vec<I64>.sum），类型参数和约束是 impl 的加上函数自己的；
-     签名里的 Self 换成头部。第一个参数的类型是头部的是方法（接收者），登记到 Ast.inherent，类型检查按接收者的类型找到它；
-     其余的是类型函数（Vec.new()、map.Map.new()），登记到 Ast.statics，调用 T.f(…) 按类型的名字找到它 *)
+     签名里的 Self 换成头部。第一个参数的类型是头部的是方法（接收者），登记到 r.inherent，类型检查按接收者的类型找到它；
+     其余的是类型函数（Vec.new()、map.Map.new()），登记到 r.statics，调用 T.f(…) 按类型的名字找到它 *)
   let sub self =
     let rec sub = function
       | TStruct "Self" -> self
@@ -385,9 +383,9 @@ let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : m
               (function
                 | Fn f when not (is_method self f.params f.ipos) ->
                     let key = type_head self ^ "." ^ f.name in
-                    if Hashtbl.mem statics key then err f.ipos "%s 已经有类型函数 %s" (type_head self) f.name;
+                    if Hashtbl.mem r.Resolved.statics key then err f.ipos "%s 已经有类型函数 %s" (type_head self) f.name;
                     let target = match f.prim with Some b -> b | None -> string_of_ty self ^ "." ^ f.name in
-                    Hashtbl.replace statics key (target, f.ipos)
+                    Hashtbl.replace r.Resolved.statics key { Resolved.target; pos = f.ipos }
                 | _ -> ())
               fns
         | _ -> ())
@@ -408,17 +406,18 @@ let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : m
                     let params = List.map (fun (m, x, t) -> (m, x, sub t)) f.params in
                     let name = string_of_ty self ^ "." ^ f.name in
                     if meth then begin
-                      if List.exists (fun (_, _, g, _) -> g = name) (Hashtbl.find_all inherent f.name) then
+                      if List.exists (fun (h : Resolved.inherent) -> h.Resolved.fn_name = name) (Hashtbl.find_all r.Resolved.inherent f.name) then
                         err f.ipos "%s 已经有方法 %s" (string_of_ty self) f.name;
-                      if Hashtbl.mem statics (type_head self ^ "." ^ f.name) then
+                      if Hashtbl.mem r.Resolved.statics (type_head self ^ "." ^ f.name) then
                         err f.ipos "%s 已经有类型函数 %s" (type_head self) f.name;
-                      Hashtbl.add inherent f.name (self, tparams, name, f.ipos)
+                      Hashtbl.add r.Resolved.inherent f.name { Resolved.head = self; tparams; fn_name = name; pos = f.ipos }
                     end;
                     if f.prim <> None && not in_std then err f.ipos "intrinsic fn 只能写在标准库里";
                     (match f.prim with
                     | Some b ->
                         (* intrinsic fn：只登记，不生成函数；方法调用、类型函数的调用直接换成内建函数 b *)
-                        Hashtbl.replace Ast.prims name (b, params, sub f.ret, tparams @ f.tparams, f.ipos);
+                        Hashtbl.replace r.Resolved.prims name
+                          { Resolved.builtin = b; params; ret = sub f.ret; tparams = tparams @ f.tparams; pos = f.ipos };
                         None
                     | None ->
                         Some
@@ -444,12 +443,9 @@ let rename ?(only_register = false) (mods : (string, modinfo) Hashtbl.t) (me : m
   if only_register then (register (); [])
   else List.concat_map (fun (_, it) -> expand it) me.src.items
 
-(* 从主文件出发读进所有用到的模块，改名后合成一个程序。 *)
-let load (main : string) : program =
-  Hashtbl.reset type_file;
-  Hashtbl.reset inherent;
-  Hashtbl.reset Ast.prims;
-  Hashtbl.reset statics;
+(* 从主文件出发读进所有用到的模块，改名后合成一个程序，连同读入时登记的表一起返回。 *)
+let load (main : string) : Resolved.t =
+  let r = Resolved.empty () in
   let mods : (string, modinfo) Hashtbl.t = Hashtbl.create 8 in
   let paths : (string, string) Hashtbl.t = Hashtbl.create 8 in   (* 模块名 → 从哪里读的 *)
   let order = ref [] in
@@ -463,7 +459,7 @@ let load (main : string) : program =
         Hashtbl.replace paths name path;
         let index = List.length !file_list in
         file_list := !file_list @ [ path ];
-        files := Array.of_list !file_list;
+        Source.files := Array.of_list !file_list;
         let src =
           try parse_file ?text path index with Sys_error _ ->
             if index = 0 then raise (Sys_error path)
@@ -499,10 +495,10 @@ let load (main : string) : program =
           src.uses;
         order := mi :: !order
   in
-  visit "" main None { line = 1; col = 1 };
+  visit "" main None Source.start;
   (* 核心部分：每个程序都读进来 *)
   List.iter
-    (fun (n, src) -> if is_core_file n then visit n ("std/" ^ n ^ ".sn") (Some src) { line = 1; col = 1 })
+    (fun (n, src) -> if is_core_file n then visit n ("std/" ^ n ^ ".sn") (Some src) Source.start)
     Stdlib_src.files;
   (* 核心部分在最前面，然后是被引入的模块，主文件最后；再往前是元组：内建的泛型结构体 Tuple#n<A0, …>，字段 0、1、… *)
   let tuple n =
@@ -513,9 +509,10 @@ let load (main : string) : program =
         tparams = List.map (fun p -> (p, false)) ps;
         fields = List.mapi (fun i p -> { fname = string_of_int i; fty = TStruct p }) ps;
         linear = false;
-        ipos = { line = 1; col = 1 };
+        ipos = Source.start;
       }
   in
   let cores, others = List.partition (fun mi -> mi.modname = core) (List.rev !order) in
-  List.iter (fun mi -> ignore (rename ~only_register:true mods mi)) (cores @ others);
-  List.init (max_tuple - 1) (fun i -> tuple (i + 2)) @ List.concat_map (rename mods) (cores @ others)
+  List.iter (fun mi -> ignore (rename ~only_register:true r mods mi)) (cores @ others);
+  let items = List.init (max_tuple - 1) (fun i -> tuple (i + 2)) @ List.concat_map (rename r mods) (cores @ others) in
+  { r with Resolved.items }

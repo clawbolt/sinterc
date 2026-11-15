@@ -15,9 +15,9 @@ type state = Uninit | Init | Maybe
 
 let join a b = if a = b then a else Maybe
 
-let err (p : place) fmt = Printf.ksprintf (fun m -> raise (Typeck.Error (p.at, m))) fmt
+let err (p : place) fmt = Diag.error p.at fmt
 
-let err_at at fmt = Printf.ksprintf (fun m -> raise (Typeck.Error (at, m))) fmt
+let err_at at fmt = Diag.error at fmt
 
 let succs (b : block) =
   match b.term with Goto j -> [ j ] | Branch (_, a, c) -> [ a; c ] | Return | Halt | Unterminated -> []
@@ -31,9 +31,9 @@ let operands = function
   | Payload (o, _) | TagIs (o, _) -> [ o ]
 
 (* 这个局部自己拥有一个需要析构的值（不是 let / inout 参数或投影这样的指针）。 *)
-let owned (f : func) l = Typeck.needs_drop f.locals.(l).lty && not f.locals.(l).lref
+let owned (d : Defs.t) (f : func) l = Defs.needs_drop d f.locals.(l).lty && not f.locals.(l).lref
 
-let linear (f : func) l = Typeck.is_linear f.locals.(l).lty
+let linear (d : Defs.t) (f : func) l = Defs.is_linear d f.locals.(l).lty
 
 let name (f : func) l = if f.locals.(l).lname = "" then "临时值" else f.locals.(l).lname
 
@@ -43,27 +43,27 @@ let why_text = function
   | Err -> "出错从这里返回时"
 (* 字段的槽：sp.(l) 是局部 l 里需要析构的叶子路径（沿着结构体字段一直往下，停在不是结构体的类型上，
    例如 q.p.a、q.p.b、q.c）和它们的槽号（槽号接在局部后面），只有移走过字段的局部才有；槽的总数（含局部）。 *)
-let rec leaves pre (ty : Ast.ty) =
+let rec leaves (d : Defs.t) pre (ty : Ast.ty) =
   match ty with
-  | Ast.TStruct s when Hashtbl.mem Typeck.struct_tbl s && not (Typeck.is_linear ty) ->
+  | Ast.TStruct s when Hashtbl.mem d.Defs.structs s && not (Defs.is_linear d ty) ->
       List.concat_map
-        (fun (g : Ast.field) -> if Typeck.needs_drop g.fty then leaves (pre @ [ g.fname ]) g.fty else [])
-        (Hashtbl.find Typeck.struct_tbl s)
+        (fun (g : Ast.field) -> if Defs.needs_drop d g.fty then leaves d (pre @ [ g.fname ]) g.fty else [])
+        (Hashtbl.find d.Defs.structs s)
   | _ -> [ pre ]
 
-let field_slots (f : func) =
+let field_slots (d : Defs.t) (f : func) =
   let n = Array.length f.locals in
   let sp = Array.make n [] and next = ref n in
   let add l =
     if sp.(l) = [] then
       match f.locals.(l).lty with
-      | Ast.TStruct s as ty when Hashtbl.mem Typeck.struct_tbl s ->
+      | Ast.TStruct s as ty when Hashtbl.mem d.Defs.structs s ->
           sp.(l) <-
             List.map
               (fun path ->
                 incr next;
                 (path, !next - 1))
-              (leaves [] ty)
+              (leaves d [] ty)
       | _ -> ()
   in
   Array.iter
@@ -116,15 +116,14 @@ let read check f sp st = function
         let pre = field_prefix p.proj in
         List.iter
           (fun (path, k) ->
-            let what =
-              if List.length path > List.length pre then
-                Printf.sprintf "，不能整体使用 %s" (path_name f p.base pre)
-              else "，不能再使用"
-            in
-            match st.(k) with
-            | Init -> ()
-            | Uninit -> err p "%s 已被移走%s" (path_name f p.base path) what
-            | Maybe -> err p "%s 可能已被移走（某条路径上或上一轮循环里）%s" (path_name f p.base path) what)
+            let moved = path_name f p.base path in
+            let whole = List.length path > List.length pre in
+            match st.(k), whole with
+            | Init, _ -> ()
+            | Uninit, true -> err p "%s 已被移走，不能整体使用 %s" moved (path_name f p.base pre)
+            | Uninit, false -> err p "%s 已被移走，不能再使用" moved
+            | Maybe, true -> err p "%s 可能已被移走（某条路径上或上一轮循环里），不能整体使用 %s" moved (path_name f p.base pre)
+            | Maybe, false -> err p "%s 可能已被移走（某条路径上或上一轮循环里），不能再使用" moved)
           (slots_of sp p)
       end;
       match o, p.proj with
@@ -137,7 +136,7 @@ let read check f sp st = function
 
 (* 走一条语句，返回展开后的语句。flag.(i) 是局部或字段槽 i 的 drop flag（如果有）；
    遇到“可能已初始化”的析构点时在 need 里记下，第二遍给它们分配 flag。 *)
-let step check f sp flag need st s =
+let step (d : Defs.t) check f sp flag need st s =
   let set i v =
     match flag.(i) with Some fl -> [ Assign (whole fl, Use (Const (CBool v))) ] | None -> []
   in
@@ -209,25 +208,25 @@ let step check f sp flag need st s =
                 if st.(k) <> Init then
                   err p "%s 已被移走或可能已被移走，不能给它里面的位置赋值" (path_name f p.base path))
               slots;
-          let pre = if Typeck.needs_drop (place_ty f p) then [ DropAt p ] else [] in
+          let pre = if Defs.needs_drop d (place_ty d f p) then [ DropAt p ] else [] in
           clear @ pre @ [ s ])
   | Assign (p, rv) ->
       let clear = reads rv in
-      if p.proj = [] && owned f p.base && linear f p.base then begin
+      if p.proj = [] && owned d f p.base && linear d f p.base then begin
         if check && st.(p.base) <> Uninit then
           err p "%s 是 linear 值，重新赋值前必须先消费旧值" (name f p.base);
         st.(p.base) <- Init;
         clear @ [ s ]
       end
-      else if p.proj = [] && owned f p.base then begin
+      else if p.proj = [] && owned d f p.base then begin
         (* 右值只读临时变量或别的局部，先析构旧值再赋值是安全的 *)
         let pre = release p.base in
         let flags = set_all p.base true in
         clear @ pre @ [ s ] @ flags
       end
-      else if p.proj = [] && Typeck.needs_drop f.locals.(p.base).lty then begin
+      else if p.proj = [] && Defs.needs_drop d f.locals.(p.base).lty then begin
         (* inout 参数：一直拥有值（不能移走），赋值前直接析构旧值 *)
-        if check && linear f p.base then
+        if check && linear d f p.base then
           err p "不能给 linear 的 inout 参数 %s 整体赋值（旧值没有被消费）" (name f p.base);
         clear @ [ DropNow p.base; s ]
       end
@@ -238,7 +237,7 @@ let step check f sp flag need st s =
   | Eval rv ->
       let clear = reads rv in
       clear @ [ s ]
-  | Drop (l, at, why) when linear f l ->
+  | Drop (l, at, why) when linear d f l ->
       no_linear l at why;
       st.(l) <- Uninit;
       []
@@ -253,7 +252,7 @@ let step check f sp flag need st s =
       st.(l) <- Uninit;
       [ s ]
   | Live (l, at, msg) ->
-      if check && st.(l) <> Init then raise (Typeck.Error (at, msg));
+      if check && st.(l) <> Init then Diag.raise_at at msg;
       []
   | Proj (q, p) ->
       read check f sp st (Copy p);
@@ -265,7 +264,7 @@ let step check f sp flag need st s =
   | DropField _ | DropFieldIf _ | DropAt _ -> [ s ]
 
 (* 不动点：每个块入口的状态。走不到的块是 None。 *)
-let analyze (f : func) sp total =
+let analyze (d : Defs.t) (f : func) sp total =
   let nb = Array.length f.blocks in
   let none = Array.make total None and need = Array.make total false in
   let inn = Array.make nb None in
@@ -281,7 +280,7 @@ let analyze (f : func) sp total =
   while not (Queue.is_empty work) do
     let i = Queue.pop work in
     let st = Array.copy (Option.get inn.(i)) in
-    List.iter (fun s -> ignore (step false f sp none need st s)) f.blocks.(i).stmts;
+    List.iter (fun s -> ignore (step d false f sp none need st s)) f.blocks.(i).stmts;
     List.iter
       (fun j ->
         let nw = match inn.(j) with None -> Array.copy st | Some old -> Array.map2 join old st in
@@ -294,23 +293,23 @@ let analyze (f : func) sp total =
   inn
 
 (* 对每个可达块从入口状态走一遍。 *)
-let pass check f sp flag need inn =
+let pass (d : Defs.t) check f sp flag need inn =
   Array.mapi
     (fun i (b : block) ->
       match inn.(i) with
       | None -> []
       | Some s ->
           let st = Array.copy s in
-          let out = List.concat_map (step check f sp flag need st) b.stmts in
+          let out = List.concat_map (step d check f sp flag need st) b.stmts in
           (match b.term with Branch (o, _, _) -> read check f sp st o | _ -> ());
           out)
     f.blocks
 
 (* check 为假时不报错（--unchecked：把编译器会拒绝的程序也导出给 Lean，看 Lean 是否独立地拒绝）。 *)
-let elaborate ?(check = true) (f : func) : func =
+let expand check (d : Defs.t) (f : func) : func =
   let n = Array.length f.locals in
-  let sp, total = field_slots f in
-  let inn = analyze f sp total in
+  let sp, total = field_slots d f in
+  let inn = analyze d f sp total in
   (* 槽属于哪个局部、叫什么 *)
   let owner = Array.init total (fun i -> i) and label = Array.init total (fun i -> if i < n then f.locals.(i).lname else "") in
   Array.iteri
@@ -323,7 +322,7 @@ let elaborate ?(check = true) (f : func) : func =
     sp;
   let need = Array.make total false in
   (* 第一遍：报错，并找出需要 drop flag 的变量和字段 *)
-  ignore (pass check f sp (Array.make total None) need inn);
+  ignore (pass d check f sp (Array.make total None) need inn);
   let extra = ref [] in
   let flag =
     Array.init total (fun i ->
@@ -334,7 +333,7 @@ let elaborate ?(check = true) (f : func) : func =
         else None)
   in
   (* 第二遍：展开 *)
-  let stmts = pass false f sp flag (Array.make total false) inn in
+  let stmts = pass d false f sp flag (Array.make total false) inn in
   (* 函数入口给 flag 赋初值：参数（连同它的字段）一开始拥有，其余没有 *)
   let init =
     List.concat
@@ -355,3 +354,7 @@ let elaborate ?(check = true) (f : func) : func =
     blocks;
     roots = Array.append f.roots (Array.init (Array.length extra) (fun i -> n + i));
   }
+
+(* 所有权检查和析构展开：通过时是展开后的函数，否则是这个函数的第一个错误（内部遇到第一个错误就停下）。 *)
+let elaborate ?(check = true) d f : (func, Diag.t) result =
+  match expand check d f with f -> Ok f | exception Diag.Error e -> Error e

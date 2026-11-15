@@ -4,7 +4,8 @@
    由 own.ml 的数据流检查决定每个 Drop 是直接析构、按 drop flag 析构，还是去掉（linear 值则报错）。
    let / inout 实参传地址（Ref / RefMut）；let 绑定一个不能整个移走的位置时建投影（Proj），
    由 borrow.ml 检查锁定和排他性。
-   出错返回（`?` 的出错分支和 `return Err(…)`）之前，按登记的相反顺序执行生效的 errdefer（`Unified.Errdefer`）。 *)
+   出错返回（`?` 的出错分支和 `return Err(…)`）之前，按登记的相反顺序执行生效的 errdefer（`Unified.Errdefer`）。
+   输入是带类型的语法树（Tast，to_tast.ml 从类型检查的结果翻译），定义查 Defs；这个文件不依赖 Typeck。 *)
 open Ast
 
 type local = int
@@ -49,7 +50,7 @@ type stmt =
   | Assign of place * rvalue
   | Eval of rvalue                        (* 只为副作用，例如返回 () 的调用 *)
   | Proj of local * place                 (* let q = p.a：q 指向 p 内部，不拥有值 *)
-  | Live of local * pos * string          (* 检查：这里 l 必须已初始化，否则报这条错误 *)
+  | Live of local * pos * Diag.message    (* 检查：这里 l 必须已初始化，否则报这条错误 *)
   | Enter of local                        (* 进入 arena 块：创建区域 *)
   | Leave of local                        (* 离开 arena 块（包括 return、出错返回穿过它）：整块释放 *)
   | Raise                                 (* 标记：这个块以出错返回结束（导出给 Lean 时用） *)
@@ -87,33 +88,34 @@ type func = {
   regarena : (local * (string * local) list) list;   (* 同上，类型里的每个区域名 → 它的 arena 块的局部 *)
 }
 
-let nopos = { line = 0; col = 0 }
+let nopos = Source.nopos
 
 let whole ?(at = nopos) l = { base = l; proj = []; at }
 
 (* 位置的类型：从局部的类型出发，沿着路径走。 *)
-let rec proj_ty ty = function
+let rec proj_ty (d : Defs.t) ty = function
   | [] -> ty
   | PField g :: rest -> (
       match ty with
       | TStruct n -> (
-          match Hashtbl.find_opt Typeck.struct_tbl n with
-          | Some fs -> proj_ty (List.find (fun (h : field) -> h.fname = g) fs).fty rest
+          match Hashtbl.find_opt d.Defs.structs n with
+          | Some fs -> proj_ty d (List.find (fun (h : field) -> h.fname = g) fs).fty rest
           | None -> TUnit)
       | _ -> TUnit)
-  | PDeref :: rest -> ( match ty with TBox t | TRef (t, _) -> proj_ty t rest | _ -> TUnit)
-  | PIndex _ :: rest -> ( match ty with TVec t -> proj_ty t rest | _ -> TUnit)
+  | PDeref :: rest -> ( match ty with TBox t | TRef (t, _) -> proj_ty d t rest | _ -> TUnit)
+  | PIndex _ :: rest -> ( match ty with TVec t -> proj_ty d t rest | _ -> TUnit)
   | PVar i :: rest -> (
-      match Typeck.variants ty with
-      | Some vs -> ( match snd (List.nth vs i) with Some t -> proj_ty t rest | None -> TUnit)
+      match Defs.variants d ty with
+      | Some vs -> ( match snd (List.nth vs i) with Some t -> proj_ty d t rest | None -> TUnit)
       | None -> TUnit)
 
-let place_ty (f : func) (p : place) = proj_ty f.locals.(p.base).lty p.proj
+let place_ty d (f : func) (p : place) = proj_ty d f.locals.(p.base).lty p.proj
 
 
 (* ---------- 降级 ---------- *)
 
 type st = {
+  d : Defs.t;
   mutable locals : local_info list;   (* 倒序 *)
   mutable nlocals : int;
   mutable blocks : block list;        (* 倒序 *)
@@ -127,7 +129,7 @@ type st = {
   mutable arenas : (local * int) list;
   mutable refarena : (local * local) list;
   mutable regarena : (local * (string * local) list) list;
-  mutable guards : (local * string * (string * local) list * expr) list;
+  mutable guards : (local * string * (string * local) list * Tast.expr) list;
       (* 生效的 errdefer：要消费的局部、它的名字、登记时的环境、调用表达式；内层在前 *)
   mutable loops : (int * int * int * int) list;
       (* 所在的循环，内层在前：条件块、出口块、进入循环时作用域和区域的层数（break / continue） *)
@@ -143,7 +145,7 @@ let new_local ?(lref = false) ?(pos = nopos) st lname lty =
       let m =
         List.filter_map
           (fun r -> Option.map (fun a -> (r, a)) (List.find_opt (fun a -> name a = r) st.regions))
-          (List.sort_uniq compare (Typeck.region_names lty))
+          (List.sort_uniq compare (Defs.region_names st.d lty))
       in
       if m <> [] then begin
         st.regarena <- (st.nlocals, m) :: st.regarena;
@@ -160,7 +162,7 @@ let root st l = match List.assoc_opt l st.proots with Some r -> r | None -> l
 
 (* 需要析构的局部登记到当前作用域，作用域结束时插入 Drop。 *)
 let own st l ty =
-  if Typeck.needs_drop ty then
+  if Defs.needs_drop st.d ty then
     match st.scopes with
     | s :: rest -> st.scopes <- (l :: s) :: rest
     | [] -> ()
@@ -181,10 +183,10 @@ let terminate st t =
   let b = block_of st st.cur in
   if b.term = Unterminated then b.term <- t
 
-let ty_of (x : expr) =
-  match Hashtbl.find_opt Typeck.types x.id with
-  | Some (Typeck.Ty t) -> Some t
-  | _ -> None          (* Never：这个值不会被用到 *)
+let ty_of (x : Tast.expr) =
+  match x.ty with
+  | Tast.Ty t -> Some t
+  | Tast.Never -> None          (* 这个值不会被用到 *)
 
 (* 不会被用到的值（Never 类型的表达式）用一个占位常量代替；它只出现在走不到的块里。 *)
 let dummy = Some (Const (CInt 0L))
@@ -195,15 +197,15 @@ let temp st ty pos =
   t
 
 (* 读整个局部变量：需要析构的类型移动，其余复制。 *)
-let use_local l ty at = if Typeck.needs_drop ty then Move (whole ~at l) else Copy (whole ~at l)
+let use_local st l ty at = if Defs.needs_drop st.d ty then Move (whole ~at l) else Copy (whole ~at l)
 
 (* 一个位置是不是可以直接移走的局部（整个变量、拥有它的值）。 *)
 let owned_whole st (p : place) = p.proj = [] && not (info st p.base).lref
 
-let rec is_place (x : expr) =
+let rec is_place (x : Tast.expr) =
   match x.e with
   | Var _ -> true
-  | Field (a, _) | Deref a | Call ("vec_get", [ a; _ ]) -> is_place a
+  | Field (a, _) | Deref a | Index (a, _) -> is_place a
   | _ -> false
 
 let place_of = function Copy p | Move p -> p | _ -> assert false
@@ -211,42 +213,34 @@ let place_of = function Copy p | Move p -> p | _ -> assert false
 (* 作用域结束：在 l 的声明位置报错。 *)
 let drop_end st locals = List.iter (fun l -> emit st (Drop (l, (info st l).lpos, End))) locals
 
-let rec expr st env (x : expr) : operand option =
+let rec expr st env (x : Tast.expr) : operand option =
   match x.e with
-  | Int n -> Some (Const (CInt n))
-  | Float f -> Some (Const (CF64 f))
-  | Char c -> Some (Const (CChar c))
-  | Bool b -> Some (Const (CBool b))
-  | Str s -> value st x (Call ("str_lit", [ Const (CStr s) ]))   (* 分配一个新的 Str，存进临时变量 *)
-  | Unit -> None
-  | Var _ | Field _ | Deref _ | Call ("vec_get", _) -> (
+  | Lit (Int n) -> Some (Const (CInt n))
+  | Lit (Float f) -> Some (Const (CF64 f))
+  | Lit (Char c) -> Some (Const (CChar c))
+  | Lit (Bool b) -> Some (Const (CBool b))
+  | Lit (Str s) -> value st x (Call ("str_lit", [ Const (CStr s) ]))   (* 分配一个新的 Str，存进临时变量 *)
+  | Lit Unit -> None
+  | Var _ | Field _ | Deref _ | Index _ -> (
       match ty_of x with
       | None -> dummy
       | Some ty ->
           let p = place st env x in
           let lname = (info st p.base).lname in
-          if not (Typeck.needs_drop ty) then Some (Copy p)
+          if not (Defs.needs_drop st.d ty) then Some (Copy p)
           else if owned_whole st p then Some (Move p)
-          else if p.proj = [] then
-            raise
-              (Typeck.Error
-                 (x.pos, Printf.sprintf "%s 不拥有值（是 let / inout 参数或投影），不能移动" lname))
+          else if p.proj = [] then Diag.error x.pos "%s 不拥有值（是 let / inout 参数或投影），不能移动" lname
           else
             match p.proj, (info st p.base).lty with
             | proj, TStruct n
-              when Hashtbl.mem Typeck.struct_tbl n && List.for_all (function PField _ -> true | _ -> false) proj ->
+              when Hashtbl.mem st.d.structs n && List.for_all (function PField _ -> true | _ -> false) proj ->
                 (* 部分移动（Lean `Ownership.Partial`）：移走变量里一条字段路径上的值（p.a、p.a.b），own.ml 按叶子跟踪 *)
                 if (info st p.base).lref then
-                  raise
-                    (Typeck.Error
-                       (x.pos, Printf.sprintf "%s 不拥有值（是 let / inout 参数或投影），不能移走它的字段" lname))
-                else if Typeck.is_linear (TStruct n) then
-                  raise (Typeck.Error (x.pos, Printf.sprintf "linear 结构体 %s 不能部分移动（要用 consume）" n))
+                  Diag.error x.pos "%s 不拥有值（是 let / inout 参数或投影），不能移走它的字段" lname
+                else if Defs.is_linear st.d (TStruct n) then
+                  Diag.error x.pos "linear 结构体 %s 不能部分移动（要用 consume）" n
                 else Some (Move p)
-            | _ ->
-                raise
-                  (Typeck.Error
-                     (x.pos, "不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 v.pop()）")))
+            | _ -> Diag.error x.pos "不能从 Box 或 Vec 里移出值（Box 用 unbox，Vec 的元素用 v.pop()）")
   | Binop (((And | Or) as op), a, b) ->
       let t = temp st TBool x.pos in
       let oa = Option.get (expr st env a) in
@@ -270,69 +264,52 @@ let rec expr st env (x : expr) : operand option =
   | Unop (op, a) ->
       let oa = expr st env a in
       value st x (Un (op, Option.get oa))
-  | Call ("panic", [ a ]) ->
+  | Panic a ->
       (* 调用后进程就结束了：块以 Halt 结尾，不插入任何 Drop；之后的代码放进一个走不到的新块 *)
       let o = arg st env MLet a in
       emit st (Eval (Call ("panic", [ o ])));
       terminate st Halt;
       st.cur <- new_block st;
       dummy
-  | Call ("os_exit", [ a ]) ->
+  | Exit a ->
       (* os_exit：和 panic 一样 *)
       let o = arg st env MSink a in
       emit st (Eval (Call ("os_exit", [ o ])));
       terminate st Halt;
       st.cur <- new_block st;
       dummy
-  | Call ("box", [ a ]) ->
+  | Box a ->
       let oa = Option.get (expr_v st env a) in
       let ty = match ty_of a with Some t -> t | None -> TI64 in
       value st x (BoxNew (ty, oa))
-  | Call ("unbox", [ a ]) ->
+  | Unbox a ->
       let oa = Option.get (expr st env a) in
       let ty = match ty_of x with Some t -> t | None -> TI64 in
       value st x (Unbox (ty, oa))
-  | Call ("consume", [ a ]) ->
+  | Consume a ->
       let oa = Option.get (expr st env a) in
       (match ty_of a with Some ty -> emit st (Eval (Consume (ty, oa))) | None -> ());
       None
-  | Call ("alloc", [ a; v ]) ->
+  | Alloc (a, v) ->
       let pa = place st env a in
       let ov = Option.get (expr st env v) in
       let ty = match ty_of v with Some t -> t | None -> TI64 in
       value st x (Alloc (ty, pa, ov))
-  | Call ("ref_of", [ a ]) ->
+  | Ref a ->
       (* &p：p 的地址，存进临时变量；borrow.ml 让它锁住 p 所在的局部 *)
       let p = place st env a in
       value st x (Use (Ref p))
-  | Call (f, args) ->
-      (* 泛型函数调用的是推出的类型实参对应的实例；内建类型的 to_str 直接是内建函数，
-         这时实参按内建函数的签名传（I64 按值，不按 Self 的借用） *)
-      let g = match Hashtbl.find_opt Typeck.call_inst x.id with Some ts -> Typeck.inst_name f ts | None -> f in
-      let f, g = match Hashtbl.find_opt Typeck.aliases g with Some b -> (b, b) | None -> (f, g) in
-      (* 返回借用的泛型函数：实例也借自同样的参数 *)
-      (match Hashtbl.find_opt Typeck.let_regions f with
-      | Some l when g <> f -> Hashtbl.replace Typeck.let_regions g l
-      | _ -> ());
-      let modes = List.map fst (fst (Hashtbl.find Typeck.sigs f)) in
-      let os = List.map2 (arg st env) modes args in
-      value st x (Call (g, os))
+  | Call c ->
+      let os = List.map2 (arg st env) c.modes c.args in
+      value st x (Call (c.callee, os))
   | StructLit (n, inits) ->
       let fs = List.map (fun (f, e) -> (f, Option.get (expr_v st env e))) inits in
-      (* 泛型结构体：用实例的名字 *)
-      let n = match ty_of x with Some (TStruct m) -> m | _ -> n in
       value st x (Agg (n, fs))
-  | Variant (v, a) -> (
-      let oa = Option.bind a (expr_v st env) in
+  | Variant v -> (
+      let oa = Option.bind v.payload (expr_v st env) in
       match ty_of x with
-      | Some ty -> (
-          match Typeck.variant ty v with
-          | Some (i, pty) ->
-              (* 载荷是 () 时可以省略不写：.Some 就是 .Some(()) *)
-              let oa = if oa = None && pty = Some TUnit then Some (Const CUnit) else oa in
-              value st x (MkEnum (ty, i, oa))
-          | None -> dummy)
-      | None -> dummy)
+      | Some ty when v.tag >= 0 -> value st x (MkEnum (ty, v.tag, oa))
+      | _ -> dummy)
   | If (c, a, b) ->
       let oc = Option.get (expr st env c) in
       let ty = ty_of x in
@@ -351,10 +328,8 @@ let rec expr st env (x : expr) : operand option =
       st.cur <- be;
       (match b with Some b -> arm b | None -> terminate st (Goto join));
       st.cur <- join;
-      result t ty x.pos
+      result st t ty x.pos
   | Block b -> block st env b
-  | Lambda _ -> failwith "闭包在类型检查之后已经换成提升出来的函数"
-  | PMatch _ -> failwith "嵌套模式在类型检查时已经展开"
   | Arena (r, b) ->
       (* 块的值先存进块外的临时变量，再释放区域：值的类型不含这个区域（R3），可以安全带出 *)
       let l = new_local ~pos:x.pos st r (TArena r) in
@@ -367,7 +342,7 @@ let rec expr st env (x : expr) : operand option =
         | Some ((Copy _ | Move _) as o), Some ty ->
             let t = temp st ty x.pos in
             emit st (Assign (whole t, Use o));
-            Some (use_local t ty x.pos)
+            Some (use_local st t ty x.pos)
         | _ -> v
       in
       st.regions <- List.tl st.regions;
@@ -394,9 +369,9 @@ let rec expr st env (x : expr) : operand option =
       | _ ->
           ignore (expr st env a);
           dummy)
-  | Match (borrow, s, arms) -> (
+  | Match { borrow; scrut = s; arms } -> (
       match ty_of s with
-      | Some sty when Typeck.variants sty <> None -> enum_match st env x borrow s sty arms
+      | Some sty when Defs.variants st.d sty <> None -> enum_match st env x borrow s sty arms
       | _ ->
           ignore (expr st env s);
           dummy)
@@ -405,10 +380,11 @@ let rec expr st env (x : expr) : operand option =
    按移动：分支开始时把载荷移进分支变量（枚举整个变成已移走）；没有载荷的变体也把枚举标记为已移走。
    各分支结束时状态不同的变量由 own.ml 合并成“可能已初始化”，按 drop flag 析构。
    按借用（match let，或者被匹配的位置不能整个移走，和 let 绑定投影的规则相同）：
-   需要析构的载荷绑定成投影，由 borrow.ml 锁住源对象；可复制的载荷直接复制。枚举本身不动。 *)
-and enum_match st env (x : expr) explicit (s : expr) sty arms =
-  let vs = Option.get (Typeck.variants sty) in
-  let needs = Typeck.needs_drop sty in
+   需要析构的载荷绑定成投影，由 borrow.ml 锁住源对象；可复制的载荷直接复制。枚举本身不动。
+   arms 是每个变体一个分支，和变体的顺序相同（to_tast.ml 补全）。 *)
+and enum_match st env (x : Tast.expr) explicit (s : Tast.expr) sty (arms : Tast.arm list) =
+  let vs = Option.get (Defs.variants st.d sty) in
+  let needs = Defs.needs_drop st.d sty in
   let borrowed, p, o =
     if is_place s then begin
       let p = place st env s in
@@ -435,9 +411,9 @@ and enum_match st env (x : expr) explicit (s : expr) sty arms =
       end)
     arms_blocks;
   List.iteri
-    (fun i ((v, pty), b) ->
+    (fun i (((_, pty), b), (arm : Tast.arm)) ->
       st.cur <- b;
-      let bind, (e : expr) = Option.get (Typeck.arm_for arms (v, pty)) in
+      let bind = arm.bind and e = arm.body in
       st.scopes <- [] :: st.scopes;
       let env' =
         let pay = { p with proj = p.proj @ [ PVar i ] } in
@@ -445,7 +421,7 @@ and enum_match st env (x : expr) explicit (s : expr) sty arms =
         | None ->
             (match o with Move _ -> emit st (Eval (Payload (o, i))) | _ -> ());
             env
-        | Some pty when borrowed && Typeck.needs_drop pty ->
+        | Some pty when borrowed && Defs.needs_drop st.d pty ->
             let q = new_local ~lref:true ~pos:e.pos st bind pty in
             st.proots <- (q, root st p.base) :: st.proots;
             emit st (Proj (q, pay));
@@ -463,14 +439,14 @@ and enum_match st env (x : expr) explicit (s : expr) sty arms =
       let v = close_scope st (expr st env' e) (ty_of e) e.pos in
       (match t, v with Some t, Some v -> emit st (Assign (whole t, Use v)) | _ -> ());
       terminate st (Goto join))
-    (List.combine vs arms_blocks);
+    (List.combine (List.combine vs arms_blocks) arms);
   st.cur <- join;
-  result t ty x.pos
+  result st t ty x.pos
 
 (* if / match 的结果：放在临时变量 t 里；() 时没有；Never 时用占位值。 *)
-and result t ty pos =
+and result st t ty pos =
   match t, ty with
-  | Some t, Some ty -> Some (use_local t ty pos)
+  | Some t, Some ty -> Some (use_local st t ty pos)
   | _ -> if ty = None then dummy else None
 
 (* 取出 Result 里一边的值，存进临时变量。值是 () 时不需要临时变量（值就是 CUnit），但仍要把 Result 标记为已移走。 *)
@@ -482,7 +458,7 @@ and unwrap st o ty i pos =
   else begin
     let v = temp st ty pos in
     emit st (Assign (whole v, Payload (o, i)));
-    Some (use_local v ty pos)
+    Some (use_local st v ty pos)
   end
 
 (* 离开函数（返回值已经放好）。出错返回时先执行生效的 errdefer，内层的先执行；
@@ -492,7 +468,7 @@ and exit_fn st at why =
     emit st Raise;
     List.iter
       (fun (l, v, env, e) ->
-        emit st (Live (l, at, Printf.sprintf "%s 在这里出错返回之前已经被消费，errdefer 会重复消费它" v));
+        emit st (Live (l, at, Diag.message "%s 在这里出错返回之前已经被消费，errdefer 会重复消费它" v));
         ignore (expr st env e))
       st.guards
   end;
@@ -503,7 +479,7 @@ and exit_fn st at why =
 
 (* 按参数约定传实参：sink 移动或复制；let 传位置的地址，不是位置的先算进临时变量；
    inout 一定是位置（类型检查保证）。 *)
-and arg st env m (a : expr) : operand =
+and arg st env m (a : Tast.expr) : operand =
   match m with
   | MSink -> Option.get (expr_v st env a)
   | MInout -> RefMut (place st env a)
@@ -517,7 +493,7 @@ and arg st env m (a : expr) : operand =
       Ref (whole t)
 
 (* 变量、字段、解引用组成的位置；其他表达式先算进临时变量。 *)
-and place st env (x : expr) : place =
+and place st env (x : Tast.expr) : place =
   match x.e with
   | Var v -> whole ~at:x.pos (List.assoc v env)
   | Field (a, f) ->
@@ -526,7 +502,7 @@ and place st env (x : expr) : place =
   | Deref a ->
       let p = place st env a in
       { p with proj = p.proj @ [ PDeref ]; at = x.pos }
-  | Call ("vec_get", [ a; i ]) ->
+  | Index (a, i) ->
       (* 下标先算进临时变量，再取元素 *)
       let p = place st env a in
       let oi = Option.get (expr st env i) in
@@ -539,31 +515,31 @@ and place st env (x : expr) : place =
       | _ -> whole (new_local st "" TI64))     (* Never：只出现在走不到的块里 *)
 
 (* 计算一个右值：结果是 () 时只求值，否则存进临时变量。 *)
-and value st (x : expr) rv =
+and value st (x : Tast.expr) rv =
   match ty_of x with
   | Some TUnit -> emit st (Eval rv); None
   | Some ty ->
       let t = temp st ty x.pos in
       emit st (Assign (whole t, rv));
-      Some (use_local t ty x.pos)
+      Some (use_local st t ty x.pos)
   | None -> emit st (Eval rv); dummy
 
 (* 要把值存起来的地方（变量、实参、字段、载荷）：() 类型的值用 CUnit 表示，不会是 None。 *)
-and expr_v st env (x : expr) =
+and expr_v st env (x : Tast.expr) =
   match expr st env x with
   | None when ty_of x = Some TUnit -> Some (Const CUnit)
   | o -> o
 
 (* 位置的值需要析构、又不能整个移走时，let 绑定它就是投影。只看类型和路径，不产生代码。 *)
-and proj_init st env (e : expr) =
-  let rec base (x : expr) =
+and proj_init st env (e : Tast.expr) =
+  let rec base (x : Tast.expr) =
     match x.e with
     | Var v -> (List.assoc v env, true)
-    | Field (a, _) | Deref a | Call ("vec_get", [ a; _ ]) -> (fst (base a), false)
+    | Field (a, _) | Deref a | Index (a, _) -> (fst (base a), false)
     | _ -> assert false
   in
   match ty_of e with
-  | Some ty when Typeck.needs_drop ty ->
+  | Some ty when Defs.needs_drop st.d ty ->
       let l, whole_var = base e in
       not (whole_var && not (info st l).lref)
   | _ -> false
@@ -577,20 +553,20 @@ and close_scope st v ty pos =
     | _ :: _, Some ((Copy _ | Move _) as o), Some ty ->
         let t = temp st ty pos in
         emit st (Assign (whole t, Use o));
-        Some (use_local t ty pos)
+        Some (use_local st t ty pos)
     | _ -> v
   in
   drop_end st mine;
   v
 
-and block st env (b : Ast.block) : operand option =
+and block st env (b : Tast.block) : operand option =
   st.scopes <- [] :: st.scopes;
   let guards = st.guards in
   let rec go env = function
     | [] -> ( match b.tail with Some e -> expr st env e | None -> None)
-    | (s : Ast.stmt) :: rest -> (
+    | (s : Tast.stmt) :: rest -> (
         match s.s with
-        | Let (false, v, _, e) when is_place e && proj_init st env e ->
+        | Let { var = false; name = v; init = e; _ } when is_place e && proj_init st env e ->
             (* let 绑定不拥有值的位置（字段、解引用、参数、投影）：建一个投影，不移动 *)
             let p = place st env e in
             let ty = Option.get (ty_of e) in
@@ -603,11 +579,8 @@ and block st env (b : Ast.block) : operand option =
             let l = new_local ~pos:s.spos st v ty in
             own st l ty;
             go ((v, l) :: env) rest
-        | Let (_, v, ann, e) ->
+        | Let { name = v; ty; init = e; _ } ->
             let o = expr_v st env e in
-            let ty =
-              match ann, ty_of e with Some t, _ | None, Some t -> t | None, None -> TI64
-            in
             let l = new_local ~pos:s.spos st v ty in
             own st l ty;
             (match o with Some o -> emit st (Assign (whole l, Use o)) | None -> ());
@@ -634,14 +607,10 @@ and block st env (b : Ast.block) : operand option =
                 emit st (Assign ({ p with at = s.spos }, Use o))
             | None -> ());
             go env rest
-        | For (a, sv, si) ->
-            (* 类型检查选的展开 *)
-            go env ((if Hashtbl.find_opt Typeck.for_vec a.id = Some false then si else sv) :: rest)
-        | Scope (a, body) ->
+        | Scope { handle = sname; shared; body } ->
             (* scope |s| { … }（Lean `Concurrency.Scope`）：s 是 scope_new() 建的句柄。任务只读共享的变量各建一个投影 #task，
                块结束时 scope_keep 才用到它，所以整个 scope 里这些变量都被锁住（borrow.ml：不能修改、移动、析构），
                然后 scope_join 等所有任务结束。类型检查保证块里没有 return、? 和跳到外面的 break / continue *)
-            let sname = match a.e with Var v -> v | _ -> assert false in
             let sl = new_local ~pos:s.spos st sname TI64 in
             emit st (Assign (whole sl, Call ("scope_new", [])));
             let locks =
@@ -652,7 +621,7 @@ and block st env (b : Ast.block) : operand option =
                   st.proots <- (q, root st p.base) :: st.proots;
                   emit st (Proj (q, p));
                   q)
-                (Option.value (Hashtbl.find_opt Typeck.scope_shares a.id) ~default:[])
+                shared
             in
             ignore (block st ((sname, sl) :: env) body);
             List.iter (fun q -> emit st (Eval (Call ("scope_keep", [ Ref (whole q) ])))) locks;
@@ -679,7 +648,7 @@ and block st env (b : Ast.block) : operand option =
                 let inner l n = List.filteri (fun i _ -> i < List.length l - n) l in
                 List.iter (List.iter (fun l -> emit st (Drop (l, s.spos, End)))) (inner st.scopes ns);
                 List.iter (fun l -> emit st (Leave l)) (inner st.regions nr);
-                terminate st (Goto (if s.s = Break then exit else head));
+                terminate st (Goto (if s.s = Tast.Break then exit else head));
                 st.cur <- new_block st;
                 ignore (go env rest);
                 dummy
@@ -690,36 +659,33 @@ and block st env (b : Ast.block) : operand option =
             | Some r, Some o -> emit st (Assign (whole r, Use o))
             | _ -> ());
             let why =
-              match e, st.fret_ty with Some { e = Variant ("Err", _); _ }, TResult _ -> Err | _ -> Ret
+              match e, st.fret_ty with
+              | Some { Tast.e = Variant { variant = "Err"; _ }; _ }, TResult _ -> Err
+              | _ -> Ret
             in
             exit_fn st s.spos why;
             ignore (go env rest);
             dummy
-        | Destruct (_, bs, e) ->
+        | Destruct { fields; value = e; _ } ->
             (* 每个字段复制进各自的变量（所有权跟着转过去），然后把结构体标记为已移走、不析构。
                结构体不能整个移走（参数、投影）时，expr 报错 *)
             let o = Option.get (expr st env e) in
             let p = place_of o in
-            let fs =
-              match ty_of e with Some (TStruct m) -> Hashtbl.find Typeck.struct_tbl m | _ -> []
-            in
             let env' =
               List.fold_left
-                (fun env (f, x) ->
-                  let ty = (List.find (fun (g : field) -> g.fname = f) fs).fty in
+                (fun env (f, x, ty) ->
                   let l = new_local ~pos:s.spos st x ty in
                   own st l ty;
                   emit st (Assign (whole l, Use (Copy { p with proj = p.proj @ [ PField f ] })));
                   (x, l) :: env)
-                env bs
+                env fields
             in
             (match o with Move _ -> emit st (Eval (Use o)) | _ -> ());
             go env' rest
-        | Errdefer e ->
+        | Errdefer { call = e; target = v } ->
             (* 登记：要消费的值此刻必须还活着（`FlowGraph.Lower` 的登记规则） *)
-            let v = Hashtbl.find Typeck.errdefer_targets e.id in
             let l = List.assoc v env in
-            emit st (Live (l, s.spos, Printf.sprintf "errdefer 登记时 %s 必须是还没有被消费的 linear 值" v));
+            emit st (Live (l, s.spos, Diag.message "errdefer 登记时 %s 必须是还没有被消费的 linear 值" v));
             st.guards <- (l, v, env, e) :: st.guards;
             go env rest
         | Expr e ->
@@ -730,16 +696,17 @@ and block st env (b : Ast.block) : operand option =
   st.guards <- guards;
   close_scope st v (Option.bind b.tail ty_of) (match b.tail with Some e -> e.pos | None -> nopos)
 
-let lower_fn name params ret body ipos =
+let lower_fn d (f : Tast.fn_def) =
   let st =
     {
+      d;
       locals = [];
       nlocals = 0;
       blocks = [];
       nblocks = 0;
       cur = 0;
       fret = None;
-      fret_ty = ret;
+      fret_ty = f.ret;
       scopes = [ [] ];
       proots = [];
       regions = [];
@@ -753,14 +720,14 @@ let lower_fn name params ret body ipos =
   let ps =
     List.map
       (fun (m, x, t) ->
-        let l = new_local ~lref:(m <> MSink) ~pos:ipos st x t in
+        let l = new_local ~lref:(m <> MSink) ~pos:f.pos st x t in
         if m = MSink then own st l t;
         (x, l))
-      params
+      f.params
   in
-  st.fret <- (if ret = TUnit then None else Some (new_local st "ret" ret));
+  st.fret <- (if f.ret = TUnit then None else Some (new_local st "ret" f.ret));
   st.cur <- new_block st;
-  let v = block st (List.rev ps) body in
+  let v = block st (List.rev ps) f.body in
   (match st.fret, v with
   | Some r, Some v -> emit st (Assign (whole r, Use v))
   | _ -> ());
@@ -769,9 +736,9 @@ let lower_fn name params ret body ipos =
   let blocks = Array.of_list (List.rev st.blocks) in
   Array.iter (fun b -> b.stmts <- List.rev b.stmts; if b.term = Unterminated then b.term <- Return) blocks;
   {
-    name;
+    name = f.name;
     params = List.map snd ps;
-    ret;
+    ret = f.ret;
     ret_local = st.fret;
     locals = Array.of_list (List.rev st.locals);
     blocks;
@@ -780,10 +747,3 @@ let lower_fn name params ret body ipos =
     refarena = st.refarena;
     regarena = st.regarena;
   }
-
-let lower (p : program) : func list =
-  List.filter_map
-    (function
-      | Fn { name; params; ret; body; ipos; _ } -> Some (lower_fn name params ret body ipos)
-      | Struct _ | Enum _ | Trait _ | Impl _ -> None)
-    p

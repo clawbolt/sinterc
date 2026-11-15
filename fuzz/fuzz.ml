@@ -112,12 +112,17 @@ let compile path =
   try
     let prog = Modules.load path in
     let prog = Typeck.program prog in
-    let fs = List.concat_map (fun it -> List.map (fun f -> Borrow.check (Own.elaborate f)) (Mir.lower [ it ])) prog in
+    let d = Typeck.defs in
+    let fs =
+      List.concat_map
+        (fun it -> match Mir_check.item d (To_tast.item it) with Ok fs -> fs | Error e -> raise (Diag.Error e))
+        prog
+    in
     let fs = List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) fs in
-    ignore (Emit_c.program prog fs);
+    ignore (Emit_c.program d (To_tast.generated ()) prog fs);
     Accepted
   with
-  | Lexer.Error _ | Ast.Syntax _ | Typeck.Error _ | Typeck.Errors _ -> Rejected
+  | Diag.Error _ | Diag.Errors _ -> Rejected
   | Stack_overflow -> Internal "Stack_overflow"
   | e -> Internal (Printexc.to_string e)
 

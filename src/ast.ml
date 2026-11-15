@@ -1,6 +1,6 @@
 (* 语法树。 *)
 
-type pos = { line : int; col : int }
+type pos = Source.pos = { file : int; line : int; col : int }
 
 (* 参数约定：let 只读借用（默认），inout 可变借用，sink 转移所有权。 *)
 type mode = MLet | MInout | MSink
@@ -134,26 +134,6 @@ type program = item list
    use m 引入同目录的 m.sn；use m { a, B } 另外把这几个名字直接引入。 *)
 type source = { uses : (string * string list option * pos) list; items : (bool * item) list }
 
-(* 多个文件的位置：第 i 个文件（0 是主文件）的行号从 i * line_base + 1 开始，
-   位置照常是一个 pos，报错时再换回文件名和文件里的行号。 *)
-let line_base = 1_000_000
-let files : string array ref = ref [||]
-let file_of (p : pos) = p.line / line_base
-
-let locate default (p : pos) =
-  let i = file_of p in
-  if i > 0 && i < Array.length !files then (!files.(i), p.line mod line_base) else (default, p.line)
-
-(* 结构体、枚举（加上模块前缀的名字）定义在第几个文件里：consume 只能在定义 linear 类型的文件里用。 *)
-let type_file : (string, int) Hashtbl.t = Hashtbl.create 16
-
-(* 类型自己的方法（Lean `Traits.Inherent`）：方法名 → (头部, impl 的类型参数, 编译成的函数名, 位置)。
-   modules.ml 登记，类型检查按接收者的类型查找。 *)
-let inherent : (string, ty * (string * bool) list * string * pos) Hashtbl.t = Hashtbl.create 16
-
-(* 解析时发现的、语法规则表达不了的错误。 *)
-exception Syntax of pos * string
-
 (* 表达式的 id：解析时依次分配，实例化泛型函数时复制出的表达式也从这里取新的。 *)
 let next_id = ref 0
 let fresh_id () = incr next_id; !next_id
@@ -189,10 +169,6 @@ let rec string_of_ty = function
       let m = function MLet -> "" | MInout -> "inout " | MSink -> "sink " in
       "Fn(" ^ String.concat ", " (List.map (fun (md, t) -> m md ^ string_of_ty t) ps) ^ ") -> " ^ string_of_ty r
 
-(* 内建方法（intrinsic fn）：编译成的函数名（例如 Str.len）→ (内建函数名, 参数, 返回类型, 类型参数, 位置)。
-   modules.ml 登记（不生成函数），类型检查核对签名，方法调用直接换成内建函数。 *)
-let prims : (string, string * (mode * string * ty) list * ty * (string * bool) list * pos) Hashtbl.t = Hashtbl.create 64
-
 (* 类型的名字（不带类型实参）：Vec<I64> 是 Vec，map.Map<K, V> 是 map.Map。类型函数 T.f(…) 按它查找。 *)
 let type_head = function
   | TVec _ -> "Vec"
@@ -201,7 +177,3 @@ let type_head = function
   | TResult _ -> "Result"
   | (TI64 | TF64 | TChar | TBool | TStr | TBytes) as t -> string_of_ty t
   | _ -> ""
-
-(* 类型函数（impl 类型 { … } 里第一个参数不是接收者的函数，例如 Vec.new()、map.Map.new()）：
-   类型的名字.函数名 → (调用的函数：生成的函数或者内建函数, 位置)。modules.ml 登记，调用 T.f(…) 在改名时直接换成它。 *)
-let statics : (string, string * pos) Hashtbl.t = Hashtbl.create 16

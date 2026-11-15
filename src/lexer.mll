@@ -1,16 +1,13 @@
 {
 open Parser
 
-exception Error of Ast.pos * string
 
 (* 圆括号里的换行不算语句分隔。花括号里重新算：f(m, |x| { a \n b }) 里闭包体的换行分隔语句，
    saved 记下外层的圆括号层数，遇到 } 时恢复。 *)
 let depth = ref 0
 let saved : int list ref = ref []
 
-let pos lexbuf =
-  let p = Lexing.lexeme_start_p lexbuf in
-  { Ast.line = p.pos_lnum; col = p.pos_cnum - p.pos_bol + 1 }
+let pos lexbuf = Source.of_lexing (Lexing.lexeme_start_p lexbuf)
 
 let keywords = [
   "fn", FN; "struct", STRUCT; "let", LET; "var", VAR; "if", IF; "else", ELSE;
@@ -25,7 +22,7 @@ let keywords = [
 let pending : (token * Lexing.position * Lexing.position) list ref = ref []
 let token_ref : (Lexing.lexbuf -> token) ref = ref (fun _ -> EOF)
 
-let pos_of (q : Lexing.position) = { Ast.line = q.pos_lnum; col = q.pos_cnum - q.pos_bol + 1 }
+let pos_of = Source.of_lexing
 
 let flush buf parts =
   if Buffer.length buf = 0 then parts
@@ -37,7 +34,7 @@ let flush buf parts =
 
 (* { 后面的表达式：照常读记号，直到同一层的 }。不能跨行（字符串本身不能跨行） *)
 let hole (hp : Lexing.position) lexbuf =
-  let bad () = raise (Error (pos_of hp, "字符串里的 { 没有对应的 }（要写 { 本身请用 {{）")) in
+  let bad () = Diag.error (pos_of hp) "字符串里的 { 没有对应的 }（要写 { 本身请用 {{）" in
   saved := !depth :: !saved;
   depth := 0;
   let rec go lvl acc =
@@ -50,7 +47,7 @@ let hole (hp : Lexing.position) lexbuf =
     match t with
     | EOF | NL -> bad ()
     | RBRACE when lvl = 0 ->
-        if acc = [] then raise (Error (pos_of hp, "字符串里的 {} 中间要写一个表达式"));
+        if acc = [] then Diag.error (pos_of hp) "字符串里的 {} 中间要写一个表达式";
         List.rev acc
     | LBRACE -> go (lvl + 1) (x :: acc)
     | RBRACE -> go (lvl - 1) (x :: acc)
@@ -97,10 +94,10 @@ rule token = parse
         end
         else match float_of_string_opt s with
           | Some f when Float.is_finite f -> FLOAT f
-          | _ -> raise (Error (pos lexbuf, "浮点数超出 F64 范围：" ^ s)) }
+          | _ -> Diag.error (pos lexbuf) "浮点数超出 F64 范围：%s" s }
   | digit+ as n           { match Int64.of_string_opt n with
                             | Some v -> INT v
-                            | None -> raise (Error (pos lexbuf, "整数超出 I64 范围：" ^ n)) }
+                            | None -> Diag.error (pos lexbuf) "整数超出 I64 范围：%s" n }
   | lower alnum* as s     { match List.assoc_opt s keywords with
                             | Some k -> k
                             | None -> IDENT s }
@@ -143,10 +140,10 @@ rule token = parse
       { let d = String.get_utf_8_uchar s 0 in
         if Uchar.utf_decode_is_valid d && Uchar.utf_decode_length d = String.length s then
           CHAR (Uchar.to_int (Uchar.utf_decode_uchar d))
-        else raise (Error (pos lexbuf, "字符字面量的引号里要正好是一个字符")) }
-  | '\'' { raise (Error (pos lexbuf, "字符字面量的引号里要正好是一个字符（转义只有 \\n、\\t、\\\\、\\'、\\0）")) }
+        else Diag.error (pos lexbuf) "字符字面量的引号里要正好是一个字符" }
+  | '\'' { Diag.error (pos lexbuf) "字符字面量的引号里要正好是一个字符（转义只有 \\n、\\t、\\\\、\\'、\\0）" }
   | eof   { EOF }
-  | _ as c { raise (Error (pos lexbuf, Printf.sprintf "无法识别的字符 '%c'" c)) }
+  | _ as c { Diag.error (pos lexbuf) "无法识别的字符 '%c'" c }
 
 (* 字符串字面量：转义有换行、回车、制表符、反斜杠和双引号；不能跨行。 *)
 (* 字符串插值：{ 表达式 } 是插值，{{ 和 }} 是 { 和 } 本身。 *)
@@ -158,14 +155,14 @@ and str p buf parts = parse
                   let parts = flush buf parts in
                   let ts = hole hp lexbuf in
                   str p buf (`Code (hp, ts) :: parts) lexbuf }
-  | '}'         { raise (Error (pos lexbuf, "字符串里的 } 要写成 }}")) }
+  | '}'         { Diag.error (pos lexbuf) "字符串里的 } 要写成 }}" }
   | "\\n"       { Buffer.add_char buf '\n'; str p buf parts lexbuf }
   | "\\t"       { Buffer.add_char buf '\t'; str p buf parts lexbuf }
   | "\\r"       { Buffer.add_char buf '\r'; str p buf parts lexbuf }   (* Windows 换行 \r\n *)
   | "\\\\"      { Buffer.add_char buf '\\'; str p buf parts lexbuf }
   | "\\\""      { Buffer.add_char buf '"'; str p buf parts lexbuf }
-  | '\\' _      { raise (Error (pos lexbuf, "字符串里只能用 \\n、\\r、\\t、\\\\、\\\" 这几种转义")) }
-  | '\n' | eof  { raise (Error (p, "字符串没有结束（缺少右边的 \"，字符串不能跨行）")) }
+  | '\\' _      { Diag.error (pos lexbuf) "字符串里只能用 \\n、\\r、\\t、\\\\、\\\" 这几种转义" }
+  | '\n' | eof  { Diag.error p "字符串没有结束（缺少右边的 \"，字符串不能跨行）" }
   | _ as c      { Buffer.add_char buf c; str p buf parts lexbuf }
 
 {

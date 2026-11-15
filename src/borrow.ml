@@ -10,7 +10,7 @@
    - 排他性：同一次调用里，同一个局部出现两次时，两次都必须是只读的（`Calls.NArgs`）。 *)
 open Mir
 
-let err (at : Ast.pos) fmt = Printf.ksprintf (fun m -> raise (Typeck.Error (at, m))) fmt
+let err (at : Ast.pos) fmt = Diag.error at fmt
 
 let is_proj (f : func) l = f.roots.(l) <> l
 
@@ -32,10 +32,10 @@ let union a b = List.sort_uniq compare (a @ b)
 (* 每个局部借自哪些局部（只对类型里有引用的局部；都是拥有值的局部，不是投影）。
    返回借用的调用的结果借自对应的实参；值从一个局部流到另一个类型里有引用的局部时，借自的局部也跟着流过去。
    不区分程序点，取所有赋值的并集，迭代到不动点：多锁一些只会多拒绝，不会放过。 *)
-let lent (f : func) =
+let lent (d : Defs.t) (f : func) =
   let n = Array.length f.locals in
   let b = Array.make n [] in
-  let has_ref l = Typeck.region_names f.locals.(l).lty <> [] in
+  let has_ref l = Defs.region_names d f.locals.(l).lty <> [] in
   let owner l = f.roots.(l) in
   (* 借用 p 时借自的局部：p 经过引用的解引用（*r，r 是 &T in w）时借的是 w 里的值，不是哪个局部，
      由区域检查负责（Lean `Regions.DataGeneric`），这里不锁 *)
@@ -43,7 +43,7 @@ let lent (f : func) =
     let rec go ty = function
       | [] -> [ owner p.base ]
       | PDeref :: _ when (match ty with Ast.TRef _ -> true | _ -> false) -> []
-      | x :: rest -> go (proj_ty ty [ x ]) rest
+      | x :: rest -> go (proj_ty d ty [ x ]) rest
     in
     go f.locals.(p.base).lty p.proj
   in
@@ -60,7 +60,7 @@ let lent (f : func) =
     let xs = List.concat_map (fun o -> match op_place o with Some p -> of_place p | None -> []) (operands rv) in
     match rv with
     | Call (g, os) -> (
-        match Hashtbl.find_opt Typeck.let_regions g with
+        match Hashtbl.find_opt d.Defs.borrowed_returns g with
         | Some l ->
             union xs
               (List.concat_map
@@ -202,10 +202,10 @@ let exclusive (f : func) = function
   | _ -> ()
 
 (* 函数返回的引用只能借自返回类型里写的 let 参数（`Projection.Return` 的被调函数一边） *)
-let check_return (f : func) bs =
+let check_return (d : Defs.t) (f : func) bs =
   match f.ret_local with
   | Some r ->
-      let named = Typeck.region_names f.ret in
+      let named = Defs.region_names d f.ret in
       List.iter
         (fun z ->
           if not (List.mem z f.params && List.mem f.locals.(z).lname named) then
@@ -213,9 +213,9 @@ let check_return (f : func) bs =
         bs.(r)
   | None -> ()
 
-let check (f : func) =
-  let bs = lent f in
-  check_return f bs;
+let run (d : Defs.t) (f : func) =
+  let bs = lent d f in
+  check_return d f bs;
   let out = liveness f bs in
   Array.iteri
     (fun i (b : block) ->
@@ -256,3 +256,6 @@ let check (f : func) =
         b.stmts after)
     f.blocks;
   f
+
+(* 投影锁定与排他性检查：通过时原样返回函数，否则是这个函数的第一个错误。 *)
+let check d f : (func, Diag.t) result = match run d f with f -> Ok f | exception Diag.Error e -> Error e

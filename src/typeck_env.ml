@@ -1,13 +1,22 @@
-(* 类型检查共用的状态：错误、类型 t、环境、闭包的捕获，以及类型检查结果的表（给降级和代码生成用）。 *)
+(* 类型检查共用的：环境 env 和在它上面的小工具。状态（各种表）见 typing.ml，这里 include 它；错误见 diag.ml。 *)
 open Ast
+include Typing
 
-exception Error of pos * string
+let err pos fmt = Diag.error pos fmt
 
-(* 一次报多个错误：每个函数各自的第一个错误，按出现顺序。 *)
-exception Errors of (pos * string) list
-let err pos fmt = Printf.ksprintf (fun m -> raise (Error (pos, m))) fmt
-
-type t = Ty of ty | Never
+(* 正在检查的函数：check_fn 开始时建好，函数体里所有的环境共用这一份。 *)
+type current_fn = {
+  fn_name : string;
+  concrete : bool;
+      (* 会不会生成代码（不是泛型函数、没有 fn(…) 参数；泛型实例、特化、提升出的闭包都是）。
+         只有这时才提升闭包、登记特化、改写调用；其他函数里的闭包只检查。 *)
+  let_params : string list;
+      (* 按 let 传入的参数（借来的）：在它们上面的嵌套模式按借用拆开，和 match let 一样 *)
+  mutable bind_regions : (string * string) list;
+      (* 不拥有值的变量（let 绑定的位置、match 按借用绑定的载荷、for 的元素）借自哪个变量：变量名 → 区域名，后定义的在前。
+         只用来给引用的类型取名字（遮蔽时可能取错，那样只会多拒绝：真正锁住哪个局部由 borrow.ml 决定）。
+         整个函数一直往前加，不随块结束去掉，所以是可变的 *)
+}
 
 type env = {
   structs : (string, field list) Hashtbl.t;
@@ -19,33 +28,25 @@ type env = {
   tbounds : (string * string) list;  (* 当前泛型函数的类型参数的 trait 约束，(T, Show) 表示 T: Show *)
   clos : (string * (closure * (string * ty) list)) list;
       (* 特化里 fn(…) 参数绑定的闭包，和这个特化里传它的捕获的参数（名字和类型） *)
+  cur : current_fn;
+  regions : (string * string list) list;
+      (* 区域（Lean `Regions.Model`、`Unified.RegionDefs`）：当前可见的区域，内层在前；每个区域记下比它活得久的区域。
+         函数的区域参数（a: Arena，以及参数类型里出现的其他区域名）之间没有顺序（D3）；
+         arena 块引入的区域比所有外层区域和区域参数都活得短 *)
+  loop_depth : int;                  (* 所在的循环有几层：break / continue 只能用在循环里；闭包体、scope 里从 0 数 *)
+  lambda_frame : frame option;       (* 正在检查的闭包（不在闭包里时为 None） *)
+  scopes : scope_frame list;         (* 正在检查的 scope，内层在前 *)
 }
 
-(* ---------- 闭包（Lean `Closures.Param`） ----------
-   闭包 |x| e 只能写在实参的位置，传给类型是 fn(…) 的参数；fn(…) 类型的值不能存、不能返回（second-class）。
-   闭包用到的外层变量是它的捕获：只读的按 let，赋值、作 inout 实参或改字段的按 inout。
-   实现是按闭包特化：闭包提升成一个普通函数（捕获在前，闭包的参数在后）；调用 h(a, |x| …) 换成调用
-   h 的特化 h[闭包]，它没有 fn(…) 参数，多出闭包的捕获作参数，函数体里的 f(y) 换成调用提升出的函数。
-   于是捕获就是一层层传下去的额外实参：调用处按 `Calls.NArgs` 的规则检查一次（`Closures.Param` 的 inner_ok 说明这就够了），
-   之后的所有权、排他性检查和翻译验证看到的都是普通的函数，不用改。闭包不能逃逸，引用的栈帧总还活着（`Closures.Param` 的 clo_live）。 *)
-and closure = {
-  cname : string;                      (* 提升出来的函数名，按闭包的位置和类型确定 *)
-  caps : (mode * string * ty) list;    (* 捕获的外层变量（按第一次用到的顺序）：只读的 let，修改的 inout *)
-  rord : (string * string list) list;
-      (* 捕获的类型里的区域换成的区域参数 'c00、'c01…（按闭包所在位置的嵌套顺序，外层在前），
-         和比它活得久的区域参数（只取那里真实成立的先后关系，`Closures.CapRef`） *)
-}
-
-(* 正在检查的闭包：env.vars 最后 outer 个是外层的变量；用到的外层变量（按第一次出现的顺序）；改过的外层变量。 *)
-type frame = { outer : int; used : string list ref; written : (string, unit) Hashtbl.t }
-
-let lambda_frame : frame option ref = ref None
+(* 整个程序的登记（collect.ml）用的环境：不在任何函数里。 *)
+let no_fn = { fn_name = ""; concrete = false; let_params = []; bind_regions = [] }
 
 (* 在闭包里用到变量 v（write：修改它）：v 是外层的变量时记成捕获。 *)
-let note ?(write = false) (vars : (string * (ty * bool)) list) v =
-  match !lambda_frame with
+let note ?(write = false) env v =
+  match env.lambda_frame with
   | None -> ()
   | Some fr -> (
+      let vars = env.vars in
       let rec find i = function [] -> None | (y, _) :: r -> if y = v then Some i else find (i + 1) r in
       match find 0 vars with
       | Some i when i >= List.length vars - fr.outer ->
@@ -55,69 +56,22 @@ let note ?(write = false) (vars : (string * (ty * bool)) list) v =
 
 let is_fn = function TFn _ -> true | _ -> false
 
-(* 每个表达式的类型，按表达式 id 记录。 *)
-let types : (int, t) Hashtbl.t = Hashtbl.create 256
-
-(* 每条 errdefer（按调用表达式的 id）要消费的变量。 *)
-let errdefer_targets : (int, string) Hashtbl.t = Hashtbl.create 16
-
-(* 函数签名，给降级用：每个参数的约定和类型、返回类型。 *)
-let sigs : (string, (mode * ty) list * ty) Hashtbl.t = Hashtbl.create 16
-
-(* 返回借用的函数（Lean `Projection.Return`）：返回类型 &T in m 里的 m 是 let 参数的名字。
-   函数名 → (参数名, 第几个参数)。调用处的结果借自对应的实参，锁住它（borrow.ml）。
-   内建的 str_view(s) 是 [("s", 0)]。 *)
-let let_regions : (string, (string * int) list) Hashtbl.t = Hashtbl.create 16
-
-(* for x in e 选了哪个展开（按 e 的 id）：true 是 Vec 的下标展开，false 是迭代器协议。给降级用。 *)
-let for_vec : (int, bool) Hashtbl.t = Hashtbl.create 16
-
-(* ---------- 结构化并发（Lean `Concurrency.Scope`） ----------
-   scope |s| { … } 里 s.spawn(|| …) 启动任务，块结束时等所有任务结束。任务的捕获只有两种：
-   scope 外面的变量只读共享（let，整个 scope 里谁都不能修改、移动它），scope 里面的变量移进任务（sink，可复制的复制一份）。
-   scopes：正在检查的 scope，内层在前：s 的名字、s 在 env.vars 里的深度（从外往里数）、外面的变量个数、只读共享的变量、是否写在闭包里。
-   scope_shares：scope（按 Var s 的 id）→ 只读共享的变量，降级时在 scope 开头锁住它们，结尾才放开（borrow.ml 检查）。
-   spawns：spawn#… → 提升出的任务函数和它的捕获，代码生成为它写启动线程的 C 函数。 *)
-type scope_frame = { sname : string; sdepth : int; souter : int; shared : string list ref; slam : bool }
-
-let scopes : scope_frame list ref = ref []
-let scope_shares : (int, string list) Hashtbl.t = Hashtbl.create 16
-let spawns : (string, closure) Hashtbl.t = Hashtbl.create 16
-
 (* s 是不是正在检查的某个 scope 的 s（按深度认，被遮住的不算） *)
-let scope_of vars v =
+let scope_of env v =
   let rec depth = function [] -> None | (y, _) :: r -> if y = v then Some (List.length r) else depth r in
-  match depth vars with
-  | Some d -> List.find_opt (fun f -> f.sname = v && f.sdepth = d) !scopes
+  match depth env.vars with
+  | Some d -> List.find_opt (fun f -> f.sname = v && f.sdepth = d) env.scopes
   | None -> None
 
 (* return、? 不能离开 scope（同一个函数体里的；任务的闭包体里 return 只是结束这个任务） *)
-let no_exit pos what =
-  let here = !lambda_frame <> None in
-  if List.exists (fun f -> f.slam = here) !scopes then
+let no_exit env pos what =
+  let here = env.lambda_frame <> None in
+  if List.exists (fun f -> f.slam = here) env.scopes then
     err pos "scope 里不能写 %s：离开 scope 之前要等所有任务结束（可以先把结果存进 scope 外面的 var 变量）" what
 
-(* 结构体定义和标了 linear 的结构体，给降级和代码生成用。 *)
-let struct_tbl : (string, field list) Hashtbl.t = Hashtbl.create 16
-let linear_tbl : (string, unit) Hashtbl.t = Hashtbl.create 16
-
-(* 枚举定义：变体按声明顺序，下标就是运行时的标签（Lean `Datatypes.Enum`）。 *)
-let enum_tbl : (string, (string * ty option) list) Hashtbl.t = Hashtbl.create 16
-
-(* 一个类型的变体（不是枚举时为 None）。Result<T, E> 就是变体 Ok(T)、Err(E) 的枚举。
-   () 载荷是真的载荷（泛型代码里 T 可以是 ()），只是写的时候可以省略：Ok 就是 Ok(())，分支可以写 Ok => …。 *)
-let variants = function
-  | TStruct n -> Hashtbl.find_opt enum_tbl n
-  | TResult (t, e) -> Some [ ("Ok", Some t); ("Err", Some e) ]
-  | _ -> None
-
-(* 变体的下标和载荷类型。 *)
-let variant ty v =
-  let rec go i = function
-    | [] -> None
-    | (w, t) :: rest -> if w = v then Some (i, t) else go (i + 1) rest
-  in
-  go 0 (Option.value (variants ty) ~default:[])
+(* 变体、linear、析构这些按定义回答的问题在 defs.ml，这里查 Typing.defs。 *)
+let variants = Defs.variants defs
+let variant = Defs.variant defs
 
 (* 报错时变体的写法：Ok / Err 不带点。 *)
 let vname v = if v = "Ok" || v = "Err" then v else "." ^ v
@@ -135,29 +89,6 @@ let arm_for arms (v, pty) =
       | Some (_, _, e) -> Some ((match pty with Some t when t <> TUnit -> wild_var | _ -> ""), e)
       | None -> None)
 
-
-(* linear 值必须被显式消费，不能在作用域结束时自动析构。 *)
-let rec is_linear = function
-  | TStruct n -> Hashtbl.mem linear_tbl n
-  | TResult (a, b) -> is_linear a || is_linear b
-  | TBox t | TVec t -> is_linear t
-  | TParam (_, l) -> l
-  | TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TRef _ | TArena _ | TApp _ | TFn _ | TOFn _ -> false
-
-(* 需要析构（或者是 linear）的类型：这些类型的值只能移动，不能复制。 *)
-let rec needs_drop = function
-  | TBox _ | TVec _ | TStr | TBytes | TOFn _ -> true   (* Fn(…)拥有堆上的环境 *)
-  | TStruct n -> (
-      Hashtbl.mem linear_tbl n
-      ||
-      match Hashtbl.find_opt struct_tbl n with
-      | Some fs -> List.exists (fun (f : field) -> needs_drop f.fty) fs
-      | None -> (
-          (* 枚举：某个变体的载荷需要析构 *)
-          match Hashtbl.find_opt enum_tbl n with
-          | Some vs -> List.exists (function _, Some t -> needs_drop t | _, None -> false) vs
-          | None -> false))
-  | TResult (a, b) -> needs_drop a || needs_drop b
-  | TParam _ -> true            (* 类型参数按抽象类型检查：可能需要析构，只能移动（Lean `Generics.Check`） *)
-  | TI64 | TF64 | TChar | TBool | TView | TUnit | TRef _ | TArena _ | TApp _ | TFn _ -> false
+let is_linear = Defs.is_linear defs
+let needs_drop = Defs.needs_drop defs
 

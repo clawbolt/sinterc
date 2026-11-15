@@ -151,13 +151,8 @@ let vec_sigs =
     "vec_swap", ([ (MInout, TUnit); (MLet, TI64); (MLet, TI64) ], TUnit);
   ]
 
-(* Vec 内建函数的实例（降级后的调用名，例如 vec_push<I64>）→ 函数（push 等）和元素类型，给代码生成找辅助函数用。 *)
-let vec_calls : (string, string * ty) Hashtbl.t = Hashtbl.create 16
-
 (* 方法调用 e.f(…)（UFCS）：解析成 Call (".f", e :: …)。类型检查按接收者的类型确定函数名
    （Vec 的 push / pop / len / get 是内建的 vec_…，其他就是函数 f），按表达式 id 记下来，检查完再把名字换掉。 *)
-let method_res : (int, string) Hashtbl.t = Hashtbl.create 16
-
 let is_method f = f <> "" && f.[0] = '.'
 
 (* 方法名的最后一段（.geom.area → area） *)
@@ -182,7 +177,7 @@ let inout_place env (a : expr) =
   match root a with
   | None -> err a.pos "inout 实参必须是变量、字段或解引用这样的位置"
   | Some v -> (
-      note ~write:true env.vars v;
+      note ~write:true env v;
       match List.assoc_opt v env.vars with
       | Some (_, true) -> ()
       | Some (TOFn _, _) when a.e = Var v ->

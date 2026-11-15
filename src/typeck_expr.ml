@@ -6,16 +6,12 @@ open Typeck_regions
 open Typeck_generics
 open Typeck_pattern
 
-(* 不拥有值的变量（let 绑定的位置、match 按借用绑定的载荷、for 的元素）借自哪个变量：变量名 → 区域名，后定义的在前。
-   在 check_fn 开始时清空。只用来给引用的类型取名字（遮蔽时可能取错，那样只会多拒绝：真正锁住哪个局部由 borrow.ml 决定） *)
-let bind_regions : (string * string) list ref = ref []
-
 (* 借自位置 e 的引用的区域名（返回借用和 &p，Lean `Projection.Return`）：e 是变量或它的字段、元素时是这个变量借自的变量
    （拥有值的变量就是它自己）；经过 *r（r 是 &T in w）时是 w；不是位置时是临时值（先存进临时变量，降级时锁住它）。
    锁住哪个局部由 borrow.ml 按降级后的局部确定，这里的名字只用来比较类型（返回的引用要借自签名里写的参数）。 *)
 let rec borrow_region env (e : expr) =
   match e.e with
-  | Var v -> Option.value (List.assoc_opt v !bind_regions) ~default:v
+  | Var v -> Option.value (List.assoc_opt v env.cur.bind_regions) ~default:v
   | Field (a, _) | Call ("vec_get", [ a; _ ]) -> borrow_region env a
   | Deref ({ e = Var v; _ } as a) -> (
       match List.assoc_opt v env.vars with Some (TRef (_, w), _) -> w | _ -> borrow_region env a)
@@ -51,9 +47,9 @@ and check1 env want (x : expr) : t =
       | Some (_, Some t), None -> err x.pos "%s 带一个 %s 类型的载荷，要写 %s(…)" w (string_of_ty t) w
       | Some (_, None), Some _ -> err x.pos "%s 没有载荷，不能写 %s(…)" w w)
   | If (c, a, Some b) ->
-      expect c.pos TBool (expr env c);
-      expect x.pos want (block env ~want a);
-      expect x.pos want (block env ~want b);
+      expect env c.pos TBool (expr env c);
+      expect env x.pos want (block env ~want a);
+      expect env x.pos want (block env ~want b);
       Ty want
   | Block b -> block env ~want b
   | Match (b, s, arms) -> match_ env (Some want) x.pos b s arms
@@ -67,23 +63,23 @@ and check1 env want (x : expr) : t =
       | _ -> err x.pos "这里需要 %s，Vec.new() 是 Vec" (string_of_ty want))
   | Call (f, args) when not (List.mem f special) ->
       let t = call env (Some want) x f args in
-      expect x.pos want t;
+      expect env x.pos want t;
       t
   | StructLit (n, inits) ->
       let t = struct_lit env (Some want) x n inits in
-      expect x.pos want t;
+      expect env x.pos want t;
       t
   | Lambda (ys, body) when (match want with TOFn _ -> true | _ -> false) -> pack env x ys body want
   | _ ->
       let t = expr1 env x in
-      expect x.pos want t;
+      expect env x.pos want t;
       t
 
 and expr1 env (x : expr) : t =
   let pos = x.pos in
   match x.e with
-  | Call (f, [ { e = Var sv; _ }; lam ]) when is_method f && method_base f = "spawn" && scope_of env.vars sv <> None ->
-      spawn env x (Option.get (scope_of env.vars sv)) sv lam
+  | Call (f, [ { e = Var sv; _ }; lam ]) when is_method f && method_base f = "spawn" && scope_of env sv <> None ->
+      spawn env x (Option.get (scope_of env sv)) sv lam
   | Call (f, (r :: _ as args)) when is_method f -> expr1 env { x with e = Call (method_name env x f r, args) }
   | Int _ -> Ty TI64
   | Float _ -> Ty TF64
@@ -92,8 +88,8 @@ and expr1 env (x : expr) : t =
   | Unit -> Ty TUnit
   | Str _ -> Ty TStr
   | Var v -> (
-      if scope_of env.vars v <> None then err pos "%s 是 scope 的句柄，只能用来启动任务：%s.spawn(|| …)" v v;
-      note env.vars v;
+      if scope_of env v <> None then err pos "%s 是 scope 的句柄，只能用来启动任务：%s.spawn(|| …)" v v;
+      note env v;
       match List.assoc_opt v env.vars with
       | Some (TFn _, _) ->
           err pos "%s 是函数参数，只能调用它（%s(…)），或者作为实参传给 fn(…) 类型的参数" v v
@@ -106,13 +102,13 @@ and expr1 env (x : expr) : t =
       let tb = expr env b in
       match op with
       (* 算术和大小比较：两边都是 I64，或者都是 F64（不做隐式转换，用 to_f64 / to_i64）；% 只用于 I64 *)
-      | Rem -> expect a.pos TI64 ta; expect b.pos TI64 tb; Ty TI64
+      | Rem -> expect env a.pos TI64 ta; expect env b.pos TI64 tb; Ty TI64
       | Add | Sub | Mul | Div ->
           let t = num ta in
-          expect a.pos t ta; expect b.pos t tb; Ty t
+          expect env a.pos t ta; expect env b.pos t tb; Ty t
       | Lt | Le | Gt | Ge ->
           let t = match ta with Ty TChar -> TChar | _ -> num ta in   (* 字符按码点比较 *)
-          expect a.pos t ta; expect b.pos t tb; Ty TBool
+          expect env a.pos t ta; expect env b.pos t tb; Ty TBool
       | Eq | Ne -> (
           match ta, tb with
           | Ty TStr, _ | _, Ty TStr -> err pos "字符串用 a.eq(b) 比较"
@@ -120,21 +116,21 @@ and expr1 env (x : expr) : t =
           | Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _ | TOFn _), _
           | _, Ty (TStruct _ | TUnit | TBox _ | TVec _ | TResult _ | TRef _ | TArena _ | TApp _ | TParam _ | TFn _ | TOFn _) ->
               err pos "只能比较 I64、F64 和 Bool"
-          | _ -> ignore (join pos "比较" ta tb); Ty TBool)
-      | And | Or -> expect a.pos TBool ta; expect b.pos TBool tb; Ty TBool)
+          | _ -> ignore (join env pos "比较" ta tb); Ty TBool)
+      | And | Or -> expect env a.pos TBool ta; expect env b.pos TBool tb; Ty TBool)
   | Unop (Neg, a) ->
       let ta = expr env a in
       let t = num ta in
-      expect a.pos t ta; Ty t
-  | Unop (Not, a) -> expect a.pos TBool (expr env a); Ty TBool
+      expect env a.pos t ta; Ty t
+  | Unop (Not, a) -> expect env a.pos TBool (expr env a); Ty TBool
   | Call ("panic", [ a ]) ->
       (* panic(msg)（Lean `FlowGraph.Panic`）：说明按借用读；不会返回，类型是 Never（和 return 一样） *)
-      expect a.pos TStr (expr env a);
+      expect env a.pos TStr (expr env a);
       Never
   | Call ("panic", _) -> err pos "panic 需要 1 个参数（说明文字）"
   | Call ("os_exit", [ a ]) ->
       (* os_exit(code)：和 panic 一样结束进程、不析构任何值（Lean `FlowGraph.Panic`），退出码是 code 的低 8 位 *)
-      expect a.pos TI64 (expr env a);
+      expect env a.pos TI64 (expr env a);
       Never
   | Call ("os_exit", _) -> err pos "os_exit 需要 1 个参数（退出码）"
   | Call ("box", [ a ]) -> (
@@ -147,8 +143,8 @@ and expr1 env (x : expr) : t =
       | Ty (TStruct n) when Hashtbl.mem linear_tbl n ->
           (* 只能在定义这个 linear 类型的文件里消费：别的模块只能交给它的 pub 函数 *)
           let base = match String.index_opt n '<' with Some i -> String.sub n 0 i | None -> n in
-          (match Hashtbl.find_opt Ast.type_file base with
-          | Some fi when fi <> Ast.file_of pos ->
+          (match Hashtbl.find_opt (!resolved).Resolved.type_file base with
+          | Some fi when fi <> pos.file ->
               let m = match String.rindex_opt base '.' with Some i -> String.sub base 0 i | None -> "" in
               err pos "%s 定义在模块 %s 里，只能在那里 consume（可以让模块 %s 提供一个 pub 的函数来消费它）" n m m
           | _ -> ());
@@ -190,9 +186,9 @@ and expr1 env (x : expr) : t =
       | Ty (TArena r) -> (
           let v = TRef (TView, r) in
           match f, rest with
-          | "read_file_in", [ p ] -> expect p.pos TStr (expr env p); Ty (TResult (v, TStr))
+          | "read_file_in", [ p ] -> expect env p.pos TStr (expr env p); Ty (TResult (v, TStr))
           | "read_stdin_in", [] -> Ty v
-          | "read_chunk", [ n ] -> expect n.pos TI64 (expr env n); Ty v
+          | "read_chunk", [ n ] -> expect env n.pos TI64 (expr env n); Ty v
           | _ -> err pos "%s 的参数个数不对" f)
       | Never -> Never
       | Ty t -> err a.pos "%s 的第一个参数必须是区域，%s 不是" f (string_of_ty t))
@@ -206,11 +202,11 @@ and expr1 env (x : expr) : t =
       | Ty t -> Ty (TRef (t, borrow_region env a)))
   | Call ("str_view", [ s ]) ->
       (* s.view()：整个字符串的切片，借自 s（Lean `Projection.Return`）：切片活着时 s 被锁住，不能修改、移动、析构 *)
-      expect s.pos TStr (expr env s);
+      expect env s.pos TStr (expr env s);
       Ty (TRef (TView, borrow_region env s))
   | Call (f, v :: rest) when List.mem_assoc f view_sigs -> (
       (* 切片的方法：子切片和原切片在同一个区域里（Lean `Strings.Slice`） *)
-      let int (e : expr) = expect e.pos TI64 (expr env e) in
+      let int (e : expr) = expect env e.pos TI64 (expr env e) in
       match expr env v with
       | Never -> Never
       | Ty (TRef (TView, _) as tv) -> (
@@ -221,12 +217,12 @@ and expr1 env (x : expr) : t =
           | "view_char_len", [ i ] -> int i; Ty TI64
           | "view_sub", [ i; j ] -> int i; int j; Ty tv
           | "view_to_str", [] -> Ty TStr
-          | "view_eq", [ s ] -> expect s.pos TStr (expr env s); Ty TBool
+          | "view_eq", [ s ] -> expect env s.pos TStr (expr env s); Ty TBool
           | "view_eq_view", [ w ] -> (
               match expr env w with
               | Ty (TRef (TView, _)) | Never -> Ty TBool
               | Ty t -> err w.pos "eq_view 的参数必须是字符串切片，%s 不是（和 Str 比较用 eq）" (string_of_ty t))
-          | "view_find", [ s; i ] -> expect s.pos TStr (expr env s); int i; Ty TI64
+          | "view_find", [ s; i ] -> expect env s.pos TStr (expr env s); int i; Ty TI64
           | "view_print_str", [] -> Ty TUnit
           | _ -> err pos "%s 的参数个数不对" f)
       | Ty t -> err v.pos "%s 的第一个参数必须是字符串切片 &str in …，%s 不是" f (string_of_ty t))
@@ -251,13 +247,13 @@ and expr1 env (x : expr) : t =
       | Ty (TVec t), "vec_swap", [ i; j ] ->
           (* 交换第 i、j 个元素：只调换顺序，拥有关系不变（Lean `Datatypes.VecSwap`），越界时 panic *)
           inout_place env v;
-          expect i.pos TI64 (expr env i);
-          expect j.pos TI64 (expr env j);
+          expect env i.pos TI64 (expr env i);
+          expect env j.pos TI64 (expr env j);
           vec_inst x "swap" t;
           Ty TUnit
       | Ty (TVec t), "vec_get", [ i ] ->
           (* 第 i 个元素这个位置：可复制的值复制，需要析构的值 let 绑定成投影（锁住 v），越界时 panic *)
-          expect i.pos TI64 (expr env i);
+          expect env i.pos TI64 (expr env i);
           Ty t
       | Ty (TVec _), _, _ ->
           err pos "%s 需要 %d 个参数" f (match f with "vec_push" | "vec_get" -> 2 | "vec_swap" -> 3 | _ -> 1)
@@ -282,17 +278,17 @@ and expr1 env (x : expr) : t =
       | Never -> Never
       | Ty t -> err pos "%s 不是结构体，不能取字段 %s" (string_of_ty t) f)
   | If (c, a, None) ->
-      expect c.pos TBool (expr env c);
-      expect pos TUnit (block env a);
+      expect env c.pos TBool (expr env c);
+      expect env pos TUnit (block env a);
       Ty TUnit
   | If (c, a, Some b) ->
-      expect c.pos TBool (expr env c);
-      join pos "if " (block env a) (block env b)
+      expect env c.pos TBool (expr env c);
+      join env pos "if " (block env a) (block env b)
   | Block b -> block env b
   | Variant (v, _) ->
       err pos "无法确定 %s 的类型：请写在 let 标注、返回值、实参或字段这些知道类型的地方" (vname v)
   | Try a -> (
-      no_exit pos "?";
+      no_exit env pos "?";
       match expr env a with
       | Never -> Never
       | Ty (TResult (t, e)) -> (
@@ -317,7 +313,7 @@ and method_name env (x : expr) f (r : expr) =
   let rt = expr env r in
   let g =
     match (match rt with Ty t -> find_inherent base t | Never -> None), rt with
-    | Some g, _ -> ( match Hashtbl.find_opt Ast.prims g with Some (b, _, _, _, _) -> b | None -> g)
+    | Some g, _ -> ( match Hashtbl.find_opt (!resolved).Resolved.prims g with Some p -> p.Resolved.builtin | None -> g)
     | None, Ty (TOFn _ as t) when base = "call" -> fcall_name env.fns t   (* f.call(x)：字段、Vec 元素里的闭包也能这样调用 *)
     | None, Ty t -> trait_method env x t base m
     | None, Never -> m
@@ -344,7 +340,7 @@ and trait_method env (x : expr) t base m =
       match cands with
       | [ (_, k) ] -> k
       | _ ->
-          if Hashtbl.mem Ast.statics (type_head t ^ "." ^ base) then
+          if Hashtbl.mem (!resolved).Resolved.statics (type_head t ^ "." ^ base) then
             err x.pos "%s 没有方法 %s（%s 是类型函数：写成 %s.%s(…)）" (string_of_ty t) base base (type_head t) base
           else if Hashtbl.mem env.fns m || List.mem_assoc m builtins then
             err x.pos "%s 没有方法 %s（%s 是普通函数：写成 %s(…)，或者放进 impl %s { … }）" (string_of_ty t) base base base
@@ -355,7 +351,7 @@ and call env want (x : expr) f args : t =
   match List.assoc_opt f env.vars with
   | Some (TFn (pts, r), _) ->
       (* 调用 fn(…) 参数：实参按参数约定检查；在特化里换成调用绑定的闭包提升出的函数，前面接上捕获 *)
-      note env.vars f;
+      note env f;
       if List.length pts <> List.length args then
         err x.pos "%s 需要 %d 个参数，实际给了 %d 个" f (List.length pts) (List.length args);
       List.iter2
@@ -363,7 +359,7 @@ and call env want (x : expr) f args : t =
           ignore (check env p a);
           if m = MInout then inout_place env a)
         pts args;
-      (if !concrete then
+      (if env.cur.concrete then
          match List.assoc_opt f env.clos with
          | Some (c, caps) ->
              Hashtbl.replace rewrites x.id (c.cname, List.map (fun (n, t) -> var_expr x.pos n t) caps @ args)
@@ -390,7 +386,7 @@ and pack env (x : expr) ys body want : t =
         c.caps;
       let pk = "Fn#" ^ c.cname in
       if not (Hashtbl.mem sigs pk) then Hashtbl.replace sigs pk (List.map (fun (_, _, t) -> (MSink, t)) c.caps, want);
-      if !concrete then Hashtbl.replace packs pk (c, want);
+      if env.cur.concrete then Hashtbl.replace packs pk (c, want);
       Hashtbl.replace rewrites x.id (pk, List.map (fun (_, v, t) -> var_expr x.pos v t) c.caps);
       Ty want
   | _ -> assert false
@@ -419,7 +415,7 @@ and spawn env (x : expr) fr sv (lam : expr) : t =
   let sp = "spawn#" ^ c.cname in
   if not (Hashtbl.mem sigs sp) then
     Hashtbl.replace sigs sp ((MInout, TI64) :: List.map (fun (m, _, t) -> (m, t)) c.caps, TUnit);
-  if !concrete then Hashtbl.replace spawns sp c;
+  if env.cur.concrete then Hashtbl.replace spawns sp c;
   Hashtbl.replace rewrites x.id (sp, var_expr x.pos sv TI64 :: List.map (fun (_, v, t) -> var_expr x.pos v t) c.caps);
   Ty TUnit
 
@@ -428,7 +424,7 @@ and spawn env (x : expr) fr sv (lam : expr) : t =
    捕获在前、闭包的参数在后；名字按位置和类型确定，同一个闭包只提升一次。 *)
 and lambda ?mode env (a : expr) ys body pts r : closure * t =
   let pos = a.pos in
-  if !lambda_frame <> None then err pos "闭包里暂不能再写闭包";
+  if env.lambda_frame <> None then err pos "闭包里暂不能再写闭包";
   if List.length ys <> List.length pts then
     err pos "闭包有 %d 个参数，这里需要 %d 个" (List.length ys) (List.length pts);
   List.iteri
@@ -436,17 +432,11 @@ and lambda ?mode env (a : expr) ys body pts r : closure * t =
     ys;
   let fr = { outer = List.length env.vars; used = ref []; written = Hashtbl.create 8 } in
   let vars = List.rev (List.map2 (fun y (m, t) -> (y, (t, m <> MLet))) ys pts) @ env.vars in
-  let env' = { env with vars; guards = []; ret = Option.value r ~default:TUnit } in
-  let depth = !loop_depth in
-  lambda_frame := Some fr;
-  loop_depth := 0;
-  let t =
-    Fun.protect
-      ~finally:(fun () ->
-        lambda_frame := None;
-        loop_depth := depth)
-      (fun () -> match r with Some r -> check env' r body | None -> expr env' body)
+  (* 闭包体里不在外面的循环里：break / continue 不能跳出闭包 *)
+  let env' =
+    { env with vars; guards = []; ret = Option.value r ~default:TUnit; lambda_frame = Some fr; loop_depth = 0 }
   in
+  let t = match r with Some r -> check env' r body | None -> expr env' body in
   let caps0 =
     List.map
       (fun v ->
@@ -460,7 +450,7 @@ and lambda ?mode env (a : expr) ys body pts r : closure * t =
   in
   (* 捕获的类型里的区域换成区域参数 'c00、'c01…：按这里的嵌套顺序编号（外层在前），
      先后关系只取这里真实成立的（`Closures.CapRef` 的 capture_mono；调用时这些区域都活着是 capture_below） *)
-  let outer_first = List.rev_map fst !regions in
+  let outer_first = List.rev_map fst env.regions in
   let idx r = Option.value (List.find_index (( = ) r) outer_first) ~default:max_int in
   let rs =
     List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) caps0)
@@ -468,13 +458,13 @@ and lambda ?mode env (a : expr) ys body pts r : closure * t =
   in
   if List.length rs > 100 then err pos "闭包捕获的区域太多（最多 100 个）";
   let s = List.mapi (fun k r -> (r, Printf.sprintf "'c%02d" k)) rs in
-  let rord = List.map (fun (r, c) -> (c, List.filter_map (fun (r', c') -> if r' <> r && outlives r' r then Some c' else None) s)) s in
+  let rord = List.map (fun (r, c) -> (c, List.filter_map (fun (r', c') -> if r' <> r && outlives env r' r then Some c' else None) s)) s in
   let caps = List.map (fun (m, v, t) -> (m, v, rename s t)) caps0 in
-  let file, line = Ast.locate (if Array.length !Ast.files > 0 then !Ast.files.(0) else "") pos in
+  let file, line = Source.locate (if Array.length !Source.files > 0 then !Source.files.(0) else "") pos in
   let tys = List.map (fun (_, _, t) -> string_of_ty t) caps @ [ string_of_ty (TFn (pts, Option.value r ~default:TUnit)) ] in
   let cname = Printf.sprintf "闭包<%s:%d:%d, %s>" (Filename.basename file) line pos.col (String.concat ", " tys) in
   (match r with
-  | Some r when !concrete ->
+  | Some r when env.cur.concrete ->
       if not (Hashtbl.mem requested cname) then begin
         Hashtbl.replace requested cname ();
         let params = caps @ List.map2 (fun y (m, t) -> (m, y, t)) ys pts in
@@ -485,7 +475,7 @@ and lambda ?mode env (a : expr) ys body pts r : closure * t =
           (Fn { name = cname; tparams = []; bounds = []; params; ret = r; body; prim = None; ipos = pos }, [], [], rord)
           pending_items
       end
-  | _ -> if not !concrete then Hashtbl.replace skip_lower !cur_fn ());
+  | _ -> if not env.cur.concrete then Hashtbl.replace skip_lower env.cur.fn_name ());
   ({ cname; caps; rord }, t)
 
 (* fn(…) 类型的参数 p 的实参：闭包，或者当前函数的同类型 fn(…) 参数（原样传下去）。
@@ -498,7 +488,7 @@ and fn_arg env f p pts pr (a : expr) : closure * expr list =
       (* 闭包写在这里：捕获的实参是外层变量本身（真实的区域；类型检查不再比较，由 `Closures.CapRef` 保证、Lean 复核） *)
       (c, List.map (fun v -> var_expr a.pos v (fst (List.assoc v env.vars))) (List.map (fun (_, v, _) -> v) c.caps))
   | Var g -> (
-      note env.vars g;
+      note env g;
       match List.assoc_opt g env.vars with
       | Some ((TFn _ as t), _) -> (
           if t <> p then err a.pos "类型不匹配：需要 %s，实际是 %s" (string_of_ty p) (string_of_ty t);
@@ -720,7 +710,7 @@ and call_named env want (x : expr) f args : t =
             | _ -> ()
           end)
     ps args;
-  if has_fn then if !concrete then specialize x f args ps !cls else Hashtbl.replace skip_lower !cur_fn ();
+  if has_fn then if env.cur.concrete then specialize x f args ps !cls else Hashtbl.replace skip_lower env.cur.fn_name ();
   Ty (rename s r)
 
 (* 结构体字面量。泛型结构体的类型实参取期望的类型，不知道时从字段的值推出来。 *)
@@ -774,12 +764,11 @@ and struct_lit env want (x : expr) n inits : t =
 
 (* arena |r| { … }：r 比所有外层区域都活得短。块的值的类型不能含 r（R3）。 *)
 and arena env want pos r (b : block) : t =
-  if List.mem_assoc r !regions then err pos "区域 %s 已经存在（内外层区域不能同名）" r;
-  let saved = !regions in
-  regions := (r, List.map fst saved) :: saved;
-  let env' = { env with vars = (r, (TArena r, false)) :: env.vars } in
+  if List.mem_assoc r env.regions then err pos "区域 %s 已经存在（内外层区域不能同名）" r;
+  let env' =
+    { env with vars = (r, (TArena r, false)) :: env.vars; regions = (r, List.map fst env.regions) :: env.regions }
+  in
   let t = match want with Some w -> block env' ~want:w b | None -> block env' b in
-  regions := saved;
   (match t with
   | Ty ty when mentions r ty && not !lax_regions ->
       let at = match b.tail with Some e -> e.pos | None -> pos in
@@ -800,7 +789,7 @@ and pmatch_ env (x : expr) borrow (s : expr) arms : expr =
   if borrow && root s = None then err s.pos "match let 后面必须是变量、字段或解引用（要借用的位置）";
   (* 借来的参数里的位置不能移走：和 match let 一样按借用拆开 *)
   let borrow =
-    borrow || (simple_place s && match root s with Some v -> List.mem v !let_params | None -> false)
+    borrow || (simple_place s && match root s with Some v -> List.mem v env.cur.let_params | None -> false)
   in
   List.iter
     (fun ((q : pat), _) ->
@@ -857,7 +846,7 @@ and match_ env want pos borrow (s : expr) arms : t =
           enum_match ~sr env want pos ty vs arms)
 
 and enum_match ?(sr = "") env want pos ty vs arms : t =
-  let bind x t = bind_regions := (x, if sr <> "" && needs_drop t then sr else x) :: !bind_regions in
+  let bind x t = env.cur.bind_regions <- (x, if sr <> "" && needs_drop t then sr else x) :: env.cur.bind_regions in
   List.iter
     (fun (v, _, (a : expr)) ->
       if v <> "_" && not (List.mem_assoc v vs) then err a.pos "%s 没有变体 %s" (string_of_ty ty) (vname v))
@@ -903,7 +892,7 @@ and enum_match ?(sr = "") env want pos ty vs arms : t =
       List.iter (fun (env', a) -> ignore (check env' w a)) bodies;
       Ty w
   | None, (env', a) :: rest ->
-      List.fold_left (fun acc (env', a) -> join pos "match " acc (expr env' a)) (expr env' a) rest
+      List.fold_left (fun acc (env', a) -> join env pos "match " acc (expr env' a)) (expr env' a) rest
   | None, [] -> err pos "空枚举不能 match"
 
 (* want：块的值的期望类型（块最后的表达式按它检查）。 *)
@@ -937,10 +926,10 @@ and block ?want env (b : block) : t =
             in
             (match ty with TArena _ -> err pos "区域不能存进变量" | _ -> ());
             (* let 绑定需要析构的位置是投影（见 mir.ml 的 proj_init）：借自那个位置所在的变量 *)
-            bind_regions := (v, if root e <> None && needs_drop ty then borrow_region env e else v) :: !bind_regions;
+            env.cur.bind_regions <- (v, if root e <> None && needs_drop ty then borrow_region env e else v) :: env.cur.bind_regions;
             go { env with vars = (v, (ty, mut)) :: env.vars } rest
         | Assign (v, e) ->
-            note ~write:true env.vars v;
+            note ~write:true env v;
             (match List.assoc_opt v env.vars with
             | Some (t, true) -> ignore (check env t e)
             | Some (_, false) -> err pos "%s 是用 let 声明的变量或参数，不能重新赋值（需要的话改用 var / inout）" v
@@ -970,7 +959,7 @@ and block ?want env (b : block) : t =
               | Never -> err a.pos "不能给一个不会返回的值的字段赋值"
             in
             path a;
-            Option.iter (note ~write:true env.vars) (root a);
+            Option.iter (note ~write:true env) (root a);
             (match root a with
             | Some v -> (
                 match List.assoc_opt v env.vars with
@@ -996,7 +985,7 @@ and block ?want env (b : block) : t =
             in
             let t = match expr env a with Ty t -> t | Never -> err a.pos "不能给一个不会返回的值赋值" in
             path a;
-            Option.iter (note ~write:true env.vars) (root a);
+            Option.iter (note ~write:true env) (root a);
             (match root a with
             | Some v -> (
                 match List.assoc_opt v env.vars with
@@ -1020,39 +1009,33 @@ and block ?want env (b : block) : t =
             Hashtbl.replace for_vec a.id vec;
             go env ((if vec then sv else si) :: rest)
         | While (c, body) ->
-            expect c.pos TBool (expr env c);
-            incr loop_depth;
-            Fun.protect ~finally:(fun () -> decr loop_depth) (fun () -> expect pos TUnit (block env body));
+            expect env c.pos TBool (expr env c);
+            expect env pos TUnit (block { env with loop_depth = env.loop_depth + 1 } body);
             go env rest
         | Scope (a, body) ->
             (* scope |s| { … }（Lean `Concurrency.Scope`）：s 只能用来 s.spawn(|| …)；块里不能 return、?，
                也不能 break / continue 到外面的循环（离开 scope 之前一定要等任务结束） *)
             let sname = match a.e with Var s -> s | _ -> assert false in
             let outer = List.length env.vars in
-            let fr = { sname; sdepth = outer; souter = outer; shared = ref []; slam = !lambda_frame <> None } in
-            let env' = { env with vars = (sname, (TI64, false)) :: env.vars } in
-            let depth = !loop_depth in
-            scopes := fr :: !scopes;
-            loop_depth := 0;
-            Fun.protect
-              ~finally:(fun () ->
-                scopes := List.tl !scopes;
-                loop_depth := depth)
-              (fun () -> expect pos TUnit (block env' body));
+            let fr = { sname; sdepth = outer; souter = outer; shared = ref []; slam = env.lambda_frame <> None } in
+            let env' =
+              { env with vars = (sname, (TI64, false)) :: env.vars; scopes = fr :: env.scopes; loop_depth = 0 }
+            in
+            expect env pos TUnit (block env' body);
             Hashtbl.replace scope_shares a.id (List.rev !(fr.shared));
             go env rest
         | (Break | Continue) as d ->
             (* 之后的语句走不到，和 return 一样记作 Never *)
-            if !loop_depth = 0 then err pos "%s 只能用在循环里" (if d = Break then "break" else "continue");
+            if env.loop_depth = 0 then err pos "%s 只能用在循环里" (if d = Break then "break" else "continue");
             ignore (go env rest);
             Never
         | Return None ->
-            no_exit pos "return";
-            expect pos env.ret (Ty TUnit);
+            no_exit env pos "return";
+            expect env pos env.ret (Ty TUnit);
             ignore (go env rest);
             Never
         | Return (Some e) ->
-            no_exit pos "return";
+            no_exit env pos "return";
             ignore (check env env.ret e);
             ignore (go env rest);
             Never

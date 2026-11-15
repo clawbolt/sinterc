@@ -1,7 +1,7 @@
-(* 错误信息的语言。编译器各处照常用中文报错；--lang=en（或环境变量 SINTER_LANG=en）时，
-   在输出之前按下面的表把整条信息换成英文。表里的中文和代码里的格式串一样，%s、%d 是填进去的部分，
-   英文里用 {1}、{2}… 按顺序引用它们。表里没有的信息原样输出中文。
-   填进去的部分如果是固定的中文短语（例如“作用域结束时”“临时值”），也换成英文（见 words）。 *)
+(* 信息的中英文。编译器各处用中文的格式串报错（见 diag.ml），格式串就是信息的键；
+   --lang=en（或环境变量 SINTER_LANG=en）时按键在下面的表里查英文。英文里用 {1}、{2}… 按顺序引用参数。
+   表里没有的信息原样输出中文。改了代码里的中文，要同时改这里的键，否则这条信息的英文就没了（test/messages.t 会报出来）。
+   填进去的参数如果是固定的中文短语（例如“作用域结束时”“临时值”），也换成英文（见 words）。 *)
 
 type lang = Zh | En
 
@@ -9,7 +9,7 @@ let lang = ref Zh
 
 let pick zh en = match !lang with Zh -> zh | En -> en
 
-(* 按信息的写法排列：更具体的写在前面（例如“在某些路径上”要排在一般的“还没有被消费”之前）。 *)
+(* 按信息所属的阶段大致分组；键要和代码里的格式串一字不差。 *)
 let table =
   [
     ("inout 实参必须是变量、字段或解引用这样的位置", "an inout argument must be a place: a variable, field, or dereference");
@@ -18,13 +18,11 @@ let table =
     ("%s的两个分支类型不同：%s 和 %s", "the two branches of {1} have different types: {2} and {3}");
     ("类型不匹配：需要 %s，实际是 %s", "type mismatch: expected {1}, found {2}");
     ("未知类型 %s", "unknown type {1}");
-    ("Box 里不能放 ()", "a Box cannot hold ()");
     ("Box 里不能放 linear 值（还不能从 Box 里移出）", "a Box cannot hold a linear value");
     ("Arena 只能作为函数参数的类型", "Arena can only be the type of a function parameter");
     ("未知区域 %s", "unknown region {1}");
     ("还不支持指向引用或区域的引用", "references to references or regions are not supported yet");
     ("不能引用 ()", "cannot take a reference to ()");
-    ("类型实参不能是 ()", "a type argument cannot be ()");
     ("类型实参不能是 Arena", "a type argument cannot be Arena");
     ("泛型结构体、枚举的类型实参暂不能是 linear 值（%s）",
      "type arguments of generic structs and enums cannot be linear yet ({1})");
@@ -108,7 +106,6 @@ let table =
     ("match let 后面必须是变量、字段或解引用（要借用的位置）",
      "match let needs a place to borrow: a variable, field, or dereference");
     ("%s 带载荷，分支要写 %s(x) 或 %s(_)", "{1} carries a payload; write {2}(x) or {3}(_)");
-    ("%s 的值是 ()，分支要写 %s(_)", "the payload of {1} is (); write {2}(_)");
     ("%s 没有载荷，分支要写 %s => …", "{1} has no payload; write {2} => …");
     ("match 没有覆盖 %s（枚举的 match 必须穷尽）", "match does not cover {1} (a match on an enum must be exhaustive)");
     ("match 有两个 %s 分支", "match has two {1} arms");
@@ -157,8 +154,6 @@ let table =
     ("类型参数 %s 和已有的类型同名", "type parameter {1} has the same name as an existing type");
     ("Self 不能用作类型参数的名字", "Self cannot be used as a type parameter name");
     ("未知 trait %s", "unknown trait {1}");
-    ("泛型函数的签名里暂不能直接写区域或引用（类型实参可以是引用）",
-     "a generic function's signature cannot mention regions or references directly yet (type arguments can be references)");
     ("trait 的方法 %s 至少要有一个参数（接收者）", "the trait method {1} needs at least one parameter (the receiver)");
     ("%s 的方法 %s 不确定：trait %s 和 %s 都有这个方法，%s 两个都满足",
      "the method {2} of {1} is ambiguous: traits {3} and {4} both have it, and {5} satisfies both");
@@ -239,7 +234,7 @@ let table =
     ("字符字面量的引号里要正好是一个字符", "a character literal must contain exactly one character between the quotes");
     ("字符字面量的引号里要正好是一个字符（转义只有 \\n、\\t、\\\\、\\'、\\0）",
      "a character literal must contain exactly one character between the quotes (escapes: \\n, \\t, \\\\, \\', \\0)");
-    ("无法识别的字符 '%s'", "unrecognized character '{1}'");
+    ("无法识别的字符 '%c'", "unrecognized character '{1}'");
     ("字符串里只能用 \\n、\\r、\\t、\\\\、\\\" 这几种转义", "only the escapes \\n, \\r, \\t, \\\\ and \\\" are allowed in strings");
     ("字符串没有结束（缺少右边的 \"，字符串不能跨行）", "unterminated string (missing the closing \"; strings cannot span lines)");
     ("字符串里的 } 要写成 }}", "a } in a string must be written as }}");
@@ -330,8 +325,6 @@ let table =
     ("函数类型 fn(…) 里暂不能有引用或区域", "function types fn(…) cannot contain references or regions yet");
     ("%s 是函数参数，只能调用它（%s(…)），或者作为实参传给 fn(…) 类型的参数",
      "{1} is a function parameter: it can only be called ({2}(…)) or passed on to a parameter of type fn(…)");
-    ("闭包只能直接写在调用的实参里，传给类型是 fn(…) 的参数",
-     "a closure can only be written directly as a call argument, for a parameter of type fn(…)");
     (* 可以存起来的闭包 Fn(…) *)
     (* 字符串切片 &str in a *)
     ("未知类型 %s（字符串切片写 &str in 区域）", "unknown type {1} (a string slice is written &str in REGION)");
@@ -381,45 +374,14 @@ let words =
 
 let word s = Option.value (List.assoc_opt s words) ~default:s
 
-(* 格式串按 %s、%d 切成字面的几段。 *)
-let pieces p =
-  let n = String.length p and buf = Buffer.create 32 and acc = ref [] and i = ref 0 in
-  while !i < n do
-    if !i + 1 < n && p.[!i] = '%' && (p.[!i + 1] = 's' || p.[!i + 1] = 'd') then begin
-      acc := Buffer.contents buf :: !acc;
-      Buffer.clear buf;
-      i := !i + 2
-    end
-    else begin
-      Buffer.add_char buf p.[!i];
-      incr i
-    end
-  done;
-  List.rev (Buffer.contents buf :: !acc)
+(* 英文的模板按键（中文格式串）查。同一个键写了两次时用前面的。 *)
+let english =
+  let t = Hashtbl.create 512 in
+  List.iter (fun (k, en) -> if not (Hashtbl.mem t k) then Hashtbl.add t k en) table;
+  t
 
-let starts_at s i lit = i + String.length lit <= String.length s && String.sub s i (String.length lit) = lit
-
-let rec find s lit i = if i + String.length lit > String.length s then None else if starts_at s i lit then Some i else find s lit (i + 1)
-
-(* 信息 s 符合格式串 p 时，返回按顺序填进去的部分。每段字面取最早出现的位置，最后一段必须在结尾。 *)
-let matches p s =
-  let n = String.length s in
-  let rec go i rest acc =
-    match rest with
-    | [] -> if i = n then Some (List.rev acc) else None
-    | [ last ] ->
-        let m = String.length last in
-        if n - m >= i && starts_at s (n - m) last then Some (List.rev (String.sub s i (n - m - i) :: acc)) else None
-    | lit :: more -> (
-        match find s lit i with
-        | Some j -> go (j + String.length lit) more (String.sub s i (j - i) :: acc)
-        | None -> None)
-  in
-  match pieces p with
-  | first :: rest when starts_at s 0 first -> go (String.length first) rest []
-  | _ -> None
-
-let fill t args =
+(* 模板里的 {1}、{2}… 换成第几个参数（固定的中文短语换成英文）。 *)
+let fill_english t args =
   let n = String.length t and b = Buffer.create 64 and i = ref 0 in
   while !i < n do
     if t.[!i] = '{' && !i + 2 < n && t.[!i + 2] = '}' && t.[!i + 1] >= '1' && t.[!i + 1] <= '9' then begin
@@ -433,11 +395,18 @@ let fill t args =
   done;
   Buffer.contents b
 
-(* 一条编译错误信息。 *)
-let msg s =
+(* 一条编译错误信息。表里没有的英文照旧输出中文。 *)
+let render (m : Diag.message) =
   match !lang with
-  | Zh -> s
-  | En -> Option.value (List.find_map (fun (p, t) -> Option.map (fill t) (matches p s)) table) ~default:s
+  | Zh -> Diag.chinese m
+  | En -> (
+      match Hashtbl.find_opt english m.key with
+      | Some t -> fill_english t m.args
+      | None -> Diag.chinese m)
+
+let starts_at s i lit = i + String.length lit <= String.length s && String.sub s i (String.length lit) = lit
+
+let rec find s lit i = if i + String.length lit > String.length s then None else if starts_at s i lit then Some i else find s lit (i + 1)
 
 let rec replace_all s a b =
   match find s a 0 with

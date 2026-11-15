@@ -1,7 +1,7 @@
 %{
 open Ast
 
-let p (pos : Lexing.position) = { line = pos.pos_lnum; col = pos.pos_cnum - pos.pos_bol + 1 }
+let p = Source.of_lexing
 
 let mk e pos = { e; pos = p pos; id = fresh_id () }
 let mks s pos = { s; spos = p pos }
@@ -16,7 +16,7 @@ let assign pos (a : expr) e =
   | Var x -> mks (Assign (x, e)) pos
   | Field (b, f) -> mks (SetField (b, f, e)) pos
   | Call (("#vec_get" | "vec_get" | ".get"), [ _; _ ]) -> mks (SetPlace (a, e)) pos
-  | _ -> raise (Syntax (a.pos, "只能给变量、字段或 Vec 的元素（v[i]）赋值"))
+  | _ -> Diag.error a.pos "只能给变量、字段或 Vec 的元素（v[i]）赋值"
 
 (* 没有分号：块的最后一条若是表达式语句，就是块的值。 *)
 let mk_block ss =
@@ -35,7 +35,7 @@ type parm =
    最外层不能是变量（要匹配所有其余情况时写 _）。 *)
 let arm_of (q : pat) e =
   match q.p with
-  | PBind x -> raise (Syntax (q.ppos, Printf.sprintf "分支的模式不能是变量 %s（要匹配所有其余情况时写 _）" x))
+  | PBind x -> Diag.error q.ppos "分支的模式不能是变量 %s（要匹配所有其余情况时写 _）" x
   | PWild -> PW (q.ppos, e)
   | PLit l -> PL (q.ppos, l, e)
   | PVariant (n, None) -> PV (n, "", e)
@@ -100,13 +100,13 @@ let build_match pos borrow (s : expr) arms =
       | [ PW (_, e) ] -> ([], e)
       | PL (lp, l, e) :: r ->
           let k = lit_key l in
-          if List.mem k seen then raise (Syntax (lp, Printf.sprintf "分支 %s 写了两次" (lit_show l)));
+          if List.mem k seen then Diag.error lp "分支 %s 写了两次" (lit_show l);
           let ls, w = split (k :: seen) r in
           ((l, e) :: ls, w)
-      | PW (wp, _) :: _ -> raise (Syntax (wp, "_ 分支只能放在最后"))
-      | PV (_, _, e) :: _ -> raise (Syntax (e.pos, "字面量分支和变体分支不能写在同一个 match 里"))
+      | PW (wp, _) :: _ -> Diag.error wp "_ 分支只能放在最后"
+      | PV (_, _, e) :: _ -> Diag.error e.pos "字面量分支和变体分支不能写在同一个 match 里"
       | PN _ :: _ -> assert false
-      | [] -> raise (Syntax (p pos, "按字面量 match 时最后要有 _ 分支（字面量写不全）"))
+      | [] -> Diag.error (p pos) "按字面量 match 时最后要有 _ 分支（字面量写不全）"
     in
     let ls, w = split [] arms in
     let rec is_place (e : expr) = match e.e with Var _ -> true | Field (a, _) -> is_place a | _ -> false in
@@ -149,7 +149,7 @@ let rec for_loop pos x (src : [ `Range of expr * expr | `Vec of expr ]) body =
     | Var _ -> { v with id = fresh_id () }
     | Field (a, f) -> { v with e = Field (copy a, f); id = fresh_id () }
     | Deref a -> { v with e = Deref (copy a); id = fresh_id () }
-    | _ -> raise (Syntax (v.pos, "for 只能遍历变量或字段里的 Vec，或者写成 a..b"))
+    | _ -> Diag.error v.pos "for 只能遍历变量或字段里的 Vec，或者写成 a..b"
   in
   let loop k init cond first =
     let step = s (Assign (k, e (Binop (Add, e (Var k), e (Int 1L))))) in
@@ -212,7 +212,7 @@ let for_inout pos x (v : expr) body =
     | Var _ -> { v with id = fresh_id () }
     | Field (a, f) -> { v with e = Field (copy a, f); id = fresh_id () }
     | Deref a -> { v with e = Deref (copy a); id = fresh_id () }
-    | _ -> raise (Syntax (v.pos, "for x in inout 只能遍历变量或字段里的 Vec"))
+    | _ -> Diag.error v.pos "for x in inout 只能遍历变量或字段里的 Vec"
   in
   let rec root (v : expr) = match v.e with Var r -> r | Field (a, _) | Deref a -> root a | _ -> "" in
   let r = root (copy v) in
@@ -220,7 +220,7 @@ let for_inout pos x (v : expr) body =
   let j = "#j" ^ string_of_int !inout_count in
   let place (at : pos) = { e = Call ("#vec_get", [ copy v; { e = Var j; pos = at; id = fresh_id () } ]); pos = at; id = fresh_id () } in
   let mention (at : pos) =
-    raise (Syntax (at, Printf.sprintf "for %s in inout %s 的循环体里不能用 %s（%s 整个借给了循环，不能 push、pop、读或再借）" x r r r))
+    Diag.error at "for %s in inout %s 的循环体里不能用 %s（%s 整个借给了循环，不能 push、pop、读或再借）" x r r r
   in
   (* 把循环体里的 x 换成元素的位置；遇到重新绑定 x 的地方停下（之后的 x 是新的变量）。顺便检查有没有提到 v *)
   let rec ex (a : expr) : expr =
@@ -332,13 +332,13 @@ let split_tparams tp =
 (* 结构体、枚举的类型参数不能写 trait 约束。 *)
 let plain_tparams pos tp =
   let tp, bs = split_tparams tp in
-  if bs <> [] then raise (Syntax (p pos, "结构体和枚举的类型参数暂不能写 trait 约束"));
+  if bs <> [] then Diag.error (p pos) "结构体和枚举的类型参数暂不能写 trait 约束";
   tp
 
 (* 元组类型：元素个数 2 到 max_tuple *)
 let tuple_ty pos ts =
   let n = List.length ts in
-  if n > max_tuple then raise (Syntax (p pos, Printf.sprintf "元组最多 %d 个元素（这里有 %d 个）" max_tuple n));
+  if n > max_tuple then Diag.error (p pos) "元组最多 %d 个元素（这里有 %d 个）" max_tuple n;
   TApp (tuple_name n, ts)
 
 let ty_of_name = function
@@ -441,7 +441,7 @@ impl_fns:
   | f = fn_item nls fs = impl_fns { f :: fs }
   (* 内建方法：intrinsic fn len(s: Str) -> I64 = str_len，没有函数体，只能写在标准库里（modules.ml 检查） *)
   | k = IDENT FN n = IDENT tp = tparams LPAREN ps = separated_list(COMMA, param) RPAREN r = ret EQ b = IDENT nls fs = impl_fns
-    { if k <> "intrinsic" then raise (Syntax (p $startpos, Printf.sprintf "impl 里只能写 fn（%s 是什么？）" k));
+    { if k <> "intrinsic" then Diag.error (p $startpos) "impl 里只能写 fn（%s 是什么？）" k;
       let tp, bs = split_tparams tp in
       Fn { name = n; tparams = tp; bounds = bs; params = ps; ret = r; body = { stmts = []; tail = None }; prim = Some b; ipos = p $startpos } :: fs }
 
@@ -494,12 +494,12 @@ ty:
   | AMP t = ty IN r = IDENT { TRef (t, r) }
   (* 字符串切片 &str in a：str 不是关键字，只在 & 后面、in 前面时是类型 *)
   | AMP n = IDENT IN r = IDENT
-      { if n = "str" then TRef (TView, r) else raise (Syntax (p $startpos(n), Printf.sprintf "未知类型 %s（字符串切片写 &str in 区域）" n)) }
+      { if n = "str" then TRef (TView, r) else Diag.error (p $startpos(n)) "未知类型 %s（字符串切片写 &str in 区域）" n }
   | RESULT LT t = ty COMMA e = ty GT { TResult (t, e) }
   | FN LPAREN ps = separated_list(COMMA, fn_param) RPAREN r = ret { TFn (ps, r) }
   (* 可以存起来的闭包 Fn(T) -> U：Fn 不是关键字，写在类型的位置、后面跟括号时才是 *)
   | n = UIDENT LPAREN ps = separated_list(COMMA, fn_param) RPAREN r = ret
-      { if n = "Fn" then TOFn (ps, r) else raise (Syntax (p $startpos, Printf.sprintf "类型 %s 后面不能跟括号（函数类型写 Fn(…) -> …）" n)) }
+      { if n = "Fn" then TOFn (ps, r) else Diag.error (p $startpos) "类型 %s 后面不能跟括号（函数类型写 Fn(…) -> …）" n }
 
 (* 函数类型 fn(T, inout U) 的参数：约定和类型 *)
 fn_param:

@@ -1,0 +1,25 @@
+; C 运行时按职责分成几个文件，构建时按顺序拼回两个文件（内容和拆分之前逐字节相同）：
+; sinter.h 放在生成的 C 文件开头，sinter_lib.h 放在类型定义之后（src/dune 把它们编进编译器）。
+; 各个文件管什么见 README.md。拼接的顺序就是 C 里的定义顺序，后面的文件可以用前面的。
+
+(rule
+ (targets sinter.h)
+ (deps base.h values.h sched.h entry.h)
+ (action
+  (with-stdout-to
+   sinter.h
+   (progn
+    (cat base.h)
+    (cat values.h)
+    (cat sched.h)
+    (cat entry.h)))))
+
+(rule
+ (targets sinter_lib.h)
+ (deps lib_io.h lib_net.h)
+ (action
+  (with-stdout-to
+   sinter_lib.h
+   (progn
+    (cat lib_io.h)
+    (cat lib_net.h)))))

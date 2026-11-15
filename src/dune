@@ -18,6 +18,7 @@
    (run %{exe:../gen/embed.exe} %{deps}))))
 
 ; C 运行时原样编进编译器：runtime/sinter.h 放在生成的 C 文件开头，runtime/sinter_lib.h 放在类型定义之后
+; （两个文件都是 runtime/dune 从几个分开的文件拼出来的）
 (rule
  (targets runtime_src.ml)
  (deps

@@ -54,16 +54,16 @@ let operands = function
   | Payload (o, _) | TagIs (o, _) -> [ o ]
 
 (* 类型里的引用的位置（字段、变体载荷组成的路径）和它的区域名。经过 Box、Vec、Result 的不算（不跟踪）。 *)
-let rec ref_leaves ty =
+let rec ref_leaves (d : Defs.t) ty =
   let under pre ls = List.map (fun (p, r) -> (pre :: p, r)) ls in
   match ty with
   | TRef (_, r) -> [ ([], r) ]
   | TStruct n -> (
-      match Hashtbl.find_opt Typeck.struct_tbl n, Typeck.variants ty with
-      | Some fs, _ -> List.concat_map (fun (fd : field) -> under (PField fd.fname) (ref_leaves fd.fty)) fs
+      match Hashtbl.find_opt d.Defs.structs n, Defs.variants d ty with
+      | Some fs, _ -> List.concat_map (fun (fd : field) -> under (PField fd.fname) (ref_leaves d fd.fty)) fs
       | None, Some vs ->
           List.concat
-            (List.mapi (fun i (_, t) -> match t with Some t -> under (PVar i) (ref_leaves t) | None -> []) vs)
+            (List.mapi (fun i (_, t) -> match t with Some t -> under (PVar i) (ref_leaves d t) | None -> []) vs)
       | None, None -> [])
   | _ -> []
 
@@ -75,11 +75,11 @@ let rec strip pre path =
   | _ -> None
 
 (* 一个函数导出成 (变量个数, 节点列表)；节点是 (操作, 后继, 是否出错出口)。 *)
-let func (f : func) =
+let func (d : Defs.t) (f : func) =
   let n = Array.length f.locals in
   (* 区域参数：参数类型里出现的区域名，和类型检查的顺序相同 *)
   let pregions =
-    List.sort_uniq compare (List.concat_map (fun l -> Typeck.region_names f.locals.(l).lty) f.params)
+    List.sort_uniq compare (List.concat_map (fun l -> Defs.region_names d f.locals.(l).lty) f.params)
   in
   let np = List.length pregions in
   (* 局部 l 的类型里的区域名 r 的深度：arena 块排在区域参数之后。
@@ -100,7 +100,7 @@ let func (f : func) =
   let kinds =
     Array.init n (fun l ->
         let li = f.locals.(l) in
-        let leaves = List.filter (fun (_, r) -> not (borrowed r)) (ref_leaves li.lty) in
+        let leaves = List.filter (fun (_, r) -> not (borrowed r)) (ref_leaves d li.lty) in
         if Some l = f.ret_local then None
         else
           match li.lty with
@@ -108,19 +108,19 @@ let func (f : func) =
           | TRef (_, r) -> Some (Rf (depth l r))
           | t
             when ((not li.lref) || List.mem l f.params)
-                 && (not (Typeck.needs_drop t))
-                 && (not (Typeck.is_linear t))
+                 && (not (Defs.needs_drop d t))
+                 && (not (Defs.is_linear d t))
                  && leaves <> [] ->
               Some (Data (List.map (fun (p, r) -> (p, depth l r)) leaves))
           | _ when li.lref -> None
-          | t when Typeck.is_linear t -> Some Lin
-          | t when Typeck.needs_drop t -> Some Own
+          | t when Defs.is_linear d t -> Some Lin
+          | t when Defs.needs_drop d t -> Some Own
           | _ -> None)
   in
   (* 部分移动：移走过字段的结构体局部不占一个 Lean 变量，而是它需要析构的每个字段各占一个
      （Lean `Ownership.Partial` 的位置编码：整体操作对每个字段各做一次）。槽和 own.ml 的相同。
      含引用的结构体、枚举：每个引用的位置各占一个引用变量，区域是这个位置的类型里的区域 *)
-  let sp, _ = Own.field_slots f in
+  let sp, _ = Own.field_slots d f in
   let idx = Array.make n (-1) and fidx = Hashtbl.create 8 and didx = Hashtbl.create 8 and next = ref 0 in
   Array.iteri
     (fun l k ->
@@ -365,14 +365,14 @@ let func (f : func) =
 
 (* 生成一个 Lean 文件：每个函数一个 CFG，最后用 Core.Checking.Validate.report 复核。
    expect_ok：编译器正常检查过时，要求全部接受；--unchecked 时，要求 Lean 至少拒绝一个函数。 *)
-let program ~expect_ok (fs : Mir.func list) =
+let program ~expect_ok (d : Defs.t) (fs : Mir.func list) =
   let b = Buffer.create 4096 in
   let add = Buffer.add_string b in
   add "-- 由 sinterc --emit=core 生成，不要手工修改。\n";
   add "import Core.Checking.Validate\nset_option maxRecDepth 100000\nopen Core.FlowGraph.Region\n\n";
   List.iteri
     (fun i (f : Mir.func) ->
-      let _, nodes = func f in
+      let _, nodes = func d f in
       add (Printf.sprintf "/-- %s -/\ndef f%d : CFG := [\n" f.name i);
       add
         (String.concat ",\n"
@@ -388,7 +388,7 @@ let program ~expect_ok (fs : Mir.func list) =
   add
     (String.concat ", "
        (List.mapi
-          (fun i (f : Mir.func) -> Printf.sprintf "(\"%s\", %d, f%d)" f.name (fst (func f)) i)
+          (fun i (f : Mir.func) -> Printf.sprintf "(\"%s\", %d, f%d)" f.name (fst (func d f)) i)
           fs));
   add (Printf.sprintf "] %b\n" expect_ok);
   Buffer.contents b

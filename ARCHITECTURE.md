@@ -3,7 +3,55 @@
 这份文档写编译器内部怎么组织：现在是什么样、要整理成什么样、整理到哪一步了。
 语言本身见 README.md，规则的证明见 ../lean。
 
-## 现状（重构前，master 的 “Add HTTP and URL libraries”）
+## 现在的结构
+
+### 流水线
+
+```
+bin/main.ml ─► cli.ml（参数）─► pipeline.ml（load → check → emit）；batch.ml 是 --batch 对照，report.ml 渲染报错，cc.ml 调 C 编译器
+   │
+lexer.mll / parser.mly ──► Ast.program                   位置是 Source.pos {file; line; col}
+   │
+modules.ml ──► Resolved.t                                 合成的程序 + 类型所在的文件、类型自己的方法、内建函数、静态函数
+   │
+collect.ml ──► Defs.t                                     整个程序的登记：结构体、枚举、签名、trait、impl（20 个按步骤命名的函数）
+   │
+typeck.ml（include 六个 typeck_*.ml）                     逐个函数检查；状态集中在 typing.ml（五组表，各有说明）
+   │
+to_tast.ml ──► Tast.fn_def / Tast.generated               把类型检查的旁路表（按表达式 id）翻成带类型的语法树
+   │
+mir.ml ──► Mir.func                                       降级：只读 Tast 和 Defs
+   │
+own.ml ──► borrow.ml                                      所有权与析构展开；投影锁定与排他性。只读 MIR 和 Defs；mir_check.ml 把降级和这两步接起来，返回 result
+   │
+emit_c.ml（c_names、c_types、c_func、c_closures）/ emit_core.ml       生成 C / 导出给 Lean 的 CFG
+```
+
+各阶段报错都是 `Diag.t`（键是中文格式串，加参数），`report.ml` 渲染，英文按键查 `messages.ml`；`test/messages.t` 检查表和代码对得上。
+
+### 阶段之间交接的东西
+
+| 类型 | 定义在 | 谁产生 | 谁读 |
+|---|---|---|---|
+| `Ast.program` | `ast.ml` | 语法 | 模块 |
+| `Resolved.t` | `resolved.ml` | `Modules.load` | `collect`、类型检查 |
+| `Defs.t` | `defs.ml` | `collect`（现在指向 `typing.ml` 第一组的表，检查时还会加进泛型实例） | 类型检查、降级、`own`、`borrow`、两个后端 |
+| `Tast.fn_def`、`Tast.generated` | `tast.ml` | `to_tast.ml` | `mir.ml`、C 后端 |
+| `Mir.func` | `mir.ml` | `mir.ml` | `own`、`borrow`、两个后端 |
+| `Diag.t` | `diag.ml` | 所有阶段 | `report.ml`、`batch.ml` |
+
+`Defs.variants`、`is_linear`、`needs_drop`、`region_names`、`erase` 这些按定义回答的问题只有 `defs.ml` 里一份。
+
+### 还没整理到的
+
+- 类型检查仍然把结果写进 `typing.ml` 的表，`to_tast.ml` 再按表达式 id 查出来（R4b–d 让类型检查直接产出 Tast，这个文件随之去掉）。
+- 闭包提升、嵌套模式、`for` 的展开、泛型实例化仍然在类型检查里做（R5 搬到 `elab/` 和 `mono`）。
+- 类型检查报错时仍然抛 `Diag.Error` / `Diag.Errors`；类型检查之后的几步（`mir_check.ml`）已经返回结果。
+- 第一到第三组的表仍然是模块级的（集中在 `typing.ml`，`reset ()` 清空）；第四组（正在检查的函数）已经在环境里（R4.0b.1）。`.mli` 只有 `source`、`diag`；目录还没有分。
+
+## 重构之前（master 的 “Add HTTP and URL libraries”）
+
+下面是 R0 时记下的样子，留着对照。
 
 ### 流水线
 
@@ -82,18 +130,29 @@ emit_c.ml / emit_core.ml                          生成 C（运行时 runtime/*
 | 步 | 内容 | 状态 |
 |---|---|---|
 | R0 | 基线：`sh baseline.sh record --with-lean`；本文档的现状部分 | 完成 |
-| R1a | `Source`：位置是 `{file; line; col}`，取代行号里乘 1,000,000 的编码 | 待验证 |
-| R1b | `Diag` 和按键的 `messages.ml` 取代 `Typeck.Error` 和 `i18n.ml` 的匹配 | |
-| R2 | `main.ml` 拆成 `cli`、`pipeline`、`batch`、`cc` | |
-| R3 | `Syntax` 去掉全局表；`resolve` 返回 `Resolved.program` | |
-| R4.0 | 类型检查的全局表原样收进一个显式传递的 `Typing.t`（只搬家，不改逻辑） | |
-| R4.1 | 先写好 `tast.ml`、`defs.mli` 并评审，再动类型检查 | |
-| R4a–d | `collect`；`check_expr` 等输出 Tast；模式和区域；捕获 | |
+| R1a | `Source`：位置是 `{file; line; col}`，取代行号里乘 1,000,000 的编码 | 完成 |
+| R1b.1 | `Diag.Error` / `Diag.Errors` 取代 `Lexer.Error`、`Ast.Syntax`、`Typeck.Error`、`Typeck.Errors`，文字不变 | 完成 |
+| R1b.2 | 诊断带键和参数（键是中文格式串）；`messages.ml` 按键查英文，取代 `i18n.ml` 的整句匹配；`test/messages.t` 检查表和代码对得上 | 完成 |
+| R2 | `main.ml` 拆成 `cli`、`pipeline`、`report`、`cc`、`fmt_cmd`、`batch`；`main.ml` 只剩 15 行的分派 | 完成 |
+| R3 | `Ast` 的 `type_file`、`inherent`、`prims`、`statics` 收进 `Resolved.t`，由 `Modules.load` 返回；值从元组换成记录。`Ast.next_id` 留到 R5（随按 id 的表一起去掉），词法分析的状态留到 R4.0 | 完成 |
+| R4.0 | 类型检查的 47 个表和 ref 搬进 `typing.ml`，按用途分五组、各有说明；`prepare` 开头 30 处手工清空换成 `Typing.reset ()`。只搬家，访问方式不变 | 完成 |
+| R4.0b | 显式传递：按组换成参数（第四组进检查函数的环境，第一组随 R4a 变成 `Defs`，第二组随 R4b、R5 去掉），不再一次性改 380 处 | 进行中 |
+| R4.0b.1 | 第四组：当前函数（名字、会不会生成代码、let 参数、绑定的区域）放进 `env.cur`，区域、循环层数、闭包、scope 是 `env` 的字段。进出循环、闭包、scope、arena 改成建新的环境，不再手工保存恢复（去掉了 3 个 `Fun.protect` 和出错时的 `regions := []`）；`expect`、`join`、`sub`、`outlives` 多一个 `env` 参数 | 完成 |
+| — | `baseline.sh`：`examples/ok/scope.sn` 的两个任务在不同线程上打印，先后不定；它的标准输出排序后再记（`_baseline` 里已有的一份也排过序） | 完成 |
+| R4.1 | `src/tast.ml`、`src/defs.ml` 两个接口草稿（只有类型，还没有代码用它们）；评审定下来再动类型检查 | 完成（内建函数各一个构造子；泛型实例是 Defs 里的可变子记录） |
+| R4a.1 | `prepare`（336 行）拆成 `collect.ml` 里 20 个按步骤命名的函数（最长的 impl_signatures 约 55 行），执行顺序不变；仍写 `Typing` 的第一组表 | 完成 |
+| R4a.2 | `Defs.t` 定下来：字段就是第一组的表，`Typing.defs` 指向它们。`variants`、`is_linear`、`needs_drop`、`region_names` 等只留 `defs.ml` 里一份（类型检查里是部分应用）。`own.ml`、`borrow.ml`、`emit_core.ml` 显式接收 `Defs.t`，不再依赖 `Typeck`。`mir.ml`、`emit_c.ml` 还要读第二组的表，随 R6、R7 再换 | 完成 |
+| R4b.1 | `to_tast.ml` 把 Ast 和类型检查的旁路表翻成 Tast；`mir.ml` 改成只读 Tast 和 `Defs`，不再依赖 `Typeck`（按 id 的表、`arm_for`、别名、签名都只在 `to_tast.ml` 里查；泛型实例的返回借用也改在那里登记） | 完成 |
+| R4b.2 | `emit_c.ml` 只读 MIR、`Defs` 和 `Tast.generated`（闭包、Fn 调用、任务、Vec 内建函数，按以前遍历表的顺序列出）；代码生成要用的 `Option<T>` 实例改在 `To_tast.generated` 里建好，代码生成不再改 `Defs`。`closure` 类型搬进 `tast.ml`，`erase` 搬进 `defs.ml`。之后 `src/` 里类型检查以外只有 `to_tast.ml` 依赖 `Typeck` | 完成 |
+| R4b–d | `check_expr` 等直接输出 Tast（`to_tast.ml` 随之去掉）；模式和区域；捕获 | |
 | R5 | `elab/` 的去糖和 `mono`，去掉按表达式 id 的表 | |
-| R6 | `lower.ml` 只读 Tast；own、borrow 返回诊断 | |
-| R7 | C 后端拆成 4 个文件 | |
-| R8 | 运行时按职责拆成 4 个头文件，构建时拼回 | |
-| R9 | 收尾：README、CHANGELOG；编译时间不比基线慢 20% 以上 | |
+| R6 | 降级只读 Tast（R4b.1 已经做到，仍叫 `mir.ml`）；`Own.elaborate`、`Borrow.check` 返回 `(func, Diag.t) result`，降级、所有权、投影三步由 `mir_check.ml` 接起来，调用者（pipeline、batch、fuzz）不再各自 try。阶段内部仍用异常在第一个错误处停下（每个函数只报第一个错误） | 完成 |
+| R7 | C 后端拆成 4 个文件：`c_names`（C 名字、C 类型）、`c_types`（类型定义、析构、Vec 宏、运行时库）、`c_func`（MIR 函数）、`c_closures`（闭包、任务、Fn 调用）；`emit_c.ml` 只剩按顺序拼接和入口。代码原样搬，生成的 C 逐字节不变（`--with-c`）。同时删掉 `tools/migrate.ml` | 完成 |
+| R8 | 运行时按职责拆成六个文件（`base`、`values`、`sched`、`entry` 拼成 `sinter.h`；`lib_io`、`lib_net` 拼成 `sinter_lib.h`），`runtime/dune` 构建时拼回，内容逐字节不变；各文件的说明在 `runtime/README.md` | 完成 |
+| R9 | 收尾（第一阶段）：`ARCHITECTURE.md` 写现在的结构和还没整理到的，README、CHANGELOG、`runtime/README.md` 跟上；编译时间和基线相同（examples/ok 生成 C 十遍 5 秒），生成的 C、报错、Lean 对照逐字节不变 | 完成 |
 
 R4.0 和 R4.1 是这次重做时加的：R4.0 先把最影响阅读的全局状态解决掉，之后即使 Tast 那一步要退回，这一步也不白做；
 R4.1 让 R4 到 R6 围绕的两个接口先定下来，避免边改边调。
+
+R4b.1、R4b.2 也是重做时加的：先加一层翻译，让降级和 C 后端只读 Tast 和 `Defs`，不必先改写 1100 行的类型检查。
+剩下的 R4.0b、R4b–d、R5、R6 的后一半都在类型检查里面或者紧挨着它，可以一步一步做，每一步照样和基线比较。
