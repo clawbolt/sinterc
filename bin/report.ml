@@ -56,9 +56,9 @@ let snippet path line col =
       Printf.eprintf " %s | %s\n%s | %s^\n" num text gutter (caret_pad text col)
   | _ -> ()
 
-(* 核心部分的名字在编译器里带前缀 core.（Modules.core），报错时按用户写的样子显示：core.Ord 显示成 Ord。 *)
+(* 核心部分的名字在编译器里带前缀 core.（Resolve.core），报错时按用户写的样子显示：core.Ord 显示成 Ord。 *)
 let unprefix_core msg =
-  let p = Modules.core ^ "." in
+  let p = Resolve.core ^ "." in
   let n = String.length p and b = Buffer.create (String.length msg) in
   let ident c = match c with 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '.' -> true | _ -> false in
   let i = ref 0 in

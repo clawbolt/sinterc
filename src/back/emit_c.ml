@@ -1,4 +1,4 @@
-(* C 后端：从 MIR 生成整个 C 文件。输入是 MIR、定义（Defs）、程序里的类型名（Tast.program 的 types）和要写 C 辅助函数的东西（Tast.generated）；不依赖 Typeck。
+(* C 后端：从 MIR 生成整个 C 文件。输入是 MIR、定义（Defs）、程序里的类型名（Tast.program 的 types）和要写 C 辅助函数的东西（Tast.generated）；不依赖 Check。
    分成四个文件，按生成的 C 里的顺序：
    - c_names.ml：C 名字和 C 类型；
    - c_types.ml：类型定义、析构函数、Vec 宏、运行时库；

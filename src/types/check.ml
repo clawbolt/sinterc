@@ -1,16 +1,16 @@
-(* 类型检查：结构体按名字区分，泛型按实例化后的名字区分（见 typeck_generics.ml）；`return` 之后的代码类型记为 Never。
+(* 类型检查：结构体按名字区分，泛型按实例化后的名字区分（见 generics.ml）；`return` 之后的代码类型记为 Never。
    `Ok(e)` / `Err(e)` 的类型要靠上下文确定（let 标注、返回值、实参、字段），
    所以有两种检查方式：expr 自己推出类型，check 按期望类型检查。
 
-   拆成了几个文件，按依赖的顺序：typeck_env（环境；状态在 typing.ml）、typeck_builtins、typeck_regions、typeck_generics、
-   typeck_pattern、typeck_expr，这里是整个程序的准备和检查。结果是带类型的语法树（Tast），另外 generated 交给代码生成。 *)
+   拆成了几个文件，按依赖的顺序：ctx（环境；状态在 check_state.ml）、builtin、region、generics、
+   pattern、check_expr，这里是整个程序的准备和检查。结果是带类型的语法树（Tast），另外 generated 交给代码生成。 *)
 open Ast
-include Typeck_env
-include Typeck_builtins
-include Typeck_regions
-include Typeck_generics
-include Typeck_pattern
-include Typeck_expr
+include Ctx
+include Builtin
+include Region
+include Generics
+include Pattern
+include Check_expr
 
 (* 整个程序的准备：登记和检查结构体、枚举（含泛型定义）、函数签名、trait 和 impl、字段和载荷（见 collect.ml）。
    返回检查函数体用的环境。 *)
@@ -89,21 +89,7 @@ let resolve_items = function
    rord：闭包捕获的区域参数之间的先后关系（`Closures.CapRef`）；其余区域参数之间没有顺序（D3）。 *)
 let check_fn ?(clos = []) ?(fvars = []) ?(rord = []) env0 = function
   | Fn { name; tparams; params; ret; body; ipos; bounds; _ } ->
-      (* 区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3）；
-         返回类型 &T in m 里的 let 参数 m 也是区域参数（返回借用，Lean `Projection.Return`） *)
-      let borrowed =
-        List.filter_map
-          (fun (m, x, t) ->
-            match m, t with
-            | MLet, TArena _ -> None
-            | MLet, _ when List.mem x (region_names ret) -> Some x
-            | _ -> None)
-          params
-      in
-      let regions =
-        List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) params @ borrowed)
-        |> List.map (fun r -> (r, Option.value (List.assoc_opt r rord) ~default:[]))
-      in
+      let regions = List.map (fun r -> (r, Option.value (List.assoc_opt r rord) ~default:[])) (fn_regions params ret) in
       let cur =
         {
           fn_name = name;
@@ -127,8 +113,18 @@ let check_fn ?(clos = []) ?(fvars = []) ?(rord = []) env0 = function
       let env = { env1 with ret; vars; tbounds = bounds; clos } in
       let body, t = block env ~want:ret body in
       expect env ipos ret t;
-      Some { Tast.name; params; ret; body; pos = ipos; from_core = Modules.in_core ipos }
+      Some { Tast.name; params; ret; body; pos = ipos; from_core = Resolve.in_core ipos }
   | Struct _ | Enum _ | Trait _ | Impl _ -> None
+
+(* 泛型函数检查完，连同检查时按顺序发生的请求和 pm_count 记下来（单态化用，见 elab/mono.ml）。 *)
+let check_fn ?clos ?fvars ?rord env0 it =
+  requests := [];
+  let pm0 = !pm_count in
+  let fd = check_fn ?clos ?fvars ?rord env0 it in
+  (match it, fd with
+  | Fn { name; tparams = _ :: _; _ }, Some fd -> Hashtbl.replace generic_fns name (fd, List.rev !requests, pm0, !pm_count)
+  | _ -> ());
+  fd
 
 let check_main env0 =
   match Hashtbl.find_opt env0.fns "main" with
@@ -174,9 +170,9 @@ let type_names (p : program) =
       | Struct _ | Enum _ | Fn _ | Trait _ | Impl _ -> None)
     p
 
-(* 检查整个程序。返回要降级的函数（impl 换成它的方法），后面接上用到的泛型函数实例（单态化），每个实例照常检查。
-   方法调用的名字在检查时换成解析出的函数名；实例是从检查过的泛型函数复制的，复制时已经换好。
-   闭包：提升出的闭包和特化也接在后面、照常检查。 *)
+(* 检查整个程序。返回要降级的函数（impl 换成它的方法），后面接上用到的泛型函数实例：泛型函数只检查一次，
+   实例由它的语法树单态化得到（elab/mono.ml），不再检查。
+   闭包：提升出的闭包和特化也接在后面、照常检查（特化复制带 fn(…) 参数的函数的 Ast）。 *)
 let program (res : Resolved.t) : Tast.program =
   let p = sugar_to_str res.Resolved.items in
   let env0 = prepare { res with Resolved.items = p } in
@@ -188,21 +184,20 @@ let program (res : Resolved.t) : Tast.program =
   let checked = List.map (fun it -> (it, guard (check_fn env0) it)) p in
   ignore (guard (fun env0 -> check_main env0; None) env0);
   if !errs <> [] then raise (Diag.Errors (List.rev !errs));
+  (* 泛型函数的实例（单态化，elab/mono.ml），提升出的闭包和特化（照常检查）：都要降级，按生成的顺序 *)
   let rec drain acc =
     if List.length acc >= 1000 then
       err Source.start "泛型函数的实例超过 1000 个（可能是多态递归）";
     match Queue.take_opt pending with
-    | Some r ->
-        let it = instance r in
-        drain ((it, guard (check_fn env0) it) :: acc)
+    | Some r -> drain (guard (Mono.instance_fn ~define:(fun it -> ignore (check_fn env0 it)) (check_fn env0)) r :: acc)
     | None -> (
         match Queue.take_opt pending_items with
-        | Some (it, clos, fvars, rord) -> drain ((it, guard (check_fn ~clos ~fvars ~rord env0) it) :: acc)
+        | Some (it, clos, fvars, rord) -> drain (guard (check_fn ~clos ~fvars ~rord env0) it :: acc)
         | None -> List.rev acc)
   in
   let insts = drain [] in
   if !errs <> [] then raise (Diag.Errors (List.rev !errs));
-  { Tast.types = type_names p; fns = List.filter_map lowered (checked @ insts) }
+  { Tast.types = type_names p; fns = List.filter_map lowered checked @ List.filter_map Fun.id insts }
 
 (* 对照测试（--batch）：程序里的函数逐个检查，每个连同它引出的泛型实例、提升出的闭包和特化一起，
    返回要降级的函数（规则和 program 相同）。出错时清空队列再抛出，不影响下一个函数。
@@ -217,16 +212,14 @@ let check_batch env0 it : Tast.fn_def list =
     let first = (it, check_fn env0 it) in
     let rec drain acc =
       match Queue.take_opt pending with
-      | Some r ->
-          let i = instance r in
-          drain ((i, check_fn env0 i) :: acc)
+      | Some r -> drain (Mono.instance_fn ~define:(fun it -> ignore (check_fn env0 it)) (check_fn env0) r :: acc)
       | None -> (
           match Queue.take_opt pending_items with
-          | Some (i, clos, fvars, rord) -> drain ((i, check_fn ~clos ~fvars ~rord env0 i) :: acc)
+          | Some (i, clos, fvars, rord) -> drain (check_fn ~clos ~fvars ~rord env0 i :: acc)
           | None -> List.rev acc)
     in
     let insts = drain [] in
-    List.filter_map lowered (first :: insts)
+    List.filter_map lowered [ first ] @ List.filter_map Fun.id insts
   with e ->
     Queue.clear pending;
     Queue.clear pending_items;

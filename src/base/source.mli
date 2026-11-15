@@ -9,10 +9,10 @@ val nopos : pos
 (* 主文件的开头：不属于某一行的错误（“缺少 fn main()”）和内建的定义用它。 *)
 val start : pos
 
-(* 读进来的文件名，下标是 pos.file。modules.ml 读文件时登记。 *)
+(* 读进来的文件名，下标是 pos.file。resolve.ml 读文件时登记。 *)
 val files : string array ref
 
-(* 正在读的文件的序号：词法、语法分析产生的位置都属于它。modules.ml 读每个文件之前设好。 *)
+(* 正在读的文件的序号：词法、语法分析产生的位置都属于它。resolve.ml 读每个文件之前设好。 *)
 val current : int ref
 
 val of_lexing : Lexing.position -> pos

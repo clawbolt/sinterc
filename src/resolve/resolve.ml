@@ -3,7 +3,7 @@
    模块 m 里的函数、结构体、枚举、trait 加上前缀，名字变成 m.f、m.T（主文件不加前缀）。
    trait 的方法名不加前缀（方法跟着 trait 走，和 impl 一样是全局的）；类型自己的方法（impl 类型 { … }）换成函数 头部.方法。
    改名只是名字的事，不改变任何检查规则，所以不需要新的 Lean 里程碑。
-   consume 只能在定义这个 linear 类型的文件里用（见 typeck.ml 的 consume），linear 类型的封装由此成立。
+   consume 只能在定义这个 linear 类型的文件里用（见 check.ml 的 consume），linear 类型的封装由此成立。
    标准库：use std.m 引入编进编译器的 std/m.sn（见 stdlib_src.ml，由 std/*.sn 生成），之后照样写 m.f(…)。
    模块按最后一段名字区分：同一个程序里不能既有自己的 m.sn 又用 std.m。 *)
 open Ast
@@ -87,7 +87,7 @@ let io_builtins =
     "net_timeout";
   ]
 
-let is_builtin f = List.mem_assoc f Typeck_builtins.builtins || List.mem f Typeck_builtins.special
+let is_builtin f = List.mem_assoc f Builtin.builtins || List.mem f Builtin.special
 
 (* 去掉了的内建函数：旧程序调用时提示新的写法，而不是“未定义的函数” *)
 let removed_builtins = [ "print_i64"; "print_bool"; "print_f64"; "print_char" ]

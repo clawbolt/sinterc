@@ -1,15 +1,15 @@
 (* 泛型、trait 和 impl 的查找、协变、类型实参的推断和实例化。 *)
 open Ast
-open Typeck_env
-open Typeck_builtins
-open Typeck_regions
+open Ctx
+open Builtin
+open Region
 
 (* ---------- 泛型（Lean `Generics.Check`） ----------
    泛型结构体和枚举按用到的类型实参实例化成具体的类型，名字就是写法本身（例如 "Option<I64>"），
    登记到 struct_tbl / enum_tbl，之后的检查、降级、代码生成都把它当普通类型。
    泛型函数里的类型参数记作 TParam，按抽象类型检查：值只能移动，普通的 T 可以自动析构，
    T: linear 必须交出去；不能对 T 做运算、取字段或 match。调用处推出类型实参并检查约束，
-   用到的每个实例复制一份函数体，换成具体类型后照常检查（单态化）。 *)
+   用到的每个实例由泛型函数的带类型的语法树换成具体类型得到（单态化，elab/mono.ml）。 *)
 
 (* trait（Lean `Traits.Static`）：每个方法当作带一个类型参数 Self 的泛型函数，Self 换成实现的类型。
    方法的函数名是 trait.方法（例如 Ord.cmp），不占用全局的名字：只能用方法调用 x.cmp(y) 调用，
@@ -268,8 +268,9 @@ let rec unify s p t =
       | _ -> ())
   | _ -> ()
 
-(* 调用 Fn(…) 类型 t 的闭包的内建函数 call#t：闭包按 inout，其余参数按类型里写的约定。 *)
-let fcall_name (fns : (string, (mode * ty) list * ty) Hashtbl.t) t =
+(* 调用 Fn(…) 类型 t 的闭包的内建函数 call#t：闭包按 inout，其余参数按类型里写的约定。
+   fcall_register 登记（第一次时），fcall_name 另外记下请求（单态化按实例的类型重新登记）。 *)
+let fcall_register (fns : (string, (mode * ty) list * ty) Hashtbl.t) t =
   match t with
   | TOFn (pts, r) ->
       let n = "call#" ^ string_of_ty t in
@@ -278,9 +279,17 @@ let fcall_name (fns : (string, (mode * ty) list * ty) Hashtbl.t) t =
         Hashtbl.replace sigs n s;
         Hashtbl.replace fns n s
       end;
-      if params_of t = [] then Hashtbl.replace fcalls n t;
+      if params_of t = [] && not (Hashtbl.mem fcalls n) then begin
+        trace := ("fcall " ^ n) :: !trace;
+        Hashtbl.replace fcalls n t
+      end;
       n
   | _ -> assert false
+
+let fcall_name fns t =
+  let n = fcall_register fns t in
+  requests := Fcall (fns, t, n) :: !requests;
+  n
 
 (* 改写函数体里写出的类型（let 标注、var 声明），方法调用换成解析出的函数名（检查过的才有：复制泛型函数的实例时）。
    fresh：表达式换新的 id（复制出实例、特化、提升出的闭包时用）。 *)
@@ -327,12 +336,21 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
   blk b
 
 (* Vec 的内建函数按元素类型实例化：降级时调用名换成 vec_push<T> 这样的实例名；
-   元素类型是具体类型时登记，代码生成为它写辅助函数。 *)
-let vec_inst (x : expr) b t =
-  Hashtbl.replace call_inst x.id [ t ];
-  if params_of t = [] then Hashtbl.replace vec_calls (inst_name ("vec_" ^ b) [ t ]) (b, t)
+   元素类型是具体类型时登记，代码生成为它写辅助函数。vec_inst 另外记下请求，返回调用节点的类型实参。 *)
+let vec_request b t =
+  if params_of t = [] then begin
+    let n = inst_name ("vec_" ^ b) [ t ] in
+    trace := ("vec " ^ n) :: !trace;
+    Hashtbl.replace vec_calls n (b, t)
+  end
 
-(* 泛型函数 f 按类型实参 ts 的实例：复制函数体（表达式换新的 id），类型参数换成具体类型。
+let vec_inst b t =
+  requests := Vec (b, t) :: !requests;
+  vec_request b t;
+  Some [ t ]
+
+(* 泛型函数 f 按类型实参 ts 的 Ast 副本：复制函数体（表达式换新的 id），类型参数换成具体类型。
+   给带 fn(…) 参数的泛型函数的特化用（特化照常检查），对照模式（SINTER_MONO=check）也用它重新检查实例。
    泛型 impl 的方法：方法<具体类型> 是 方法<头部> 按匹配出的类型实参的实例。 *)
 let instance (f, ts) =
   let name = inst_name f ts in
@@ -352,24 +370,70 @@ let instance (f, ts) =
         }
   | it -> it
 
+(* 内建类型的 to_str 是内建函数（不生成实例）。 *)
+let builtin_alias f t =
+  match f, t with
+  | "ToStr.to_str", TI64 -> Some "str_from_i64"
+  | "ToStr.to_str", TF64 -> Some "str_from_f64"
+  | "ToStr.to_str", TChar -> Some "str_from_char"
+  | "ToStr.to_str", TBool -> Some "str_from_bool"
+  | "ToStr.to_str", TStr -> Some "str_clone"
+  | _ -> None
+
 (* trait 的方法 f 对具体类型 t 第一次被调用：impl 里写了的就是函数 f<t>；
    内建类型的 to_str 换成内建函数；否则生成实例（泛型 impl 的方法，或者默认方法）。 *)
 let method_inst f t =
   let name = inst_name f [ t ] in
   if not (Hashtbl.mem sigs name) then
-    match f, t with
-    | "ToStr.to_str", TI64 -> Hashtbl.replace aliases name "str_from_i64"
-    | "ToStr.to_str", TF64 -> Hashtbl.replace aliases name "str_from_f64"
-    | "ToStr.to_str", TChar -> Hashtbl.replace aliases name "str_from_char"
-    | "ToStr.to_str", TBool -> Hashtbl.replace aliases name "str_from_bool"
-    | "ToStr.to_str", TStr -> Hashtbl.replace aliases name "str_clone"
-    | _ -> (
+    match builtin_alias f t with
+    | Some b -> Hashtbl.replace aliases name b
+    | None -> (
         match find_impl (Hashtbl.find methods f) t with
         | Some (i, s) when List.mem (bare f) i.defined ->
             Hashtbl.replace minst name (inst_name f [ i.head ], List.map (fun n -> List.assoc n s) i.itps);
             Queue.add (f, [ t ]) pending
         | Some _ -> Queue.add (f, [ t ]) pending
         | None -> ())
+
+(* 泛型调用推出的类型实参里的区域按出现的顺序换成 '0、'1…：不同调用处的同一种实例只生成一份，
+   也不会和函数体里 arena 的名字冲突。 *)
+let canon_regions ts =
+  let rs =
+    List.fold_left (fun acc r -> if List.mem r acc then acc else acc @ [ r ]) [] (List.concat_map region_names ts)
+  in
+  List.map (rename (List.mapi (fun i r -> (r, "'" ^ string_of_int i)) rs)) ts
+
+(* 调用泛型函数 f 推出了类型实参 ts：都是具体类型时登记这个实例（第一次时）。
+   方法调用直接用 impl 里的函数；impl 没写、用默认方法的，或者 impl 是泛型的，生成实例；
+   带 fn(…) 参数的函数生成的是特化（不在这里）。 *)
+let request_inst f ts ~has_fn =
+  let n = inst_name f ts in
+  if List.for_all (fun t -> params_of t = []) ts && (not has_fn) && not (Hashtbl.mem requested n) then begin
+    Hashtbl.replace requested n ();
+    trace := ("inst " ^ n) :: !trace;
+    if Hashtbl.mem methods f then method_inst f (List.hd ts) else Queue.add (f, ts) pending
+  end
+
+(* 调用 f(args) 的节点。inst：泛型调用推出的类型实参，调用的是它们对应的实例；内建类型的 to_str 直接是内建函数（别名，
+   alias 查它），这时实参按内建函数的签名传（I64 按值，不按 Self 的借用）。返回借用的泛型函数，实例也借自同样的参数
+   （登记进 Defs，borrow.ml 按调用的函数名查）。签名查不到的只会是不降级的函数里的调用（见 not_lowered），约定随便取。 *)
+let call_node ?(alias = Hashtbl.find_opt aliases) f inst (args : Tast.expr list) : Tast.expr_desc =
+  let g = match inst with Some ts -> inst_name f ts | None -> f in
+  let f', g = match alias g with Some b -> (b, b) | None -> (f, g) in
+  let lent = Hashtbl.find_opt let_regions f' in
+  (match lent with Some l when g <> f' -> Hashtbl.replace let_regions g l | _ -> ());
+  let modes =
+    match Hashtbl.find_opt sigs f' with Some (ps, _) -> List.map fst ps | None -> List.map (fun _ -> MLet) args
+  in
+  Tast.Call
+    {
+      callee = g;
+      base = (if inst = None then "" else f);
+      targs = Option.value inst ~default:[];
+      modes;
+      borrows = Option.value lent ~default:[];
+      args;
+    }
 
 (* 改写调用时新加的实参：变量 v（类型是 t），类型直接记下。 *)
 let var_expr pos v t =
@@ -381,3 +445,113 @@ let var_expr pos v t =
 (* 算术的类型：左边是 F64 时按 F64，否则按 I64（右边、报错都跟着它）。 *)
 let num = function Ty TF64 -> TF64 | _ -> TI64
 
+
+(* ---------- 闭包的提升和特化（检查器和单态化共用） ----------
+   检查器在会生成代码的函数里直接调用；单态化（elab/mono.ml）按实例的类型重放泛型函数里记下的 Lam、Spec、Pack、Spawn。
+   reg：Real 真的登记（排进 pending_items、写 sigs），Dry 只算名字、记下会登记什么（对照用，不改任何表）。 *)
+type reg = Real | Dry of (string, unit) Hashtbl.t * string list ref
+
+(* 名字 n 第一次出现：Real 时记进 requested。 *)
+let first reg n =
+  match reg with
+  | Real -> if Hashtbl.mem requested n then false else (Hashtbl.replace requested n (); true)
+  | Dry (seen, _) -> if Hashtbl.mem requested n || Hashtbl.mem seen n then false else (Hashtbl.replace seen n (); true)
+
+let traced reg s = match reg with Real -> trace := s :: !trace | Dry (_, l) -> l := s :: !l
+
+(* 闭包 |ys| body 提升成普通函数（检查完函数体、找出捕获 caps0 之后）。regions：闭包所在处可见的区域。
+   捕获的类型里的区域换成区域参数 'c00、'c01…：按这里的嵌套顺序编号（外层在前），
+   先后关系只取这里真实成立的（`Closures.CapRef` 的 capture_mono；调用时这些区域都活着是 capture_below）。
+   r 为 Some 且 concrete（会生成代码）时登记：捕获在前、闭包的参数在后；名字按位置和类型确定，同一个闭包只提升一次。
+   ft：函数体里写出的类型怎么换（单态化时是类型参数的替换）。 *)
+let lift ?(reg = Real) ?(ft = Fun.id) ~concrete regions pos ys (body : expr) pts r caps0 : closure =
+  let outer_first = List.rev_map fst regions in
+  let idx r = Option.value (List.find_index (( = ) r) outer_first) ~default:max_int in
+  let rs =
+    List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) caps0)
+    |> List.stable_sort (fun a b -> compare (idx a) (idx b))
+  in
+  if List.length rs > 100 then err pos "闭包捕获的区域太多（最多 100 个）";
+  let s = List.mapi (fun k r -> (r, Printf.sprintf "'c%02d" k)) rs in
+  let rord =
+    List.map (fun (r, c) -> (c, List.filter_map (fun (r', c') -> if r' <> r && outlives_in regions r' r then Some c' else None) s)) s
+  in
+  let caps = List.map (fun (m, v, t) -> (m, v, rename s t)) caps0 in
+  let file, line = Source.locate (if Array.length !Source.files > 0 then !Source.files.(0) else "") pos in
+  let tys = List.map (fun (_, _, t) -> string_of_ty t) caps @ [ string_of_ty (TFn (pts, Option.value r ~default:TUnit)) ] in
+  let cname = Printf.sprintf "闭包<%s:%d:%d, %s>" (Filename.basename file) line pos.col (String.concat ", " tys) in
+  (match r with
+  | Some r when concrete && first reg cname -> (
+      traced reg ("lift " ^ cname);
+      match reg with
+      | Real ->
+          let params = caps @ List.map2 (fun y (m, t) -> (m, y, t)) ys pts in
+          Hashtbl.replace sigs cname (List.map (fun (m, _, t) -> (m, t)) params, r);
+          let b = match body.e with Block b -> b | _ -> { stmts = []; tail = Some body } in
+          let body = map_body ~fresh:true (fun _ t -> rename s (ft t)) b in
+          Queue.add
+            (Fn { name = cname; tparams = []; bounds = []; params; ret = r; body; prim = None; ipos = pos }, [], [], rord)
+            pending_items
+      | Dry _ -> ())
+  | _ -> ());
+  { cname; caps; rord }
+
+(* Fn(…) 闭包的捕获不能含引用、不能是 linear（闭包可以存起来）。 *)
+let pack_check pos (caps : (mode * string * ty) list) =
+  List.iter
+    (fun (_, v, t) ->
+      if region_names t <> [] then
+        err pos "Fn(…) 闭包暂不能用含引用或区域的变量 %s：闭包可以存起来，引用可能活不过它的区域" v;
+      if is_linear t then err pos "Fn(…) 闭包暂不能用 linear 值 %s" v)
+    caps
+
+(* Fn#… 的签名和代码生成要的东西（会生成代码时）。 *)
+let pack_register ?(reg = Real) ~concrete pk (c : closure) want =
+  match reg with
+  | Real ->
+      if not (Hashtbl.mem sigs pk) then Hashtbl.replace sigs pk (List.map (fun (_, _, t) -> (MSink, t)) c.caps, want);
+      if concrete then Hashtbl.replace packs pk (c, want)
+  | Dry _ -> ()
+
+(* spawn#… 同上。 *)
+let spawn_register ?(reg = Real) ~concrete sp (c : closure) =
+  match reg with
+  | Real ->
+      if not (Hashtbl.mem sigs sp) then
+        Hashtbl.replace sigs sp ((MInout, TI64) :: List.map (fun (m, _, t) -> (m, t)) c.caps, TUnit);
+      if concrete then Hashtbl.replace spawns sp c
+  | Dry _ -> ()
+
+(* 带 fn(…) 参数的函数 f 对闭包 cls 的特化 f[闭包, …]（第一次用到时生成）：去掉 fn(…) 参数，后面接上每个闭包的捕获
+   （`Closures.Param`）。ts：f 是泛型函数时推出的类型实参。返回特化的名字。 *)
+let spec_register ?(reg = Real) f ts (cls : closure list) =
+  let base = match ts with Some ts -> inst_name f ts | None -> f in
+  let name = base ^ "[" ^ String.concat ", " (List.map (fun (c : closure) -> c.cname) cls) ^ "]" in
+  if first reg name then begin
+    traced reg ("spec " ^ name);
+    match reg with
+    | Dry _ -> ()
+    | Real -> (
+        match (match ts with Some ts -> instance (f, ts) | None -> Hashtbl.find fn_items f) with
+        | Fn g ->
+            (* 泛型实例已经复制过；非泛型函数在这里复制（表达式换新的 id） *)
+            let body = if ts = None then map_body ~fresh:true (fun _ t -> t) g.body else g.body in
+            let fparams = List.filter (fun (_, _, t) -> is_fn t) g.params in
+            let binding = List.map2 (fun (_, y, t) c -> (y, t, c)) fparams cls in
+            (* 每个闭包的区域参数加上 @y 区分（两个闭包都有 'c00 时是不同的区域，彼此之间没有顺序） *)
+            let ry (c : closure) y = List.map (fun (r, _) -> (r, r ^ "@" ^ y)) c.rord in
+            let capsof (y, _, (c : closure)) = List.map (fun (m, v, t) -> (m, v ^ "@" ^ y, rename (ry c y) t)) c.caps in
+            let caps = List.concat_map capsof binding in
+            let params = List.filter (fun (_, _, t) -> not (is_fn t)) g.params @ caps in
+            Hashtbl.replace sigs name (List.map (fun (m, _, t) -> (m, t)) params, g.ret);
+            let clos = List.map (fun ((y, _, c) as b) -> (y, (c, List.map (fun (_, v, t) -> (v, t)) (capsof b)))) binding in
+            let fvars = List.map (fun (y, t, _) -> (y, t)) binding in
+            let rord =
+              List.concat_map
+                (fun (y, _, (c : closure)) -> List.map (fun (r, os) -> (r ^ "@" ^ y, List.map (fun o -> o ^ "@" ^ y) os)) c.rord)
+                binding
+            in
+            Queue.add (Fn { g with name; params; body; tparams = []; bounds = [] }, clos, fvars, rord) pending_items
+        | _ -> assert false)
+  end;
+  name

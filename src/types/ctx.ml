@@ -1,6 +1,6 @@
-(* 类型检查共用的：环境 env 和在它上面的小工具。状态（各种表）见 typing.ml，这里 include 它；错误见 diag.ml。 *)
+(* 类型检查共用的：环境 env 和在它上面的小工具。状态（各种表）见 check_state.ml，这里 include 它；错误见 diag.ml。 *)
 open Ast
-include Typing
+include Check_state
 
 let err pos fmt = Diag.error pos fmt
 
@@ -69,7 +69,7 @@ let no_exit env pos what =
   if List.exists (fun f -> f.slam = here) env.scopes then
     err pos "scope 里不能写 %s：离开 scope 之前要等所有任务结束（可以先把结果存进 scope 外面的 var 变量）" what
 
-(* 变体、linear、析构这些按定义回答的问题在 defs.ml，这里查 Typing.defs。 *)
+(* 变体、linear、析构这些按定义回答的问题在 defs.ml，这里查 Check_state.defs。 *)
 let variants = Defs.variants defs
 let variant = Defs.variant defs
 

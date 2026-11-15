@@ -7,7 +7,7 @@ let mk e pos = { e; pos = p pos; id = fresh_id () }
 let mks s pos = { s; spos = p pos }
 
 (* 语法糖展开出的内建函数调用（v[i]、for、插值、按字符串匹配）名字前面加 #，例如 #vec_get：
-   modules.ml 去掉 #，并且不按“标准库以外不能直接调用内建函数”检查（用户写的 vec_get(v, i) 要检查） *)
+   resolve.ml 去掉 #，并且不按“标准库以外不能直接调用内建函数”检查（用户写的 vec_get(v, i) 要检查） *)
 
 (* 赋值 a = e：a 是变量、字段，或者 Vec 的元素（v[i]、vec_get(v, i)、v.get(i)；
    和 for x in inout v 里的 x = e 一样是 SetPlace，先算右边，再查下标、析构旧值、放进新值，Lean `Datatypes.VecInout`（二）） *)
@@ -439,7 +439,7 @@ msigs:
 impl_fns:
   | { [] }
   | f = fn_item nls fs = impl_fns { f :: fs }
-  (* 内建方法：intrinsic fn len(s: Str) -> I64 = str_len，没有函数体，只能写在标准库里（modules.ml 检查） *)
+  (* 内建方法：intrinsic fn len(s: Str) -> I64 = str_len，没有函数体，只能写在标准库里（resolve.ml 检查） *)
   | k = IDENT FN n = IDENT tp = tparams LPAREN ps = separated_list(COMMA, param) RPAREN r = ret EQ b = IDENT nls fs = impl_fns
     { if k <> "intrinsic" then Diag.error (p $startpos) "impl 里只能写 fn（%s 是什么？）" k;
       let tp, bs = split_tparams tp in
@@ -568,7 +568,7 @@ expr:
   | e = expr DOT f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN
     { mk (Call ("." ^ f, e :: args)) $startpos(f) }
   | e = expr QUESTION { mk (Try e) $startpos($2) }
-  (* 类型函数 T.f(…)（例如 Vec.new()、map.Map.new()）：":" 开头，modules.ml 按类型的名字换成对应的函数 *)
+  (* 类型函数 T.f(…)（例如 Vec.new()、map.Map.new()）：":" 开头，resolve.ml 按类型的名字换成对应的函数 *)
   | n = UIDENT DOT f = IDENT LPAREN args = separated_list(COMMA, expr) RPAREN
     { mk (Call (":" ^ n ^ "." ^ f, args)) $startpos }
   | n = UIDENT LPAREN a = expr RPAREN

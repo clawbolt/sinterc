@@ -123,9 +123,11 @@
 - `typeck.ml`（2571 行）按依赖的顺序拆成 `typeck_env`、`typeck_builtins`、`typeck_regions`、`typeck_generics`、`typeck_pattern`、`typeck_expr` 和 `typeck`（整个程序），代码不变，其他模块照旧通过 `Typeck` 访问。
 - 编译器内部按阶段整理（`ARCHITECTURE.md` 记着每一步；生成的 C、报错、Lean 对照都和整理前逐字节相同）：
   位置是 `{file; line; col}`；各阶段的报错都是 `Diag.t`（带键和参数），英文按键查 `messages.ml`；`bin/main.ml` 拆成六个文件；
-  模块解析的结果是 `Resolved.t`；类型检查的表集中在 `typing.ml`，整个程序的登记在 `collect.ml`；
+  模块解析的结果是 `Resolved.t`；类型检查的表集中在 `check_state.ml`，整个程序的登记在 `collect.ml`；
   定义（结构体、枚举、签名、trait）是 `Defs.t`；类型检查直接产出带类型的语法树 `Tast`（调用改写、嵌套模式、`for` 的展开都写在节点上），
-  降级只读它，所有权检查、投影检查和两个后端不再依赖 `Typeck`；
+  降级只读它，所有权检查、投影检查和两个后端不再依赖类型检查的内部；
+  泛型函数只检查一次，实例由它的语法树单态化得到（`elab/mono.ml`），不再复制函数体重新检查；
+  `src/` 按阶段分目录（`base`、`syntax`、`resolve`、`ir`、`types`、`elab`、`mir`、`back`），`typeck_*` 改名为 `ctx`、`region`、`check_expr` 等；
   C 后端拆成 `c_names`、`c_types`、`c_func`、`c_closures`；C 运行时按职责拆成六个文件（`runtime/README.md`），构建时拼回 `sinter.h`、`sinter_lib.h`。
 - 删掉 `tools/migrate.ml`：标准库重新划分时的一次性改写工具，旧写法都已经迁移完。
 

@@ -9,15 +9,15 @@ let lean_says name =
   if n > 3 && name.[0] = 'p' && name.[n - 2] = '_' then Some (name.[n - 1] = 'y') else None
 
 let run ~out file (prog : Resolved.t) =
-  let env0 = try Typeck.prepare prog with Diag.Error e -> Report.fail file e in
-  let d = Typeck.defs in
+  let env0 = try Check.prepare prog with Diag.Error e -> Report.fail file e in
+  let d = Check.defs in
   (* 类型检查的错误是异常，后面几步的错误是结果；这里统一成异常，下面按 Lean 的结论分类 *)
   let compile it =
     List.map
       (fun fd -> match Mir_check.func d fd with Ok f -> f | Error e -> raise (Diag.Error e))
-      (Typeck.check_batch env0 it)
+      (Check.check_batch env0 it)
   in
-  let prog = Typeck.batch_items prog.Resolved.items in
+  let prog = Check.batch_items prog.Resolved.items in
   let both = ref 0 and neither = ref 0 and only_lean = ref [] and only_sn = ref 0
   and internal = ref [] in
   let fs =
@@ -59,8 +59,8 @@ let run ~out file (prog : Resolved.t) =
   let names =
     List.filter_map (fun (f : Mir.func) -> if lean_says f.name <> None then Some f.name else None) fs
   in
-  let fs = List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) fs in
-  let text = Emit_c.program ~batch:names d (Typeck.generated ()) (Typeck.type_names prog) fs in
+  let fs = List.filter (fun (f : Mir.func) -> not (Check.is_generic f.name)) fs in
+  let text = Emit_c.program ~batch:names d (Check.generated ()) (Check.type_names prog) fs in
   (match out with
   | None -> print_string text
   | Some o -> Cc.write o text);

@@ -3,7 +3,7 @@
 新加的、会报错的源文件要加进下面的列表。
 
   $ cp check_messages.exe check && chmod +x check
-  $ ./check ../src/syntax/lexer.mll ../src/syntax/parser.mly ../src/resolve/modules.ml ../src/types/collect.ml ../src/types/typeck.ml ../src/types/typeck_builtins.ml ../src/types/typeck_env.ml ../src/types/typeck_expr.ml ../src/types/typeck_generics.ml ../src/types/typeck_pattern.ml ../src/types/typeck_regions.ml ../src/mir/mir.ml ../src/mir/own.ml ../src/mir/borrow.ml
+  $ ./check ../src/syntax/lexer.mll ../src/syntax/parser.mly ../src/resolve/resolve.ml ../src/types/collect.ml ../src/types/check.ml ../src/types/builtin.ml ../src/types/ctx.ml ../src/types/check_expr.ml ../src/types/generics.ml ../src/types/pattern.ml ../src/types/region.ml ../src/mir/mir.ml ../src/mir/own.ml ../src/mir/borrow.ml
   英文表 262 条，键都能在代码里找到
   没有英文的报错 5 条：
     for x in inout 只能遍历变量或字段里的 Vec

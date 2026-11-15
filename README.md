@@ -48,7 +48,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 
 ## 编译流程
 
-解析（`lexer.mll`、`parser.mly`）→ 模块（`modules.ml`）→ 类型检查（`typeck.ml` 和 `typeck_*.ml`，直接产出带类型的语法树 `tast.ml`）→ 降级为 MIR 控制流图（`mir.ml`，作用域结束和 `return` 前插入 `Drop`）
+解析（`lexer.mll`、`parser.mly`）→ 模块（`resolve.ml`）→ 类型检查（`types/`，入口 `check.ml`，泛型实例在 `elab/mono.ml`，直接产出带类型的语法树 `tast.ml`）→ 降级为 MIR 控制流图（`mir.ml`，作用域结束和 `return` 前插入 `Drop`）
 → 所有权检查与析构展开（`own.ml`）→ 投影锁定与排他性检查（`borrow.ml`；降级和这两步由 `mir_check.ml` 接起来，返回每个函数的第一个错误）→ 生成 C（`emit_c.ml` 拼接 `c_names.ml` 名字和类型、`c_types.ml` 类型定义和析构、`c_func.ml` 函数、`c_closures.ml` 闭包和任务；每个基本块一个标签，块之间用 `goto`；C 运行时在 `runtime/`）。
 `emit_core.ml` 把 MIR 导出成 Lean 的 CFG（翻译验证），`fmt.ml` 是格式化，`source.ml` 是文件和位置，`diag.ml` 是各阶段共用的诊断（信息按中文格式串记下参数），`messages.ml` 按格式串查英文。
 

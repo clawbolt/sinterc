@@ -1,8 +1,8 @@
 (* 程序的定义（Defs）：结构体、枚举、函数签名、trait 和 impl。
-   collect.ml 登记，之后类型检查、降级、所有权检查、代码生成都从这里查定义，不再通过 Typeck.xxx 读类型检查的内部。
+   collect.ml 登记，之后类型检查、降级、所有权检查、代码生成都从这里查定义，不再通过 Check.xxx 读类型检查的内部。
 
-   R4a.2：字段就是 typing.ml 第一组里的那些表（同一个 Hashtbl），Typing.defs 是指向它们的这个记录，
-   所以类型检查写表的方式不用改。之后 collect 改成直接建一个新的 Defs.t、类型检查显式接收它，Typing 的第一组就可以去掉。
+   R4a.2：字段就是 check_state.ml 第一组里的那些表（同一个 Hashtbl），Check_state.defs 是指向它们的这个记录，
+   所以类型检查写表的方式不用改。之后 collect 改成直接建一个新的 Defs.t、类型检查显式接收它，Check_state 的第一组就可以去掉。
 
    建好之后会变的只有两处，都是检查时才知道的泛型实例：
    - structs、enums 里会加进泛型结构体、枚举的实例（Option<I64>），instances 记下它们来自哪个泛型；
@@ -51,7 +51,7 @@ type t = {
 }
 
 (* ---------- 按定义回答的类型问题 ----------
-   类型检查、降级、所有权检查、代码生成共用这一份（typeck_env、typeck_regions 里是对 Typing.defs 的部分应用）。 *)
+   类型检查、降级、所有权检查、代码生成共用这一份（ctx、region 里是对 Check_state.defs 的部分应用）。 *)
 
 (* 一个类型的变体（不是枚举时为 None）。Result<T, E> 就是变体 Ok(T)、Err(E) 的枚举。
    () 载荷是真的载荷（泛型代码里 T 可以是 ()），只是写的时候可以省略：Ok 就是 Ok(())，分支可以写 Ok => …。 *)

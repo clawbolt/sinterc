@@ -4,7 +4,7 @@ open Sinter
 
 (* 读主文件和它用 use 引入的模块，合成一个程序 *)
 let load file =
-  try Modules.load file with
+  try Resolve.load file with
   | Sys_error _ -> Report.cannot_open file
   | Diag.Error e -> Report.fail file e
 
@@ -23,8 +23,8 @@ let used_core (fs : (Mir.func * bool) list) =
     end
   and callee n =
     Option.iter visit (Hashtbl.find_opt by n);
-    match Hashtbl.find_opt Typeck.packs n with
-    | Some ((c : Typeck.closure), _) -> Option.iter visit (Hashtbl.find_opt by c.cname)
+    match Hashtbl.find_opt Check.packs n with
+    | Some ((c : Check.closure), _) -> Option.iter visit (Hashtbl.find_opt by c.cname)
     | None -> ()
   in
   List.iter (fun (f, from_core) -> if not from_core then visit f) fs;
@@ -36,10 +36,10 @@ let used_core (fs : (Mir.func * bool) list) =
    unchecked：跳过所有权与投影检查、区域的先后和 R3 检查（只给 --emit=core 用）。 *)
 let check ~unchecked file prog =
   try
-    Typeck.lax_regions := unchecked;
-    let prog = Typeck.program prog in
+    Check.lax_regions := unchecked;
+    let prog = Check.program prog in
     let check = not unchecked in
-    let d = Typeck.defs in
+    let d = Check.defs in
     let errs = ref [] in
     let fs =
       List.concat_map
@@ -52,13 +52,13 @@ let check ~unchecked file prog =
         prog.Tast.fns
     in
     if !errs <> [] then Report.fail_many file !errs;
-    (prog, List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) (used_core fs))
+    (prog, List.filter (fun (f : Mir.func) -> not (Check.is_generic f.name)) (used_core fs))
   with
   | Diag.Error e -> Report.fail file e
   | Diag.Errors errs -> Report.fail_many file errs
 
 (* 生成的文字：给 Lean 的 CFG，或者 C（运行时的信息按 --lang 换成英文） *)
 let emit ~core ~unchecked (prog : Tast.program) fs =
-  let d = Typeck.defs in
+  let d = Check.defs in
   if core then Emit_core.program ~expect_ok:(not unchecked) d fs
-  else Messages.runtime (Emit_c.program d (Typeck.generated ()) prog.Tast.types fs)
+  else Messages.runtime (Emit_c.program d (Check.generated ()) prog.Tast.types fs)

@@ -42,7 +42,7 @@ let drop_body d ty lv =
 (* Vec 内建函数的辅助函数名。 *)
 let vec_fn d b e = Printf.sprintf "sn_v%s_%s" b (cty d (TVec e))
 
-(* Option<e>：vec_pop 和运行时的辅助函数用到的实例，代码生成之前已经建好（Typeck.generated）。 *)
+(* Option<e>：vec_pop 和运行时的辅助函数用到的实例，代码生成之前已经建好（Check.generated）。 *)
 let option (g : Tast.generated) e = List.assoc e g.options
 
 (* 类型定义：先给所有结构体、枚举写前向声明，再按依赖顺序写定义（按值包含的类型先定义；

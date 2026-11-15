@@ -101,7 +101,7 @@ type item =
       self : ty;
       fns : item list;
       ipos : pos;
-    }   (* fns 都是 Fn。trait 是 "" 时是类型自己的方法 impl 类型 { … }，modules.ml 把它换成普通函数 *)
+    }   (* fns 都是 Fn。trait 是 "" 时是类型自己的方法 impl 类型 { … }，resolve.ml 把它换成普通函数 *)
 
 (* mbody：默认方法的函数体，impl 没写这个方法时用它 *)
 and msig = { mname : string; mparams : (mode * string * ty) list; mret : ty; mbody : block option; mpos : pos }

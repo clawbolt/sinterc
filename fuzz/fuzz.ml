@@ -110,14 +110,14 @@ type outcome = Accepted | Rejected | Internal of string
 
 let compile path =
   try
-    let prog = Modules.load path in
-    let prog = Typeck.program prog in
-    let d = Typeck.defs in
+    let prog = Resolve.load path in
+    let prog = Check.program prog in
+    let d = Check.defs in
     let fs =
       List.map (fun fd -> match Mir_check.func d fd with Ok f -> f | Error e -> raise (Diag.Error e)) prog.Tast.fns
     in
-    let fs = List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) fs in
-    ignore (Emit_c.program d (Typeck.generated ()) prog.Tast.types fs);
+    let fs = List.filter (fun (f : Mir.func) -> not (Check.is_generic f.name)) fs in
+    ignore (Emit_c.program d (Check.generated ()) prog.Tast.types fs);
     Accepted
   with
   | Diag.Error _ | Diag.Errors _ -> Rejected

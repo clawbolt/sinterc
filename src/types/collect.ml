@@ -1,13 +1,13 @@
 (* 整个程序的定义的登记和检查（Lean `Traits.*`、`Generics.Check`、`Datatypes.*`）：
    结构体、枚举（含泛型定义）、函数签名、trait 和 impl、类型自己的方法、字段和载荷的规则。
-   以前都在 typeck.ml 的 prepare 一个函数里，这里按步骤拆开，执行的顺序不变（见 run）。
-   现在结果还是写进 typing.ml 的第一组表；R4a 的下一步改成产出 Defs.t。 *)
+   以前都在 check.ml 的 prepare 一个函数里，这里按步骤拆开，执行的顺序不变（见 run）。
+   现在结果还是写进 check_state.ml 的第一组表；R4a 的下一步改成产出 Defs.t。 *)
 open Ast
-open Typeck_env
-open Typeck_builtins
-open Typeck_regions
-open Typeck_generics
-open Typeck_expr
+open Ctx
+open Builtin
+open Region
+open Generics
+open Check_expr
 
 (* ---------- 内建的定义 ---------- *)
 
@@ -40,7 +40,7 @@ let defined n = Hashtbl.mem struct_tbl n || Hashtbl.mem enum_tbl n || Hashtbl.me
 
 (* 类型参数和已有的类型同名：解析时类型参数优先，这条只防止用户写出看不清的代码；
    预导入的核心部分不检查，否则用户定义的类型 T、E 会和它的 impl<T> Option<T> 冲突 *)
-let clash ipos t = defined t && not (Modules.in_core ipos)
+let clash ipos t = defined t && not (Resolve.in_core ipos)
 
 (* what 不为空：结构体、枚举的类型参数，不能标 linear *)
 let tparams_ok what ipos tps =

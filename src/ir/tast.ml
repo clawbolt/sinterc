@@ -1,7 +1,7 @@
-(* 带类型的语法树（Tast）：类型检查（typeck_expr.ml）直接产出它（R4b），降级（mir.ml）只读它和 Defs。
+(* 带类型的语法树（Tast）：类型检查（check_expr.ml）直接产出它（R4b），降级（mir.ml）只读它和 Defs。
    之后去糖（R5，elab/）和单态化（mono）在它上面做。
    和 Ast 相比，降级以前要去旁路表里查的东西，都直接写在节点上：
-   - 每个表达式带类型 ty：不再查 Typeck.types；
+   - 每个表达式带类型 ty：不再查 Check.types；
    - 调用带最终的函数名、每个实参的约定、结果借自哪些实参：不再查 call_inst、aliases、sigs、let_regions
      （泛型实例的返回借用在类型检查建调用节点时登记，R5 的 mono 实例化时登记）；
    - match 的分支补全成每个变体一个（_ 分支已经展开）：不再调用 arm_for、variant；
@@ -45,9 +45,10 @@ and expr_desc =
 
 and call = {
   callee : string;
-      (* 最终调用的函数：内建函数、提升出的闭包、特化；mono 之前泛型函数是它的名字，之后是实例的名字
-         （内建类型的 to_str 已经换成 str_from_i64 这样的内建函数） *)
-  targs : ty list;       (* 泛型调用的类型实参；mono 之后为空（现在实例在类型检查里生成，总是空） *)
+      (* 最终调用的函数：内建函数、提升出的闭包、特化、泛型函数的实例（内建类型的 to_str 已经换成 str_from_i64 这样的内建函数）。
+         泛型函数里调用泛型函数时是带类型参数的名字（例如 id<T>），单态化按 base 和换过的 targs 重新算 *)
+  base : string;         (* 泛型调用（targs 不空）：被调用的泛型函数或 Vec 内建函数本身的名字；否则是 "" *)
+  targs : ty list;       (* 泛型调用推出的类型实参（区域已经按出现顺序换名）；不是泛型调用时为空 *)
   modes : mode list;     (* 每个实参的约定，和 args 一样长，按 callee 的签名 *)
   borrows : (string * int) list;
       (* 返回借用（Lean `Projection.Return`）：结果借自哪些 let 参数（参数名, 第几个参数）；不返回借用时为空 *)
@@ -110,7 +111,7 @@ type closure = {
 }
 
 (* 类型检查之后的整个程序：要降级的函数，和非泛型的结构体、枚举的名字（按程序里的顺序，代码生成先按它写类型定义）。
-   generated 是代码生成要为它们写 C 辅助函数的东西，所有函数降级之后由 Typeck.generated 给出。 *)
+   generated 是代码生成要为它们写 C 辅助函数的东西，所有函数降级之后由 Check.generated 给出。 *)
 type program = { types : string list; fns : fn_def list }
 
 type generated = {

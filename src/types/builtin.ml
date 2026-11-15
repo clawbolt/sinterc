@@ -1,9 +1,9 @@
 (* 内建函数的签名和参数约定，位置表达式。哪个方法对应哪个内建函数写在核心部分里（std/core 的 intrinsic fn）。 *)
 open Ast
-open Typeck_env
+open Ctx
 
 (* 内建函数按值接收可复制的参数，记作 sink；字符串按 let（只读借用）或 inout 传入。
-   核心部分的 intrinsic fn 要写成同样的签名（typeck.ml 检查）。 *)
+   核心部分的 intrinsic fn 要写成同样的签名（check.ml 检查）。 *)
 let builtins =
   [
     "print", ([ (MLet, TStr) ], TUnit);

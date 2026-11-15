@@ -1,12 +1,14 @@
 (* 区域、类型的相容和合并、解析写出的类型。 *)
 open Ast
-open Typeck_env
-open Typeck_builtins
+open Ctx
+open Builtin
 
-let outlives env x y =
-  !lax_regions || x = y || match List.assoc_opt y env.regions with Some a -> List.mem x a | None -> false
+let outlives_in regions x y =
+  !lax_regions || x = y || match List.assoc_opt y regions with Some a -> List.mem x a | None -> false
 
-(* 泛型结构体、枚举 g 的第 i 个类型参数能不能协变（在 typeck_generics.ml 里定义）。 *)
+let outlives env x y = outlives_in env.regions x y
+
+(* 泛型结构体、枚举 g 的第 i 个类型参数能不能协变（在 generics.ml 里定义）。 *)
 let covariant_fwd : (string -> int -> bool) ref = ref (fun _ _ -> false)
 
 (* got 能不能当作 want 用：外层区域的引用可以当作内层区域的引用（D2 协变），其余要求相同。
@@ -26,7 +28,7 @@ let rec sub env got want =
 (* 泛型结构体、枚举的实例的类型实参（不是实例时为空），见 defs.ml。 *)
 let inst_args = Defs.inst_args defs
 
-(* 换名之后重新实例化（instantiate 在 typeck_generics.ml 里定义）。 *)
+(* 换名之后重新实例化（instantiate 在 generics.ml 里定义）。 *)
 let instantiate_fwd : (string -> ty list -> ty) ref = ref (fun _ _ -> assert false)
 
 let rec mentions r = function
@@ -38,6 +40,20 @@ let rec mentions r = function
   | TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TApp _ | TParam _ | TFn _ | TOFn _ -> false   (* fn(…)、Fn(…) 里不能有区域（check_ty） *)
 
 let region_names = Defs.region_names defs
+
+(* 函数的区域参数：Arena 参数和参数类型里出现的区域名，彼此之间没有顺序（D3）；
+   返回类型 &T in m 里的 let 参数 m 也是区域参数（返回借用，Lean `Projection.Return`）。按名字排序。 *)
+let fn_regions params ret =
+  let borrowed =
+    List.filter_map
+      (fun (m, x, t) ->
+        match m, t with
+        | MLet, TArena _ -> None
+        | MLet, _ when List.mem x (region_names ret) -> Some x
+        | _ -> None)
+      params
+  in
+  List.sort_uniq compare (List.concat_map (fun (_, _, t) -> region_names t) params @ borrowed)
 
 let rec rename s = function
   | TRef (t, x) -> TRef (rename s t, Option.value (List.assoc_opt x s) ~default:x)

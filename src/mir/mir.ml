@@ -5,7 +5,7 @@
    let / inout 实参传地址（Ref / RefMut）；let 绑定一个不能整个移走的位置时建投影（Proj），
    由 borrow.ml 检查锁定和排他性。
    出错返回（`?` 的出错分支和 `return Err(…)`）之前，按登记的相反顺序执行生效的 errdefer（`Unified.Errdefer`）。
-   输入是带类型的语法树（Tast，类型检查的结果），定义查 Defs；这个文件不依赖 Typeck。 *)
+   输入是带类型的语法树（Tast，类型检查的结果），定义查 Defs；这个文件不依赖 Check。 *)
 open Ast
 
 type local = int

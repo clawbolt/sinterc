@@ -1,7 +1,7 @@
 (* 嵌套模式的检查、覆盖性和展开。 *)
 open Ast
-open Typeck_env
-open Typeck_generics
+open Ctx
+open Generics
 
 (* ---- 嵌套模式（Lean `Matching.Nested`、`Matching.Coverage`） ---- *)
 
