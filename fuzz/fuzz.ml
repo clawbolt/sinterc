@@ -114,12 +114,10 @@ let compile path =
     let prog = Typeck.program prog in
     let d = Typeck.defs in
     let fs =
-      List.concat_map
-        (fun it -> match Mir_check.item d (To_tast.item it) with Ok fs -> fs | Error e -> raise (Diag.Error e))
-        prog
+      List.map (fun fd -> match Mir_check.func d fd with Ok f -> f | Error e -> raise (Diag.Error e)) prog.Tast.fns
     in
     let fs = List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) fs in
-    ignore (Emit_c.program d (To_tast.generated ()) prog fs);
+    ignore (Emit_c.program d (Typeck.generated ()) prog.Tast.types fs);
     Accepted
   with
   | Diag.Error _ | Diag.Errors _ -> Rejected

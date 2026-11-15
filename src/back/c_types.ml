@@ -42,13 +42,14 @@ let drop_body d ty lv =
 (* Vec 内建函数的辅助函数名。 *)
 let vec_fn d b e = Printf.sprintf "sn_v%s_%s" b (cty d (TVec e))
 
-(* Option<e>：vec_pop 和运行时的辅助函数用到的实例，代码生成之前已经建好（To_tast.generated）。 *)
+(* Option<e>：vec_pop 和运行时的辅助函数用到的实例，代码生成之前已经建好（Typeck.generated）。 *)
 let option (g : Tast.generated) e = List.assoc e g.options
 
 (* 类型定义：先给所有结构体、枚举写前向声明，再按依赖顺序写定义（按值包含的类型先定义；
    Box 指向的类型只需要前向声明，放到后面再处理，所以经过 Box 的递归没有问题）；
-   最后是需要析构的类型的析构函数（先写原型，析构函数之间可以互相调用）。 *)
-let type_defs d (g : Tast.generated) (p : program) (fs : Mir.func list) =
+   最后是需要析构的类型的析构函数（先写原型，析构函数之间可以互相调用）。
+   types：程序里非泛型的结构体、枚举，按程序里的顺序（Tast.program 的 types）。 *)
+let type_defs d (g : Tast.generated) (types : string list) (fs : Mir.func list) =
   let fwd = Buffer.create 256 and defs = Buffer.create 1024 in
   let protos = Buffer.create 256 and bodies = Buffer.create 1024 in
   let seen = Hashtbl.create 16 in
@@ -97,11 +98,7 @@ let type_defs d (g : Tast.generated) (p : program) (fs : Mir.func list) =
         Buffer.add_string defs " };\n"
     | (TI64 | TF64 | TChar | TBool | TStr | TBytes | TView | TUnit | TArena _ | TResult _ | TApp _ | TParam _ | TFn _ | TOFn _), _ -> ()
   in
-  List.iter
-    (function
-      | Struct { name; tparams = []; _ } | Enum { name; tparams = []; _ } -> visit (TStruct name)
-      | Struct _ | Enum _ | Fn _ | Trait _ | Impl _ -> ())   (* 泛型定义本身没有 C 类型，用到的实例从函数的局部变量找到 *)
-    p;
+  List.iter (fun n -> visit (TStruct n)) types;   (* 泛型定义本身没有 C 类型，用到的实例从函数的局部变量找到 *)
   List.iter
     (fun (f : Mir.func) ->
       visit f.ret;

@@ -37,7 +37,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 | 目录 | 内容 |
 |---|---|
 | `bin/` | 命令行（`main.ml` 分派；`cli.ml` 选项、`pipeline.ml` 各阶段、`report.ml` 报错、`cc.ml` 调用 C 编译器、`fmt_cmd.ml`、`batch.ml` 是 `--batch` 对照） |
-| `src/` | 编译器本身，见下面的编译流程 |
+| `src/` | 编译器本身，按阶段分子目录（`base`、`syntax`、`resolve`、`ir`、`types`、`mir`、`back`，见 `ARCHITECTURE.md`），见下面的编译流程 |
 | `runtime/` | C 运行时，按职责分成六个文件（见 `runtime/README.md`），构建时拼成 `sinter.h`（分配计数、字符串、切片、Vec 的宏、并发、入口；放在生成的 C 文件开头）和 `sinter_lib.h`（I/O、解析、文件、进程、网络，用到 `Option<Str>` 等内建实例类型；放在类型定义之后） |
 | `std/` | 标准库（Sinter 写的，构建时由 `gen/embed.ml` 编进编译器）；`std/core/` 是预导入的核心部分 |
 | `test/` | 端到端测试，一个文件一个主题，文件名前缀是主题：`own_` 所有权、`region_` 区域、`str_` 字符串、`io_` 输入输出、`std_` 标准库，等等 |
@@ -48,7 +48,7 @@ cc -std=gnu11 文件.c -o 文件 && ./文件
 
 ## 编译流程
 
-解析（`lexer.mll`、`parser.mly`）→ 模块（`modules.ml`）→ 类型检查（`typeck.ml` 和 `typeck_*.ml`）→ 带类型的语法树（`to_tast.ml`）→ 降级为 MIR 控制流图（`mir.ml`，作用域结束和 `return` 前插入 `Drop`）
+解析（`lexer.mll`、`parser.mly`）→ 模块（`modules.ml`）→ 类型检查（`typeck.ml` 和 `typeck_*.ml`，直接产出带类型的语法树 `tast.ml`）→ 降级为 MIR 控制流图（`mir.ml`，作用域结束和 `return` 前插入 `Drop`）
 → 所有权检查与析构展开（`own.ml`）→ 投影锁定与排他性检查（`borrow.ml`；降级和这两步由 `mir_check.ml` 接起来，返回每个函数的第一个错误）→ 生成 C（`emit_c.ml` 拼接 `c_names.ml` 名字和类型、`c_types.ml` 类型定义和析构、`c_func.ml` 函数、`c_closures.ml` 闭包和任务；每个基本块一个标签，块之间用 `goto`；C 运行时在 `runtime/`）。
 `emit_core.ml` 把 MIR 导出成 Lean 的 CFG（翻译验证），`fmt.ml` 是格式化，`source.ml` 是文件和位置，`diag.ml` 是各阶段共用的诊断（信息按中文格式串记下参数），`messages.ml` 按格式串查英文。
 

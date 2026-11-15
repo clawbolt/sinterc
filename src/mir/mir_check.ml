@@ -7,9 +7,3 @@ let func ?(check = true) d (fd : Tast.fn_def) : (Mir.func, Diag.t) result =
   match Mir.lower_fn d fd with
   | exception Diag.Error e -> Error e
   | f -> Result.bind (Own.elaborate ~check d f) (fun f -> if check then Borrow.check d f else Ok f)
-
-(* 一个条目的函数（To_tast.item 的结果）：都通过时是它们的 MIR，否则是第一个错误。 *)
-let item ?check d fds =
-  List.fold_left
-    (fun acc fd -> Result.bind acc (fun fs -> Result.map (fun f -> fs @ [ f ]) (func ?check d fd)))
-    (Ok []) fds

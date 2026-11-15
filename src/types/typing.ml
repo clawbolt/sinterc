@@ -2,15 +2,15 @@
    以前它们散在 typeck_env、typeck_builtins、typeck_regions、typeck_generics、typeck_pattern、typeck_expr 六个文件里，
    prepare 开头要一张张手工清空。现在 reset 一次清空前三组；第四组已经搬进环境（R4.0b）；第五组不清空。
 
-   这一步（R4.0）只是把它们搬到一起，访问方式不变：typeck_env.ml include 这个模块，其他文件照旧按名字用，
-   降级和代码生成照旧通过 Typeck.xxx 读。之后的步骤逐组去掉它们：
-   第二组换成带类型的语法树（R4b、R5），第一组换成 collect 的结果 Defs（R4a）。 *)
+   typeck_env.ml include 这个模块，其他文件按名字用。类型检查之外的阶段不再读这里：降级读 Tast（R4b），
+   定义读 Defs（R4a，字段就是第一组的表），代码生成另外拿到 Typeck.generated。
+   第二组剩下的按 id 记的表在 R5 去掉。 *)
 open Ast
 
 (* ---------- 类型 ---------- *)
 
-(* 表达式的类型；Never 是 return、break、panic 之后的代码。 *)
-type t = Ty of ty | Never
+(* 表达式的类型；Never 是 return、break、panic 之后的代码。和 Tast 的是同一个类型。 *)
+type t = Tast.typ = Ty of ty | Never
 
 (* 闭包（Lean `Closures.Param`）：提升出的函数名、捕获、区域参数的先后。定义和说明在 tast.ml。 *)
 type closure = Tast.closure = {
@@ -114,34 +114,21 @@ let defs : Defs.t =
     inherent = inherent_heads;
   }
 
-(* ---------- 第二组：给降级和代码生成的结果 ----------
-   检查时写，检查完之后由 map_body（改写调用、展开模式）、mir.ml、emit_c.ml 读。
-   多数按表达式的 id 记，所以实例化时复制出的函数体要分配新的 id。 *)
+(* ---------- 第二组：检查中间的结果和给代码生成的东西 ----------
+   检查的结果是带类型的语法树（Tast），降级只读它。这里剩下两类：
+   按表达式 id 记的三张表，只在类型检查里面用（R5 去掉）；代码生成要为它们写 C 辅助函数的东西（Typeck.generated 交出去）。
+   按 id 记的表要求实例化时复制出的函数体分配新的 id。 *)
 
-(* 每个表达式的类型。 *)
+(* 每个表达式的类型：有几处要看之前检查过的子表达式的类型（借自哪里、给字段赋值的路径、inout 实参）。 *)
 let types : (int, t) Hashtbl.t = Hashtbl.create 256
 
-(* 每条 errdefer（按调用表达式的 id）要消费的变量。 *)
-let errdefer_targets : (int, string) Hashtbl.t = Hashtbl.create 16
-
-(* for x in e 选了哪个展开（按 e 的 id）：true 是 Vec 的下标展开，false 是迭代器协议。 *)
-let for_vec : (int, bool) Hashtbl.t = Hashtbl.create 16
-
-(* 每个泛型调用（按调用表达式的 id）推出的类型实参，降级时找实例的名字用。 *)
+(* 每个泛型调用（按调用表达式的 id）推出的类型实参：调用的实例名、生成特化时用。 *)
 let call_inst : (int, ty list) Hashtbl.t = Hashtbl.create 16
 
-(* 方法调用 e.f(…)（UFCS）解析成的函数名，按表达式 id 记下，检查完再把名字换掉。 *)
+(* 方法调用 e.f(…)（UFCS）解析成的函数名，按表达式 id 记下：复制泛型函数的实例时沿用（map_body 换上）。 *)
 let method_res : (int, string) Hashtbl.t = Hashtbl.create 16
 
-(* 调用的改写：调用表达式的 id → 新的函数名和实参，检查完之后换上（和方法调用的名字一样）。 *)
-let rewrites : (int, string * expr list) Hashtbl.t = Hashtbl.create 16
-
-(* 带嵌套模式的 match 展开后的表达式（按 PMatch 的 id）：map_body 把 PMatch 换成它，之后的阶段只看到 Match、If、Destruct。 *)
-let pdesugar : (int, expr) Hashtbl.t = Hashtbl.create 16
-
-(* scope_shares：scope（按 Var s 的 id）→ 只读共享的变量，降级时在 scope 开头锁住它们，结尾才放开（borrow.ml 检查）。
-   spawns：spawn#… → 提升出的任务函数和它的捕获，代码生成为它写启动线程的 C 函数。 *)
-let scope_shares : (int, string list) Hashtbl.t = Hashtbl.create 16
+(* spawn#… → 提升出的任务函数和它的捕获，代码生成为它写启动线程的 C 函数。 *)
 let spawns : (string, closure) Hashtbl.t = Hashtbl.create 16
 
 (* 可以存起来的闭包（Lean `Closures.Stored`）：packs：Fn#… → (闭包, 它的类型)；fcalls：call#… → 闭包的类型。
@@ -202,13 +189,8 @@ let reset () =
   Hashtbl.reset sigs;
   Hashtbl.reset fn_items;
   Hashtbl.reset types;
-  Hashtbl.reset errdefer_targets;
-  Hashtbl.reset for_vec;
   Hashtbl.reset call_inst;
   Hashtbl.reset method_res;
-  Hashtbl.reset rewrites;
-  Hashtbl.reset pdesugar;
-  Hashtbl.reset scope_shares;
   Hashtbl.reset spawns;
   Hashtbl.reset packs;
   Hashtbl.reset fcalls;

@@ -1,9 +1,9 @@
-(* 带类型的语法树（Tast）。现在由 to_tast.ml 从 Ast 和类型检查的旁路表翻译出来（R4b.1），降级（mir.ml）只读它和 Defs。
-   之后类型检查（R4b–d）直接产出它；去糖（R5，elab/）和单态化（mono）在它上面做。
+(* 带类型的语法树（Tast）：类型检查（typeck_expr.ml）直接产出它（R4b），降级（mir.ml）只读它和 Defs。
+   之后去糖（R5，elab/）和单态化（mono）在它上面做。
    和 Ast 相比，降级以前要去旁路表里查的东西，都直接写在节点上：
    - 每个表达式带类型 ty：不再查 Typeck.types；
    - 调用带最终的函数名、每个实参的约定、结果借自哪些实参：不再查 call_inst、aliases、sigs、let_regions
-     （泛型实例的返回借用以前由 mir.ml 降级时补登记，现在在 to_tast.ml，R5 的 mono 实例化时登记）；
+     （泛型实例的返回借用在类型检查建调用节点时登记，R5 的 mono 实例化时登记）；
    - match 的分支补全成每个变体一个（_ 分支已经展开）：不再调用 arm_for、variant；
    - for 只留类型检查选中的那个展开：不再查 for_vec；scope 带只读共享的变量：不再查 scope_shares；
      errdefer 带要消费的变量：不再查 errdefer_targets；解构带字段的类型：不再查 struct_tbl；
@@ -109,10 +109,11 @@ type closure = {
          和比它活得久的区域参数（只取那里真实成立的先后关系，`Closures.CapRef`） *)
 }
 
-(* 类型检查和去糖之后的整个程序。generated 是代码生成要为它们写 C 辅助函数的东西。 *)
-type program = { fns : fn_def list; generated : generated }
+(* 类型检查之后的整个程序：要降级的函数，和非泛型的结构体、枚举的名字（按程序里的顺序，代码生成先按它写类型定义）。
+   generated 是代码生成要为它们写 C 辅助函数的东西，所有函数降级之后由 Typeck.generated 给出。 *)
+type program = { types : string list; fns : fn_def list }
 
-and generated = {
+type generated = {
   packs : (string * (closure * ty)) list;         (* Fn#…：存进 Fn(…) 值的闭包和它的类型（Lean `Closures.Stored`） *)
   fcalls : (string * ty) list;                    (* call#…：调用 Fn(…) 值 *)
   spawns : (string * closure) list;               (* spawn#…：scope 里启动的任务（Lean `Concurrency.Scope`） *)

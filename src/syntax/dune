@@ -1,0 +1,6 @@
+; 词法和语法分析器的生成规则要写在源文件旁边（include_subdirs 的要求）
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))

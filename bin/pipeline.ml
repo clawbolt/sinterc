@@ -43,14 +43,13 @@ let check ~unchecked file prog =
     let errs = ref [] in
     let fs =
       List.concat_map
-        (fun it ->
-          let fds = To_tast.item it in
-          match Mir_check.item ~check d fds with
-          | Ok fs -> List.map2 (fun f (fd : Tast.fn_def) -> (f, fd.from_core)) fs fds
+        (fun (fd : Tast.fn_def) ->
+          match Mir_check.func ~check d fd with
+          | Ok f -> [ (f, fd.from_core) ]
           | Error e ->
               errs := e :: !errs;
               [])
-        prog
+        prog.Tast.fns
     in
     if !errs <> [] then Report.fail_many file !errs;
     (prog, List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) (used_core fs))
@@ -59,7 +58,7 @@ let check ~unchecked file prog =
   | Diag.Errors errs -> Report.fail_many file errs
 
 (* 生成的文字：给 Lean 的 CFG，或者 C（运行时的信息按 --lang 换成英文） *)
-let emit ~core ~unchecked prog fs =
+let emit ~core ~unchecked (prog : Tast.program) fs =
   let d = Typeck.defs in
   if core then Emit_core.program ~expect_ok:(not unchecked) d fs
-  else Messages.runtime (Emit_c.program d (To_tast.generated ()) prog fs)
+  else Messages.runtime (Emit_c.program d (Typeck.generated ()) prog.Tast.types fs)

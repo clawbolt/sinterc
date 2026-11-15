@@ -3,7 +3,7 @@
    所以有两种检查方式：expr 自己推出类型，check 按期望类型检查。
 
    拆成了几个文件，按依赖的顺序：typeck_env（环境；状态在 typing.ml）、typeck_builtins、typeck_regions、typeck_generics、
-   typeck_pattern、typeck_expr，这里是整个程序的准备和检查。类型检查之后只有 to_tast.ml 读 Typeck。 *)
+   typeck_pattern、typeck_expr，这里是整个程序的准备和检查。结果是带类型的语法树（Tast），另外 generated 交给代码生成。 *)
 open Ast
 include Typeck_env
 include Typeck_builtins
@@ -85,7 +85,7 @@ let resolve_items = function
         ms
   | (Struct _ | Enum _) as it -> [ it ]
 
-(* 检查一个函数。特化：clos 是 fn(…) 参数绑定的闭包，fvars 是这些参数（已经从参数里去掉，函数体里仍按名字用）。
+(* 检查一个函数，返回它的带类型的语法树。特化：clos 是 fn(…) 参数绑定的闭包，fvars 是这些参数（已经从参数里去掉，函数体里仍按名字用）。
    rord：闭包捕获的区域参数之间的先后关系（`Closures.CapRef`）；其余区域参数之间没有顺序（D3）。 *)
 let check_fn ?(clos = []) ?(fvars = []) ?(rord = []) env0 = function
   | Fn { name; tparams; params; ret; body; ipos; bounds; _ } ->
@@ -125,8 +125,10 @@ let check_fn ?(clos = []) ?(fvars = []) ?(rord = []) env0 = function
       let vars = List.rev_map (fun (m, x, t) -> (x, (t, m <> MLet))) params in
       let vars = List.map (fun (y, t) -> (y, (t, false))) fvars @ vars in
       let env = { env1 with ret; vars; tbounds = bounds; clos } in
-      expect env ipos ret (block env ~want:ret body)
-  | Struct _ | Enum _ | Trait _ | Impl _ -> ()
+      let body, t = block env ~want:ret body in
+      expect env ipos ret t;
+      Some { Tast.name; params; ret; body; pos = ipos; from_core = Modules.in_core ipos }
+  | Struct _ | Enum _ | Trait _ | Impl _ -> None
 
 let check_main env0 =
   match Hashtbl.find_opt env0.fns "main" with
@@ -157,20 +159,34 @@ let sugar_to_str (p : program) =
       | it -> [ it ])
     p
 
-(* 检查整个程序。返回解析过类型的程序（impl 换成它的方法），后面接上用到的泛型函数实例（单态化），每个实例照常检查。
-   方法调用在检查之后换成解析出的函数名；实例是从检查过的泛型函数复制的，复制时已经换好。
-   闭包：提升出的闭包和特化也接在后面、照常检查；调用的改写在全部检查完之后换上。
-   带 fn(…) 参数的函数本身不输出（只输出它的特化），函数体里有闭包的泛型函数不在定义处降级。 *)
-let program (res : Resolved.t) : program =
+(* 要降级的函数：检查过的函数里，带 fn(…) 参数的函数本身不降级（只降级它的特化），
+   函数体里有闭包的泛型函数不在定义处降级。 *)
+let lowered = function
+  | Fn f, _ when List.exists (fun (_, _, t) -> is_fn t) f.params -> None
+  | Fn f, _ when f.tparams <> [] && Hashtbl.mem skip_lower f.name -> None
+  | _, fd -> fd
+
+(* 非泛型的结构体、枚举，按程序里的顺序（代码生成先按这个顺序写类型定义）。 *)
+let type_names (p : program) =
+  List.filter_map
+    (function
+      | Struct { name; tparams = []; _ } | Enum { name; tparams = []; _ } -> Some name
+      | Struct _ | Enum _ | Fn _ | Trait _ | Impl _ -> None)
+    p
+
+(* 检查整个程序。返回要降级的函数（impl 换成它的方法），后面接上用到的泛型函数实例（单态化），每个实例照常检查。
+   方法调用的名字在检查时换成解析出的函数名；实例是从检查过的泛型函数复制的，复制时已经换好。
+   闭包：提升出的闭包和特化也接在后面、照常检查。 *)
+let program (res : Resolved.t) : Tast.program =
   let p = sugar_to_str res.Resolved.items in
   let env0 = prepare { res with Resolved.items = p } in
   let p = List.concat_map resolve_items p in
   List.iter (function Fn f as it -> Hashtbl.replace fn_items f.name it | _ -> ()) p;
   (* 函数之间互不影响，每个函数报它的第一个错误；有错误时不再生成泛型实例（免得同一个错误报好几次） *)
   let errs = ref [] in
-  let guard g x = try g x with Diag.Error e -> errs := e :: !errs in
-  List.iter (guard (check_fn env0)) p;
-  guard check_main env0;
+  let guard g x = try g x with Diag.Error e -> errs := e :: !errs; None in
+  let checked = List.map (fun it -> (it, guard (check_fn env0) it)) p in
+  ignore (guard (fun env0 -> check_main env0; None) env0);
   if !errs <> [] then raise (Diag.Errors (List.rev !errs));
   let rec drain acc =
     if List.length acc >= 1000 then
@@ -178,58 +194,56 @@ let program (res : Resolved.t) : program =
     match Queue.take_opt pending with
     | Some r ->
         let it = instance r in
-        guard (check_fn env0) it;
-        drain (it :: acc)
+        drain ((it, guard (check_fn env0) it) :: acc)
     | None -> (
         match Queue.take_opt pending_items with
-        | Some (it, clos, fvars, rord) ->
-            guard (check_fn ~clos ~fvars ~rord env0) it;
-            drain (it :: acc)
+        | Some (it, clos, fvars, rord) -> drain ((it, guard (check_fn ~clos ~fvars ~rord env0) it) :: acc)
         | None -> List.rev acc)
   in
   let insts = drain [] in
   if !errs <> [] then raise (Diag.Errors (List.rev !errs));
-  List.filter_map
-    (function
-      | Fn f when List.exists (fun (_, _, t) -> is_fn t) f.params -> None
-      | Fn f when f.tparams <> [] && Hashtbl.mem skip_lower f.name -> None
-      | Fn f -> Some (Fn { f with body = map_body ~fresh:false (fun _ t -> t) f.body })
-      | it -> Some it)
-    (p @ insts)
+  { Tast.types = type_names p; fns = List.filter_map lowered (checked @ insts) }
 
 (* 对照测试（--batch）：程序里的函数逐个检查，每个连同它引出的泛型实例、提升出的闭包和特化一起，
-   返回要降级的条目（规则和 program 相同）。出错时清空队列再抛出，不影响下一个函数。
+   返回要降级的函数（规则和 program 相同）。出错时清空队列再抛出，不影响下一个函数。
    调用前要用 batch_items 登记所有函数（特化时按名字找函数）。 *)
 let batch_items (p : program) =
   let p = List.map resolve_item p in
   List.iter (function Fn f as it -> Hashtbl.replace fn_items f.name it | _ -> ()) p;
   p
 
-let check_batch env0 it =
+let check_batch env0 it : Tast.fn_def list =
   try
-    check_fn env0 it;
+    let first = (it, check_fn env0 it) in
     let rec drain acc =
       match Queue.take_opt pending with
       | Some r ->
           let i = instance r in
-          check_fn env0 i;
-          drain (i :: acc)
+          drain ((i, check_fn env0 i) :: acc)
       | None -> (
           match Queue.take_opt pending_items with
-          | Some (i, clos, fvars, rord) ->
-              check_fn ~clos ~fvars ~rord env0 i;
-              drain (i :: acc)
+          | Some (i, clos, fvars, rord) -> drain ((i, check_fn ~clos ~fvars ~rord env0 i) :: acc)
           | None -> List.rev acc)
     in
     let insts = drain [] in
-    List.filter_map
-      (function
-        | Fn f when List.exists (fun (_, _, t) -> is_fn t) f.params -> None
-        | Fn f when f.tparams <> [] && Hashtbl.mem skip_lower f.name -> None
-        | Fn f -> Some (Fn { f with body = map_body ~fresh:false (fun _ t -> t) f.body })
-        | it -> Some it)
-      (it :: insts)
+    List.filter_map lowered (first :: insts)
   with e ->
     Queue.clear pending;
     Queue.clear pending_items;
     raise e
+
+(* 代码生成要为它们写 C 辅助函数的东西：检查时记在表里的闭包、Fn 调用、任务、Vec 内建函数的实例，
+   列表的顺序和以前代码生成遍历这些表的顺序相同（生成的 C 不变）。
+   vec_pop 返回的 Option<e> 和运行时总要用的 Option<Str>、Option<I64>、Option<F64>、Option<Char> 在这里实例化，
+   代码生成就不再往 Defs 里加东西。所有函数降级、检查完之后调用。 *)
+let generated () : Tast.generated =
+  let list tbl = List.rev (Hashtbl.fold (fun k v acc -> (k, v) :: acc) tbl []) in
+  let vec_calls = list vec_calls in
+  let elems = List.filter_map (fun (_, (b, e)) -> if b = "pop" then Some e else None) vec_calls in
+  {
+    Tast.packs = list packs;
+    fcalls = list fcalls;
+    spawns = list spawns;
+    vec_calls;
+    options = List.map (fun e -> (e, instantiate "Option" [ e ])) (elems @ [ TStr; TI64; TF64; TChar ]);
+  }

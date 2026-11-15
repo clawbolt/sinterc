@@ -1,5 +1,5 @@
 (* sinterc fmt [--check | -w] 文件…：默认把格式化的结果打印出来；-w 写回文件；
-   --check 只列出需要格式化的文件，有的话退出码是 1。格式化本身见 src/fmt.ml。 *)
+   --check 只列出需要格式化的文件，有的话退出码是 1。格式化本身见 src/syntax/fmt.ml。 *)
 open Sinter
 
 let main argv =

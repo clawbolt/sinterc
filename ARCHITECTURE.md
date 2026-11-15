@@ -16,9 +16,7 @@ modules.ml ──► Resolved.t                                 合成的程序 
    │
 collect.ml ──► Defs.t                                     整个程序的登记：结构体、枚举、签名、trait、impl（20 个按步骤命名的函数）
    │
-typeck.ml（include 六个 typeck_*.ml）                     逐个函数检查；状态集中在 typing.ml（五组表，各有说明）
-   │
-to_tast.ml ──► Tast.fn_def / Tast.generated               把类型检查的旁路表（按表达式 id）翻成带类型的语法树
+typeck.ml（include 六个 typeck_*.ml）──► Tast.program      逐个函数检查，直接产出带类型的语法树；状态集中在 typing.ml（各组表有说明）
    │
 mir.ml ──► Mir.func                                       降级：只读 Tast 和 Defs
    │
@@ -36,15 +34,35 @@ emit_c.ml（c_names、c_types、c_func、c_closures）/ emit_core.ml       生�
 | `Ast.program` | `ast.ml` | 语法 | 模块 |
 | `Resolved.t` | `resolved.ml` | `Modules.load` | `collect`、类型检查 |
 | `Defs.t` | `defs.ml` | `collect`（现在指向 `typing.ml` 第一组的表，检查时还会加进泛型实例） | 类型检查、降级、`own`、`borrow`、两个后端 |
-| `Tast.fn_def`、`Tast.generated` | `tast.ml` | `to_tast.ml` | `mir.ml`、C 后端 |
+| `Tast.program`、`Tast.generated` | `tast.ml` | 类型检查（`typeck_expr.ml` 建节点，`Typeck.generated` 列出要写 C 辅助函数的东西） | `mir.ml`、C 后端 |
 | `Mir.func` | `mir.ml` | `mir.ml` | `own`、`borrow`、两个后端 |
 | `Diag.t` | `diag.ml` | 所有阶段 | `report.ml`、`batch.ml` |
 
 `Defs.variants`、`is_linear`、`needs_drop`、`region_names`、`erase` 这些按定义回答的问题只有 `defs.ml` 里一份。
 
+### 目录
+
+`src/` 按阶段分目录，`src/dune` 用 `(include_subdirs unqualified)`：子目录里的模块照样直接按名字用（模块名不能重复）。
+依赖只该往上指（base ← syntax ← ir ← 各阶段），但这只是约定，dune 不检查；以后要检查的话，每个目录做成一个 library。
+
+```
+src/
+  base/      source、diag、messages              位置、诊断、英文信息表
+  syntax/    ast、lexer.mll、parser.mly、fmt     语法树（include ir/ty）、词法、语法、格式化；dune 里是 ocamllex、menhir
+  resolve/   modules                             模块、use、pub、改名
+  ir/        ty、resolved、defs、tast            类型和阶段之间交接的数据（MIR 的定义还在 mir/mir.ml 里，和降级在一起）
+  types/     collect、typing、typeck_*、typeck   类型检查
+  mir/       mir、own、borrow、mir_check         降级、所有权、投影与排他性
+  back/      c_names、c_types、c_func、c_closures、emit_c、emit_core   C 和 Lean 的 CFG
+  dune       另外生成 stdlib_src.ml（std/*.sn）、runtime_src.ml（runtime/*.h）
+bin/         main、cli、pipeline、batch、report、cc、fmt_cmd
+```
+
+接下来：R5 的去糖和单态化放进 `elab/`；最后再改名（`typeck_*` → `check*` 等），改名单独一步。
+
 ### 还没整理到的
 
-- 类型检查仍然把结果写进 `typing.ml` 的表，`to_tast.ml` 再按表达式 id 查出来（R4b–d 让类型检查直接产出 Tast，这个文件随之去掉）。
+- 类型检查内部还按表达式 id 记三张表：`types`（几处要看之前检查过的子表达式的类型）、`call_inst`、`method_res`（生成实例、特化时用）。它们不再出类型检查（R5 去掉）。
 - 闭包提升、嵌套模式、`for` 的展开、泛型实例化仍然在类型检查里做（R5 搬到 `elab/` 和 `mono`）。
 - 类型检查报错时仍然抛 `Diag.Error` / `Diag.Errors`；类型检查之后的几步（`mir_check.ml`）已经返回结果。
 - 第一到第三组的表仍然是模块级的（集中在 `typing.ml`，`reset ()` 清空）；第四组（正在检查的函数）已经在环境里（R4.0b.1）。`.mli` 只有 `source`、`diag`；目录还没有分。
@@ -144,7 +162,9 @@ emit_c.ml / emit_core.ml                          生成 C（运行时 runtime/*
 | R4a.2 | `Defs.t` 定下来：字段就是第一组的表，`Typing.defs` 指向它们。`variants`、`is_linear`、`needs_drop`、`region_names` 等只留 `defs.ml` 里一份（类型检查里是部分应用）。`own.ml`、`borrow.ml`、`emit_core.ml` 显式接收 `Defs.t`，不再依赖 `Typeck`。`mir.ml`、`emit_c.ml` 还要读第二组的表，随 R6、R7 再换 | 完成 |
 | R4b.1 | `to_tast.ml` 把 Ast 和类型检查的旁路表翻成 Tast；`mir.ml` 改成只读 Tast 和 `Defs`，不再依赖 `Typeck`（按 id 的表、`arm_for`、别名、签名都只在 `to_tast.ml` 里查；泛型实例的返回借用也改在那里登记） | 完成 |
 | R4b.2 | `emit_c.ml` 只读 MIR、`Defs` 和 `Tast.generated`（闭包、Fn 调用、任务、Vec 内建函数，按以前遍历表的顺序列出）；代码生成要用的 `Option<T>` 实例改在 `To_tast.generated` 里建好，代码生成不再改 `Defs`。`closure` 类型搬进 `tast.ml`，`erase` 搬进 `defs.ml`。之后 `src/` 里类型检查以外只有 `to_tast.ml` 依赖 `Typeck` | 完成 |
-| R4b–d | `check_expr` 等直接输出 Tast（`to_tast.ml` 随之去掉）；模式和区域；捕获 | |
+| R4b–d | 表达式、语句、块的检查直接返回 Tast 节点，`to_tast.ml` 去掉；`rewrites`、`pdesugar`、`for_vec`、`scope_shares`、`errdefer_targets` 五张按 id 的表去掉（调用改写、嵌套模式、for 的展开、scope 的共享变量、errdefer 的目标直接写进节点）；`Typeck.program` 返回 `Tast.program`（要降级的函数和类型名），代码生成不再读 Ast | 完成 |
+| D1 | 按阶段分目录（只搬文件，不改名、不改代码；`(include_subdirs unqualified)`）。两个 cram 测试里的源文件路径跟着改，期望的输出不变 | 完成 |
+| D2 | 类型 `ty`、`mode` 和取类型名字的函数从 `ast.ml` 搬到 `ir/ty.ml`，`ast.ml` include 它（用法不变） | 完成 |
 | R5 | `elab/` 的去糖和 `mono`，去掉按表达式 id 的表 | |
 | R6 | 降级只读 Tast（R4b.1 已经做到，仍叫 `mir.ml`）；`Own.elaborate`、`Borrow.check` 返回 `(func, Diag.t) result`，降级、所有权、投影三步由 `mir_check.ml` 接起来，调用者（pipeline、batch、fuzz）不再各自 try。阶段内部仍用异常在第一个错误处停下（每个函数只报第一个错误） | 完成 |
 | R7 | C 后端拆成 4 个文件：`c_names`（C 名字、C 类型）、`c_types`（类型定义、析构、Vec 宏、运行时库）、`c_func`（MIR 函数）、`c_closures`（闭包、任务、Fn 调用）；`emit_c.ml` 只剩按顺序拼接和入口。代码原样搬，生成的 C 逐字节不变（`--with-c`）。同时删掉 `tools/migrate.ml` | 完成 |

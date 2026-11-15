@@ -1,23 +1,22 @@
-(* C 后端：从 MIR 生成整个 C 文件。输入是 MIR、定义（Defs）和要写 C 辅助函数的东西（Tast.generated）；不依赖 Typeck。
+(* C 后端：从 MIR 生成整个 C 文件。输入是 MIR、定义（Defs）、程序里的类型名（Tast.program 的 types）和要写 C 辅助函数的东西（Tast.generated）；不依赖 Typeck。
    分成四个文件，按生成的 C 里的顺序：
    - c_names.ml：C 名字和 C 类型；
    - c_types.ml：类型定义、析构函数、Vec 宏、运行时库；
    - c_func.ml：每个 MIR 函数；
    - c_closures.ml：闭包、任务、Fn 调用。
    这里把它们按顺序拼起来，再接上入口。 *)
-open Ast
 
 (* 和程序无关的 C 运行时在 runtime/sinter.h，构建时编进编译器（src/dune）。 *)
 let prelude = Runtime_src.prelude
 
 (* batch：对照测试的函数名。给了的话不调用 u_main，而是每个函数按所有长度不超过 3 的选择序列各跑一遍，
    每次跑完检查有没有没释放的 Box 或区域内存块。 *)
-let program ?batch d (g : Tast.generated) (p : program) (fs : Mir.func list) : string =
+let program ?batch d (g : Tast.generated) (types : string list) (fs : Mir.func list) : string =
   let b = Buffer.create 4096 in
   let add s = Buffer.add_string b s in
   add prelude;
   add "\n";
-  add (C_types.type_defs d g p fs);
+  add (C_types.type_defs d g types fs);
   List.iter (fun f -> add (C_func.signature d f ^ ";\n")) fs;
   add (C_closures.closures d g);
   List.iter (C_func.func d g b) fs;

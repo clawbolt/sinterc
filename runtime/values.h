@@ -65,3 +65,4 @@ static void u_view_print_str(const sn_view *v) { fwrite(v->p, 1, (size_t)v->len,
     int64_t a = sn_idx(v->len, *i), b = sn_idx(v->len, *j); T t = v->data[a]; v->data[a] = v->data[b]; v->data[b] = t; \
   }
 #define SN_VEC_LEN(fn, V) static int64_t fn(V *v) { return v->len; }
+

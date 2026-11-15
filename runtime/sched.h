@@ -420,3 +420,4 @@ static int sn_wait_fd(int fd, int write, int64_t deadline) {
 static int64_t sn_deadline(int64_t ms) { return ms > 0 ? sn_now_ms() + ms : -1; }
 static void sn_nonblock(int fd) { int f = fcntl(fd, F_GETFL, 0); if (f >= 0) fcntl(fd, F_SETFL, f | O_NONBLOCK); }
 #define u_scope_keep(p) ((void)(p))
+

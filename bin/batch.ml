@@ -13,8 +13,8 @@ let run ~out file (prog : Resolved.t) =
   let d = Typeck.defs in
   (* 类型检查的错误是异常，后面几步的错误是结果；这里统一成异常，下面按 Lean 的结论分类 *)
   let compile it =
-    List.concat_map
-      (fun it -> match Mir_check.item d (To_tast.item it) with Ok fs -> fs | Error e -> raise (Diag.Error e))
+    List.map
+      (fun fd -> match Mir_check.func d fd with Ok f -> f | Error e -> raise (Diag.Error e))
       (Typeck.check_batch env0 it)
   in
   let prog = Typeck.batch_items prog.Resolved.items in
@@ -60,7 +60,7 @@ let run ~out file (prog : Resolved.t) =
     List.filter_map (fun (f : Mir.func) -> if lean_says f.name <> None then Some f.name else None) fs
   in
   let fs = List.filter (fun (f : Mir.func) -> not (Typeck.is_generic f.name)) fs in
-  let text = Emit_c.program ~batch:names d (To_tast.generated ()) prog fs in
+  let text = Emit_c.program ~batch:names d (Typeck.generated ()) (Typeck.type_names prog) fs in
   (match out with
   | None -> print_string text
   | Some o -> Cc.write o text);

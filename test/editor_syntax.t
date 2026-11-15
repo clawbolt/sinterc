@@ -1,7 +1,7 @@
 编辑器的语法高亮（editor/vscode 是 VS Code 的 TextMate 语法，editor/vim 是 Vim 的语法文件）。
 两份关键字表都要和词法分析的关键字一致：词法分析加了关键字而高亮没加时，这里会报出来。
 
-  $ grep -o '"[a-z]*", [A-Z]*;' ../src/lexer.mll | sed 's/"\([a-z]*\)".*/\1/' > keywords
+  $ grep -o '"[a-z]*", [A-Z]*;' ../src/syntax/lexer.mll | sed 's/"\([a-z]*\)".*/\1/' > keywords
   $ wc -l < keywords | tr -d ' '
   26
   $ for k in $(cat keywords) I64 F64 Bool Char Str Bytes Self; do

@@ -5,7 +5,7 @@
    let / inout 实参传地址（Ref / RefMut）；let 绑定一个不能整个移走的位置时建投影（Proj），
    由 borrow.ml 检查锁定和排他性。
    出错返回（`?` 的出错分支和 `return Err(…)`）之前，按登记的相反顺序执行生效的 errdefer（`Unified.Errdefer`）。
-   输入是带类型的语法树（Tast，to_tast.ml 从类型检查的结果翻译），定义查 Defs；这个文件不依赖 Typeck。 *)
+   输入是带类型的语法树（Tast，类型检查的结果），定义查 Defs；这个文件不依赖 Typeck。 *)
 open Ast
 
 type local = int
@@ -381,7 +381,7 @@ let rec expr st env (x : Tast.expr) : operand option =
    各分支结束时状态不同的变量由 own.ml 合并成“可能已初始化”，按 drop flag 析构。
    按借用（match let，或者被匹配的位置不能整个移走，和 let 绑定投影的规则相同）：
    需要析构的载荷绑定成投影，由 borrow.ml 锁住源对象；可复制的载荷直接复制。枚举本身不动。
-   arms 是每个变体一个分支，和变体的顺序相同（to_tast.ml 补全）。 *)
+   arms 是每个变体一个分支，和变体的顺序相同（类型检查补全）。 *)
 and enum_match st env (x : Tast.expr) explicit (s : Tast.expr) sty (arms : Tast.arm list) =
   let vs = Option.get (Defs.variants st.d sty) in
   let needs = Defs.needs_drop st.d sty in

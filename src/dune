@@ -1,10 +1,10 @@
+;  按阶段分目录（见 ARCHITECTURE.md 的“目录”）：base 位置和报错，syntax 词法、语法、格式化，resolve 模块解析，
+;  ir 阶段之间交接的数据，types 类型检查，mir 降级和所有权检查，back 两个后端。
+;  子目录里的模块和这里的一样直接按名字用（unqualified），生成的 stdlib_src、runtime_src 在这一层。
+(include_subdirs unqualified)
+
 (library
  (name sinter))
-
-(ocamllex lexer)
-
-(menhir
- (modules parser))
 
 ; 标准库的源码编进编译器
 (rule

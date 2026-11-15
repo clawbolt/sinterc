@@ -1,4 +1,4 @@
-(* test/messages.t 用：检查 src/messages.ml 的英文表和代码里的报错对得上。
+(* test/messages.t 用：检查 src/base/messages.ml 的英文表和代码里的报错对得上。
    用法：check_messages.exe 源文件…（不要传 messages.ml 本身）
    - 表里的每个键都要是这些文件里的某个字符串字面量。找不到说明改了代码里的中文却没改表，那条信息的英文就没了。
    - 列出报错调用（err、err_at、Diag.error、Diag.message 后面紧跟的格式串）里没有英文的。 *)

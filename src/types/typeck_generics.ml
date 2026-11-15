@@ -282,8 +282,8 @@ let fcall_name (fns : (string, (mode * ty) list * ty) Hashtbl.t) t =
       n
   | _ -> assert false
 
-(* 改写函数体里写出的类型（let 标注、var 声明），方法调用换成解析出的函数名（检查过的才有）。
-   fresh：表达式换新的 id（复制出实例时用）；不是 fresh 时还换上记下的调用改写。 *)
+(* 改写函数体里写出的类型（let 标注、var 声明），方法调用换成解析出的函数名（检查过的才有：复制泛型函数的实例时）。
+   fresh：表达式换新的 id（复制出实例、特化、提升出的闭包时用）。 *)
 let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
   let rec ex (x : expr) =
     let e =
@@ -291,28 +291,18 @@ let map_body ~fresh (ft : pos -> ty -> ty) (b : block) : block =
       | (Int _ | Float _ | Char _ | Bool _ | Unit | Str _ | Var _) as d -> d
       | Binop (o, a, b) -> Binop (o, ex a, ex b)
       | Unop (o, a) -> Unop (o, ex a)
-      | Call (f, args) -> (
-          match if fresh then None else Hashtbl.find_opt rewrites x.id with
-          | Some (g, args) -> Call (g, List.map ex args)
-          | None -> Call (callee x f, List.map ex args))
+      | Call (f, args) -> Call (callee x f, List.map ex args)
       | StructLit (n, fs) -> StructLit (n, List.map (fun (f, e) -> (f, ex e)) fs)
       | Field (a, f) -> Field (ex a, f)
       | Deref a -> Deref (ex a)
       | Try a -> Try (ex a)
       | Variant (v, a) -> Variant (v, Option.map ex a)
       | Match (bw, s, arms) -> Match (bw, ex s, List.map (fun (v, y, e) -> (v, y, ex e)) arms)
-      | PMatch (bw, s, arms) -> (
-          match if fresh then None else Hashtbl.find_opt pdesugar x.id with
-          | Some d -> (ex d).e
-          | None -> PMatch (bw, ex s, List.map (fun (q, e) -> (q, ex e)) arms))
+      | PMatch (bw, s, arms) -> PMatch (bw, ex s, List.map (fun (q, e) -> (q, ex e)) arms)
       | Arena (r, b) -> Arena (r, blk b)
       | If (c, a, b) -> If (ex c, blk a, Option.map blk b)
       | Block b -> Block (blk b)
-      | Lambda (ps, a) -> (
-          (* 需要 Fn(…) 的地方的闭包：换成 Fn#…(捕获…) *)
-          match if fresh then None else Hashtbl.find_opt rewrites x.id with
-          | Some (g, args) -> Call (g, List.map ex args)
-          | None -> Lambda (ps, ex a))
+      | Lambda (ps, a) -> Lambda (ps, ex a)
     in
     { x with e; id = (if fresh then fresh_id () else x.id) }
   and st (s : stmt) =

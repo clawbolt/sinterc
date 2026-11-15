@@ -13,7 +13,7 @@
 (cram
  (applies_to editor_syntax)
  (deps
-  %{project_root}/src/lexer.mll
+  %{project_root}/src/syntax/lexer.mll
   %{project_root}/editor/vscode/package.json
   %{project_root}/editor/vscode/syntaxes/sinter.tmLanguage.json
   %{project_root}/editor/vim/syntax/sinter.vim))
@@ -24,7 +24,7 @@
  (applies_to runtime)
  (deps %{project_root}/runtime/sinter.h %{project_root}/runtime/sinter_lib.h))
 
-; 英文的信息表和代码里的报错对得上（见 src/messages.ml）
+; 英文的信息表和代码里的报错对得上（见 src/base/messages.ml）
 
 (executable
  (name check_messages)
@@ -34,6 +34,6 @@
  (applies_to messages)
  (deps
   check_messages.exe
-  (glob_files %{project_root}/src/*.ml)
-  (glob_files %{project_root}/src/*.mll)
-  (glob_files %{project_root}/src/*.mly)))
+  (glob_files_rec %{project_root}/src/**.ml)
+  (glob_files_rec %{project_root}/src/**.mll)
+  (glob_files_rec %{project_root}/src/**.mly)))
